@@ -6,6 +6,7 @@
 
 ### PCB
 <img width="1168" height="1157" alt="image" src="https://github.com/user-attachments/assets/218edc4b-d338-40d8-9cc4-44916b931d2c" />
+
 #### 가변저항
 DELAY_REF_V: RC 지연을 조정하기 위한 가변저항
 
