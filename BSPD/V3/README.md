@@ -2,7 +2,7 @@
 순천향대학교 무한질주 MF-26을 위한 BSPD(제동시스템 타당성 장치) 프로젝트입니다.
 
 ### schematic
-<img width="1758" height="891" alt="image" src="https://github.com/user-attachments/assets/420aa295-1561-4fb7-b181-3c0f310959cd" />
+
 
 ### PCB
 <img width="1168" height="1157" alt="image" src="https://github.com/user-attachments/assets/218edc4b-d338-40d8-9cc4-44916b931d2c" />
