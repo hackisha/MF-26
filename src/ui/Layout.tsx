@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { DiagnosticsView } from "./DiagnosticsView";
 import { SummaryView } from "./SummaryView";
-import { Tabs, type TabId } from "./Tabs";
+import { Tabs, tabButtonId, tabPanelId, type TabId } from "./Tabs";
 
 const placeholders: Record<Exclude<TabId, "summary" | "diagnostics">, string> = {
   "time-series": "Time-series view is next.",
@@ -17,7 +17,12 @@ export function Layout() {
   return (
     <>
       <Tabs activeTab={activeTab} onChange={setActiveTab} />
-      <section className="content-area">
+      <section
+        className="content-area"
+        role="tabpanel"
+        id={tabPanelId(activeTab)}
+        aria-labelledby={tabButtonId(activeTab)}
+      >
         {activeTab === "summary" && <SummaryView />}
         {activeTab === "diagnostics" && <DiagnosticsView />}
         {activeTab !== "summary" && activeTab !== "diagnostics" && (

@@ -47,13 +47,20 @@ select {
   font-size: 22px;
 }
 
+.topbar-title {
+  min-width: 0;
+  flex: 1 1 320px;
+}
+
 .topbar p {
   margin: 4px 0 0;
   color: #51606a;
+  overflow-wrap: anywhere;
 }
 
 .topbar-actions {
   display: flex;
+  flex: 0 1 auto;
   flex-wrap: wrap;
   align-items: end;
   gap: 12px;
@@ -118,6 +125,10 @@ select {
 
 .content-area {
   padding: 18px;
+}
+
+.content-area > .empty-state {
+  margin: 0;
 }
 
 .view-grid {
@@ -201,6 +212,13 @@ select {
   overflow-x: auto;
 }
 
+.diagnostics-table-scroll {
+  max-height: min(62vh, 620px);
+  overflow: auto;
+  border: 1px solid #d8e0e5;
+  border-radius: 8px;
+}
+
 .data-table {
   width: 100%;
   min-width: 720px;
@@ -213,9 +231,14 @@ select {
   padding: 8px;
   text-align: left;
   vertical-align: top;
+  overflow-wrap: anywhere;
 }
 
 .data-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #ffffff;
   color: #60707a;
   font-size: 12px;
   font-weight: 700;
@@ -243,6 +266,10 @@ select {
 
 .event-list li > span:nth-child(2) {
   overflow-wrap: anywhere;
+}
+
+.event-overflow-note {
+  margin: 12px 0 0;
 }
 
 @media (max-width: 900px) {

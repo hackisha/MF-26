@@ -9,7 +9,7 @@ export function DiagnosticsView() {
     <section className="panel">
       <h2>Log Diagnostics</h2>
       <p className="muted">{session.diagnostics.length.toLocaleString()} findings</p>
-      <div className="table-scroll">
+      <div className="table-scroll diagnostics-table-scroll">
         <table className="data-table">
           <thead>
             <tr>

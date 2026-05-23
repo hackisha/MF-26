@@ -16,7 +16,7 @@ export default function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div>
+        <div className="topbar-title">
           <h1>MF Log Analyzer</h1>
           <p>
             {session
