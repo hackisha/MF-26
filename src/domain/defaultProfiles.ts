@@ -25,7 +25,9 @@ const channel = (
 const baseChannels: Record<string, SensorChannel> = {
   Timestamp: channel("Timestamp", "Timestamp", ["Timestamp", "Time", "Time_s"], "s", "Diagnostics", "#64748b"),
   GPS_Speed_KPH: channel("GPS_Speed_KPH", "GPS Speed", ["GPS_Speed_KPH", "GPSSpeed_KPH"], "km/h", "GPS", "#2563eb"),
-  VSS_KPH: channel("VSS_KPH", "Vehicle Speed", ["VSS_KPH", "VSS", "Speed_KPH"], "km/h", "GPS", "#0f766e"),
+  VSS_kmh: channel("VSS_kmh", "Vehicle Speed", ["VSS_kmh"], "km/h", "GPS", "#0f766e"),
+  Latitude: channel("Latitude", "Latitude", ["Latitude"], "deg", "GPS", "#0284c7", false),
+  Longitude: channel("Longitude", "Longitude", ["Longitude"], "deg", "GPS", "#0369a1", false),
   Satellites: channel("Satellites", "Satellites", ["Satellites", "GPS_Satellites"], "count", "GPS", "#0891b2", false),
   RPM: channel("RPM", "Engine RPM", ["RPM", "EngineSpeed_RPM"], "rpm", "Engine", "#dc2626", true, { min: 0, max: 12000 }),
   TPS_percent: channel("TPS_percent", "Throttle Position", ["TPS_percent", "TPS", "TPS_%"], "%", "DriverInput", "#ea580c"),
