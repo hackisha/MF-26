@@ -12,9 +12,12 @@ type CsvOpenResult = {
   text: string;
 };
 
+type SourceCsv = CsvOpenResult;
+
 export type SessionSnapshot = {
   profiles: VehicleProfile[];
   selectedProfileId: string;
+  sourceCsv: SourceCsv | null;
   session: AnalysisSession | null;
   currentTimeSec: number | null;
   selectedEventId: string | null;
@@ -38,6 +41,7 @@ declare global {
 type SessionState = {
   profiles: VehicleProfile[];
   selectedProfileId: string;
+  sourceCsv: SourceCsv | null;
   session: AnalysisSession | null;
   currentTimeSec: number | null;
   selectedEventId: string | null;
@@ -81,34 +85,27 @@ function manualSegments(segments: Segment[]): Segment[] {
   return segments.filter((segment) => segment.source === "manual");
 }
 
-function createSession(filePath: string, text: string, profile: VehicleProfile): AnalysisSession {
-  const parsed = parseCsv(text);
-  const log = applyProfile(fileNameFromPath(filePath), parsed, profile);
+function createSession(sourceCsv: SourceCsv, profile: VehicleProfile, preservedManualSegments: Segment[] = []): AnalysisSession {
+  const parsed = parseCsv(sourceCsv.text);
+  const log = applyProfile(fileNameFromPath(sourceCsv.filePath), parsed, profile);
   const diagnostics = runDiagnostics(log, profile);
   const events = detectEvents(log, profile);
 
   return {
-    filePath,
+    filePath: sourceCsv.filePath,
     profileId: profile.id,
     log,
     diagnostics,
     events,
-    segments: segmentsFromEvents(events)
+    segments: [...segmentsFromEvents(events), ...preservedManualSegments]
   };
 }
 
-function withRecomputedProfile(session: AnalysisSession, profile: VehicleProfile): AnalysisSession {
-  const diagnostics = runDiagnostics(session.log, profile);
-  const events = detectEvents(session.log, profile);
-
-  return {
-    ...session,
-    profileId: profile.id,
-    diagnostics,
-    events,
-    segments: [...segmentsFromEvents(events), ...manualSegments(session.segments)]
-  };
+function sanitizeSelectedEventId(session: AnalysisSession | null, selectedEventId: string | null): string | null {
+  return session?.events.some((event) => event.id === selectedEventId) ? selectedEventId : null;
 }
+
+let snapshotPublishQueue: Promise<void> = Promise.resolve();
 
 export const useSessionStore = create<SessionState>((set, get) => {
   const initialProfile = defaultProfiles[0];
@@ -116,16 +113,22 @@ export const useSessionStore = create<SessionState>((set, get) => {
   return {
     profiles: defaultProfiles,
     selectedProfileId: initialProfile.id,
+    sourceCsv: null,
     session: null,
     currentTimeSec: null,
     selectedEventId: null,
     selectedOverlay: overlayForProfile(initialProfile),
     setSelectedProfileId: (profileId) => {
-      const { profiles, selectedOverlay } = get();
+      const { profiles, selectedOverlay, selectedEventId, session, sourceCsv } = get();
       const profile = profileById(profiles, profileId);
+      const nextSession = sourceCsv ? createSession(sourceCsv, profile, manualSegments(session?.segments ?? [])) : session;
+      const nextCurrentTimeSec = nextSession ? firstTimestampSec(nextSession) : get().currentTimeSec;
 
       set({
         selectedProfileId: profile.id,
+        session: nextSession,
+        currentTimeSec: nextCurrentTimeSec,
+        selectedEventId: sanitizeSelectedEventId(nextSession, selectedEventId),
         selectedOverlay: overlayForProfile(profile, selectedOverlay?.id)
       });
       void publishSessionSnapshot();
@@ -136,9 +139,10 @@ export const useSessionStore = create<SessionState>((set, get) => {
 
       const { profiles, selectedProfileId } = get();
       const profile = profileById(profiles, selectedProfileId);
-      const session = createSession(result.filePath, result.text, profile);
+      const session = createSession(result, profile);
 
       set({
+        sourceCsv: result,
         session,
         currentTimeSec: firstTimestampSec(session),
         selectedEventId: null,
@@ -174,21 +178,21 @@ export const useSessionStore = create<SessionState>((set, get) => {
       void publishSessionSnapshot();
     },
     updateProfile: (profile) => {
-      const { profiles, selectedProfileId, selectedOverlay, selectedEventId, session } = get();
+      const { profiles, selectedProfileId, selectedOverlay, selectedEventId, session, sourceCsv } = get();
       const hasExistingProfile = profiles.some((currentProfile) => currentProfile.id === profile.id);
       const nextProfiles = hasExistingProfile
         ? profiles.map((currentProfile) => (currentProfile.id === profile.id ? profile : currentProfile))
         : [...profiles, profile];
       const nextSelectedProfileId = selectedProfileId === profile.id ? profile.id : selectedProfileId;
       const selectedProfile = profileById(nextProfiles, nextSelectedProfileId);
-      const nextSession = session?.profileId === profile.id ? withRecomputedProfile(session, profile) : session;
-      const nextSelectedEventId = nextSession?.events.some((event) => event.id === selectedEventId) ? selectedEventId : null;
+      const shouldRebuildSession = session?.profileId === profile.id && sourceCsv;
+      const nextSession = shouldRebuildSession ? createSession(sourceCsv, profile, manualSegments(session.segments)) : session;
 
       set({
         profiles: nextProfiles,
         selectedProfileId: nextSelectedProfileId,
         session: nextSession,
-        selectedEventId: nextSelectedEventId,
+        selectedEventId: sanitizeSelectedEventId(nextSession, selectedEventId),
         selectedOverlay: overlayForProfile(selectedProfile, selectedOverlay?.id)
       });
       void publishSessionSnapshot();
@@ -202,6 +206,7 @@ export function createSessionSnapshot(): SessionSnapshot {
   return {
     profiles: state.profiles,
     selectedProfileId: state.selectedProfileId,
+    sourceCsv: state.sourceCsv,
     session: state.session,
     currentTimeSec: state.currentTimeSec,
     selectedEventId: state.selectedEventId,
@@ -210,7 +215,13 @@ export function createSessionSnapshot(): SessionSnapshot {
 }
 
 export async function publishSessionSnapshot(): Promise<void> {
-  await window.mfLogAnalyzer?.setSessionSnapshot?.(createSessionSnapshot());
+  const setSessionSnapshot = window.mfLogAnalyzer?.setSessionSnapshot;
+  if (!setSessionSnapshot) return;
+
+  const snapshot = createSessionSnapshot();
+  const publish = snapshotPublishQueue.then(() => setSessionSnapshot(snapshot));
+  snapshotPublishQueue = publish.catch(() => undefined);
+  await publish;
 }
 
 export async function hydrateSessionSnapshot(): Promise<void> {
@@ -218,13 +229,15 @@ export async function hydrateSessionSnapshot(): Promise<void> {
   if (!snapshot) return;
 
   const selectedProfile = profileById(snapshot.profiles, snapshot.selectedProfileId);
+  const selectedEventId = sanitizeSelectedEventId(snapshot.session, snapshot.selectedEventId);
 
   useSessionStore.setState({
     profiles: snapshot.profiles,
     selectedProfileId: selectedProfile.id,
+    sourceCsv: snapshot.sourceCsv,
     session: snapshot.session,
     currentTimeSec: snapshot.currentTimeSec,
-    selectedEventId: snapshot.selectedEventId,
+    selectedEventId,
     selectedOverlay: overlayForProfile(selectedProfile, snapshot.selectedOverlayId)
   });
 }
