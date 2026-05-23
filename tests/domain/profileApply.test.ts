@@ -213,6 +213,13 @@ describe("defaultProfiles", () => {
 });
 
 describe("applyProfile", () => {
+  it("preserves CSV headers and raw row strings", () => {
+    const parsed = parseCsv("Timestamp,RPM\n0.10,00123\n");
+
+    expect(parsed.headers).toEqual(["Timestamp", "RPM"]);
+    expect(parsed.rows).toEqual([{ Timestamp: "0.10", RPM: "00123" }]);
+  });
+
   it("creates numeric rows and corrected ADXL345 channels", () => {
     const csv = fs.readFileSync(path.join(process.cwd(), "tests/fixtures/2025-sample.csv"), "utf8");
     const parsed = parseCsv(csv);
@@ -224,5 +231,28 @@ describe("applyProfile", () => {
     expect(applied.rows[1].values.ax_corrected_g).toBeCloseTo(0.2);
     expect(applied.rows[1].values.ay_corrected_g).toBeCloseTo(0.3);
     expect(applied.rows[1].values.az_corrected_g).toBeCloseTo(1.01);
+  });
+
+  it("uses timestamp source aliases for row timestamps", () => {
+    const parsed = parseCsv("Time_s,RPM\n12.50,3000\n");
+    const applied = applyProfile("time-sample.csv", parsed, defaultProfiles[0]);
+
+    expect(applied.rows[0].timestampSec).toBe(12.5);
+    expect(applied.rows[0].values.Timestamp).toBe(12.5);
+  });
+
+  it("falls back to later source aliases when earlier aliases are blank or non-numeric", () => {
+    const parsed = parseCsv("RPM,EngineSpeed_RPM\nnot-a-number,6400\n,7100\n");
+    const applied = applyProfile("rpm-aliases.csv", parsed, defaultProfiles[0]);
+
+    expect(applied.rows[0].values.RPM).toBe(6400);
+    expect(applied.rows[1].values.RPM).toBe(7100);
+  });
+
+  it("sets a channel value to null when every source alias is blank or non-numeric", () => {
+    const parsed = parseCsv("RPM,EngineSpeed_RPM\nnot-a-number,\n");
+    const applied = applyProfile("bad-rpm.csv", parsed, defaultProfiles[0]);
+
+    expect(applied.rows[0].values.RPM).toBeNull();
   });
 });

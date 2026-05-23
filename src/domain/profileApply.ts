@@ -22,8 +22,12 @@ function readSourceValue(row: Record<string, string>, sourceColumns: string[]): 
   return null;
 }
 
-function readTimestamp(row: Record<string, string>, index: number): number {
-  const timestamp = parseNumber(row.Timestamp);
+function readTimestamp(row: Record<string, string>, index: number, profile: VehicleProfile): number {
+  const timestampChannel = profile.channels.Timestamp;
+  if (!timestampChannel) return index;
+
+  const sourceValue = readSourceValue(row, timestampChannel.sourceColumns);
+  const timestamp = applyCalibration(sourceValue, timestampChannel.calibration);
   return timestamp ?? index;
 }
 
@@ -38,7 +42,7 @@ export function applyProfile(fileName: string, parsed: ParsedCsv, profile: Vehic
 
     return {
       index,
-      timestampSec: readTimestamp(row, index),
+      timestampSec: readTimestamp(row, index, profile),
       values
     };
   });
