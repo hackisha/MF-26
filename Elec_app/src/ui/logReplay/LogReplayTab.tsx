@@ -15,10 +15,9 @@ import {
 import { CsvLogUploader } from "./CsvLogUploader";
 import { EventStrip } from "./EventStrip";
 import { GGDiagram } from "./GGDiagram";
-import { GpsTrackPanel } from "./GpsTrackPanel";
+import { LOG_ANALYSIS_MODES, LogAnalysisModeRail } from "./LogAnalysisModeRail";
 import { LogAnalysisOverview } from "./LogAnalysisOverview";
 import { LogDashboard } from "./LogDashboard";
-import { LogReplayInnerTabs } from "./LogReplayInnerTabs";
 import { LogSensorsTable } from "./LogSensorsTable";
 import { LogSettingsPanel } from "./LogSettingsPanel";
 import { PlaybackControls } from "./PlaybackControls";
@@ -53,8 +52,8 @@ function validKeys(keys: readonly string[], session: LogSession): string[] {
 }
 
 function normalizeActiveTab(tab: string): LogReplayInnerTab {
-  if (tab === "dashboard" || tab === "overlay" || tab === "gg") return "overview";
-  if (tab === "overview" || tab === "gps" || tab === "motion" || tab === "powertrain" || tab === "events" || tab === "sensors" || tab === "settings") {
+  if (tab === "dashboard" || tab === "overlay" || tab === "gg" || tab === "gps") return "overview";
+  if (tab === "overview" || tab === "motion" || tab === "powertrain" || tab === "events" || tab === "sensors" || tab === "settings") {
     return tab;
   }
   return "overview";
@@ -62,6 +61,14 @@ function normalizeActiveTab(tab: string): LogReplayInnerTab {
 
 function preferredKeys(session: LogSession, keys: string[]): string[] {
   return keys.filter((key) => session.columns.includes(key)).slice(0, 4);
+}
+
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds.toFixed(1)}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.floor(totalSeconds - minutes * 60);
+  return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
 }
 
 export function LogReplayTab() {
@@ -197,48 +204,106 @@ export function LogReplayTab() {
     setOverlayKeys(keys);
   }
 
+  const activeMode = LOG_ANALYSIS_MODES.find((mode) => mode.id === activeTab) ?? LOG_ANALYSIS_MODES[0];
+
+  function renderActiveAnalysis() {
+    if (!session || !currentSample) return null;
+
+    if (activeTab === "motion") {
+      return (
+        <div className="analysis-mode-stack">
+          <GGDiagram session={session} currentSample={currentSample} accelConfig={settings.accel} />
+          <SensorOverlayChart
+            session={session}
+            selectedKeys={selectedMotionKeys}
+            currentTimeMs={playback.currentTimeMs}
+            onSelectedKeysChange={setMotionOverlayKeys}
+            onSeek={seek}
+          />
+        </div>
+      );
+    }
+
+    if (activeTab === "powertrain") {
+      return (
+        <div className="analysis-mode-stack">
+          <LogDashboard session={session} sample={currentSample} selectedKeys={cardKeys} events={events} currentTimeMs={playback.currentTimeMs} />
+          <SensorOverlayChart
+            session={session}
+            selectedKeys={selectedPowertrainKeys}
+            currentTimeMs={playback.currentTimeMs}
+            onSelectedKeysChange={updatePowertrainOverlayKeys}
+            onSeek={seek}
+          />
+        </div>
+      );
+    }
+
+    if (activeTab === "events") {
+      return <EventStrip session={session} events={events} currentTimeMs={playback.currentTimeMs} onSeek={seek} />;
+    }
+
+    if (activeTab === "sensors") {
+      return (
+        <div className="analysis-mode-stack">
+          <SensorCardGrid session={session} sample={currentSample} selectedKeys={cardKeys} onToggleKey={toggleCardKey} />
+          <LogSensorsTable session={session} sample={currentSample} />
+        </div>
+      );
+    }
+
+    if (activeTab === "settings") {
+      return <LogSettingsPanel settings={settings} onSettingsChange={setSettings} />;
+    }
+
+    return <LogAnalysisOverview session={session} currentSample={currentSample} settings={settings} currentTimeMs={playback.currentTimeMs} onSeek={seek} />;
+  }
+
   return (
     <div className="log-replay log-replay--analysis">
       {session && currentSample ? (
         <div className="log-replay-workspace">
-          <PlaybackControls session={session} playback={playback} events={events} onPlaybackChange={setPlayback} onSeek={seek} />
-          <LogReplayInnerTabs activeTab={activeTab} onTabChange={setActiveTab} />
-          {activeTab === "overview" ? (
-            <LogAnalysisOverview session={session} currentSample={currentSample} settings={settings} currentTimeMs={playback.currentTimeMs} onSeek={seek} />
-          ) : null}
-          {activeTab === "gps" ? <GpsTrackPanel session={session} currentSample={currentSample} gpsConfig={settings.gps} /> : null}
-          {activeTab === "motion" ? (
-            <>
-              <GGDiagram session={session} currentSample={currentSample} accelConfig={settings.accel} />
-              <SensorOverlayChart
-                session={session}
-                selectedKeys={selectedMotionKeys}
-                currentTimeMs={playback.currentTimeMs}
-                onSelectedKeysChange={setMotionOverlayKeys}
-                onSeek={seek}
-              />
-            </>
-          ) : null}
-          {activeTab === "powertrain" ? (
-            <>
-              <LogDashboard session={session} sample={currentSample} selectedKeys={cardKeys} events={events} currentTimeMs={playback.currentTimeMs} />
-              <SensorOverlayChart
-                session={session}
-                selectedKeys={selectedPowertrainKeys}
-                currentTimeMs={playback.currentTimeMs}
-                onSelectedKeysChange={updatePowertrainOverlayKeys}
-                onSeek={seek}
-              />
-            </>
-          ) : null}
-          {activeTab === "events" ? <EventStrip session={session} events={events} currentTimeMs={playback.currentTimeMs} onSeek={seek} /> : null}
-          {activeTab === "sensors" ? (
-            <>
-              <SensorCardGrid session={session} sample={currentSample} selectedKeys={cardKeys} onToggleKey={toggleCardKey} />
-              <LogSensorsTable session={session} sample={currentSample} />
-            </>
-          ) : null}
-          {activeTab === "settings" ? <LogSettingsPanel settings={settings} onSettingsChange={setSettings} /> : null}
+          <section className="analysis-session-bar" aria-label="로그 세션 요약">
+            <div>
+              <span>파일</span>
+              <strong>{session.fileName}</strong>
+            </div>
+            <div>
+              <span>샘플</span>
+              <strong>{session.summary.rowCount.toLocaleString()} rows</strong>
+            </div>
+            <div>
+              <span>길이</span>
+              <strong>{formatDuration(session.summary.durationMs)}</strong>
+            </div>
+            <div>
+              <span>현재</span>
+              <strong>{formatDuration(playback.currentTimeMs)}</strong>
+            </div>
+            <div>
+              <span>이벤트</span>
+              <strong>{events.length.toLocaleString()}개</strong>
+            </div>
+          </section>
+
+          <div className="log-analysis-board" data-testid="log-analysis-board">
+            <LogAnalysisModeRail activeMode={activeTab} onModeChange={setActiveTab} />
+            <section className="analysis-board-main" aria-label={`${activeMode.label} 분석`} data-testid={`analysis-mode-${activeMode.id}`}>
+              <div className="analysis-board-main__head">
+                <div>
+                  <span>{activeMode.description}</span>
+                  <h2>{activeMode.label}</h2>
+                </div>
+                <p>{session.summary.startLabel || "start"} - {session.summary.endLabel || "end"}</p>
+              </div>
+              {renderActiveAnalysis()}
+            </section>
+          </div>
+
+          <section className="analysis-replay-dock" data-testid="analysis-replay-dock" aria-label="로그 재생 및 업로드">
+            <PlaybackControls session={session} playback={playback} events={events} onPlaybackChange={setPlayback} onSeek={seek} />
+            <CsvLogUploader session={session} error={error} onFileText={handleFileText} onClear={clearSavedReplay} />
+          </section>
         </div>
       ) : (
         <section className="empty-state log-empty-state">
@@ -246,7 +311,7 @@ export function LogReplayTab() {
           <p>아래 업로드 영역에서 EMU-LOGGER CSV를 넣으면 전체 분석 화면이 먼저 열립니다.</p>
         </section>
       )}
-      <CsvLogUploader session={session} error={error} onFileText={handleFileText} onClear={clearSavedReplay} />
+      {session ? null : <CsvLogUploader session={session} error={error} onFileText={handleFileText} onClear={clearSavedReplay} />}
     </div>
   );
 }

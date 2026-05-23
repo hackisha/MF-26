@@ -35,7 +35,7 @@ describe("LogReplayTab", () => {
     render(<LogReplayTab />);
 
     expect(await screen.findByText("파일: saved.csv")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "전체 분석" })).toHaveClass("active");
+    expect(screen.getByRole("button", { name: "한눈에 보기 전체 주행 상황" })).toHaveClass("active");
     expect(screen.getByRole("heading", { name: "GPS 궤적" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "RPM / VSS" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Roll rate" })).toBeInTheDocument();
@@ -44,5 +44,26 @@ describe("LogReplayTab", () => {
     const uploader = screen.getByTestId("log-uploader");
     const position = overview.compareDocumentPosition(uploader);
     expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  test("presents log analysis as a mode-based analysis board with a bottom replay dock", async () => {
+    await saveStoredLogReplayState({
+      csv: { fileName: "saved.csv", text: csvText },
+      settings: createDefaultLogReplaySettings(),
+      ui: { activeTab: "overview", overlayKeys: ["RPM"], cardKeys: ["RPM"] },
+    });
+
+    render(<LogReplayTab />);
+
+    expect(await screen.findByText("분석 보드")).toBeInTheDocument();
+    expect(screen.getByTestId("analysis-mode-rail")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "한눈에 보기 전체 주행 상황" })).toHaveClass("active");
+    expect(screen.getByRole("button", { name: "차량 거동 G-G / 가속도 / ADU" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "파워트레인 RPM / 속도 / 전장" })).toBeInTheDocument();
+    expect(screen.getByTestId("analysis-replay-dock")).toBeInTheDocument();
+
+    const board = screen.getByTestId("log-analysis-board");
+    const dock = screen.getByTestId("analysis-replay-dock");
+    expect(board.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

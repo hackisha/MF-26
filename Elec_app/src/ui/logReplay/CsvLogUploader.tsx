@@ -17,6 +17,7 @@ export function CsvLogUploader({ session, error, onFileText, onClear }: CsvLogUp
     : [];
 
   async function handleChange(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -26,7 +27,7 @@ export function CsvLogUploader({ session, error, onFileText, onClear }: CsvLogUp
     }
 
     onFileText(file.name, await file.text());
-    event.currentTarget.value = "";
+    input.value = "";
   }
 
   return (

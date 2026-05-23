@@ -264,7 +264,9 @@ export default function App() {
           </div>
         </header>
 
-        {activeWorkspace === "logReplay" ? <LogReplayTab /> : null}
+        <section className="workspace-view" hidden={activeWorkspace !== "logReplay"} aria-hidden={activeWorkspace !== "logReplay"}>
+          <LogReplayTab />
+        </section>
 
         {activeWorkspace === "wiring" ? (
           <>
