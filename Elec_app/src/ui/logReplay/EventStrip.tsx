@@ -13,7 +13,7 @@ export function EventStrip({ session, events, currentTimeMs, onSeek }: EventStri
   return (
     <section className="panel event-strip-panel">
       <div className="section-heading">
-        <h3>이벤트 / 이상값</h3>
+        <h3>이벤트/이상 감지</h3>
         <span>{events.length}개</span>
       </div>
       <div className="event-strip">

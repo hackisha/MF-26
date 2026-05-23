@@ -1,3 +1,4 @@
+import type { ChangeEvent } from "react";
 import { DEFAULT_CARD_KEYS } from "../../domain/logReplayColumns";
 import type { LogSession } from "../../domain/logReplayTypes";
 
@@ -16,7 +17,7 @@ export function CsvLogUploader({ session, error, onFileText }: CsvLogUploaderPro
     ? session.sensors.filter((sensor) => sensor.key !== "Timestamp" && (sensor.type === "number" || sensor.type === "state"))
     : [];
 
-  async function handleChange(event: React.ChangeEvent<HTMLInputElement>) {
+  async function handleChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -30,20 +31,22 @@ export function CsvLogUploader({ session, error, onFileText }: CsvLogUploaderPro
 
   return (
     <section className="panel log-uploader">
-      <div>
-        <h2>EMU 로그 재생</h2>
-        <p>EMU-LOGGER CSV를 업로드해서 차량 상태를 시간축에 맞춰 재생합니다.</p>
+      <div className="log-uploader__intro">
+        <div>
+          <h2>EMU 로그 재생</h2>
+          <p>EMU-LOGGER CSV를 업로드하면 기록된 차량 상태를 시간축에 맞춰 재생합니다.</p>
+        </div>
+        <label className="file-picker">
+          <input aria-label="CSV 로그 파일" type="file" accept=".csv,text/csv" onChange={handleChange} />
+          CSV 업로드
+        </label>
       </div>
-      <label className="file-picker">
-        <input type="file" accept=".csv,text/csv" onChange={handleChange} />
-        CSV 업로드
-      </label>
       {error ? <p className="error-text">{error}</p> : null}
       {session ? (
         <>
           <div className="log-summary-grid">
             <span>파일: {session.fileName}</span>
-            <span>행: {session.summary.rowCount.toLocaleString()}</span>
+            <span>행 수: {session.summary.rowCount.toLocaleString()}</span>
             <span>길이: {(session.summary.durationMs / 1000).toFixed(1)}s</span>
             <span>추정 주기: {session.summary.estimatedSampleRateHz?.toFixed(1) ?? "-"}Hz</span>
             <span>시작: {session.summary.startLabel || "-"}</span>

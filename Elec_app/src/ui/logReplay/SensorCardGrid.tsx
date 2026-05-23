@@ -13,7 +13,7 @@ export function SensorCardGrid({ session, sample, selectedKeys, onToggleKey }: S
   return (
     <section className="panel sensor-card-section">
       <div className="section-heading">
-        <h3>주요 센서 카드</h3>
+        <h3>주요 센서</h3>
         <span>{selectedKeys.length}개 선택</span>
       </div>
       <div className="sensor-picker-row">

@@ -10,7 +10,7 @@ interface SensorOverlayChartProps {
   onSeek: (timeMs: number) => void;
 }
 
-const COLORS = ["#22c55e", "#38bdf8", "#facc15", "#f97316"];
+const COLORS = ["#4cc9f0", "#ffc300", "#f72585", "#22c55e"];
 const MAX_RENDER_POINTS = 900;
 
 function downsampleIndexes(length: number): number[] {
@@ -51,7 +51,7 @@ export function SensorOverlayChart({
   return (
     <section className="panel overlay-panel">
       <div className="section-heading">
-        <h3>센서 오버레이</h3>
+        <h3>센서 오버랩</h3>
         <span>최대 4개</span>
       </div>
       <div className="sensor-picker-row">
@@ -80,7 +80,7 @@ export function SensorOverlayChart({
           onSeek(((event.clientX - bounds.left) / bounds.width) * duration);
         }}
       >
-        <svg viewBox="0 0 800 240" preserveAspectRatio="none" aria-label="선택 센서 오버레이 그래프">
+        <svg viewBox="0 0 800 240" preserveAspectRatio="none" aria-label="선택 센서 오버랩 그래프">
           {[0, 1, 2, 3].map((line) => (
             <line key={line} x1="0" x2="800" y1={30 + line * 55} y2={30 + line * 55} className="chart-grid" />
           ))}

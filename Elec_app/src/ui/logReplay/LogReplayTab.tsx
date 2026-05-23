@@ -71,20 +71,26 @@ export function LogReplayTab() {
       <CsvLogUploader session={session} error={error} onFileText={handleFileText} />
       {session && currentSample ? (
         <div className="log-replay-workspace">
-          <SensorCardGrid session={session} sample={currentSample} selectedKeys={cardKeys} onToggleKey={toggleCardKey} />
           <PlaybackControls session={session} playback={playback} events={events} onPlaybackChange={setPlayback} onSeek={seek} />
-          <SensorOverlayChart
-            session={session}
-            selectedKeys={overlayKeys}
-            currentTimeMs={playback.currentTimeMs}
-            onSelectedKeysChange={setOverlayKeys}
-            onSeek={seek}
-          />
-          <div className="log-visual-grid">
-            <GpsTrackPanel session={session} currentSample={currentSample} />
-            <GGDiagram session={session} currentSample={currentSample} />
+          <div className="log-replay-layout">
+            <div className="log-replay-layout__main">
+              <SensorOverlayChart
+                session={session}
+                selectedKeys={overlayKeys}
+                currentTimeMs={playback.currentTimeMs}
+                onSelectedKeysChange={setOverlayKeys}
+                onSeek={seek}
+              />
+              <div className="log-visual-grid">
+                <GpsTrackPanel session={session} currentSample={currentSample} />
+                <GGDiagram session={session} currentSample={currentSample} />
+              </div>
+            </div>
+            <aside className="log-replay-layout__rail">
+              <SensorCardGrid session={session} sample={currentSample} selectedKeys={cardKeys} onToggleKey={toggleCardKey} />
+              <EventStrip session={session} events={events} currentTimeMs={playback.currentTimeMs} onSeek={seek} />
+            </aside>
           </div>
-          <EventStrip session={session} events={events} currentTimeMs={playback.currentTimeMs} onSeek={seek} />
         </div>
       ) : null}
     </div>

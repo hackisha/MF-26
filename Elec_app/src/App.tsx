@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { BookOpen, Cable, FileImage, Gauge, Settings, UploadCloud } from "lucide-react";
 import { buildConnectivityGraph } from "./domain/connectivity";
 import { parseEasyEdaSchematic } from "./domain/easyedaParser";
 import { matchUpdatedComponents, type UpdateMatchResult } from "./domain/updateMatcher";
@@ -15,6 +16,20 @@ import { SearchDebugger } from "./ui/SearchDebugger";
 import { LogReplayTab } from "./ui/logReplay/LogReplayTab";
 import { UpdateSummary } from "./ui/UpdateSummary";
 import { hashText } from "./utils/fileHash";
+
+type Workspace = "logReplay" | "wiring" | "references" | "settings";
+
+const workspaceItems: Array<{
+  id: Workspace;
+  label: string;
+  description: string;
+  icon: typeof Gauge;
+}> = [
+  { id: "logReplay", label: "로그 재생", description: "CSV 리플레이", icon: Gauge },
+  { id: "wiring", label: "배선 디버거", description: "핀/커넥터 추적", icon: Cable },
+  { id: "references", label: "자료 보관함", description: "배선도/규정/데이터시트", icon: BookOpen },
+  { id: "settings", label: "프로젝트", description: "업로드/내보내기", icon: Settings },
+];
 
 function createProject(parsed: ParsedSchematic): ElecProject {
   const now = new Date().toISOString();
@@ -34,7 +49,7 @@ function createProject(parsed: ParsedSchematic): ElecProject {
 }
 
 export default function App() {
-  const [activeWorkspace, setActiveWorkspace] = useState<"logReplay" | "wiring">("logReplay");
+  const [activeWorkspace, setActiveWorkspace] = useState<Workspace>("logReplay");
   const [parsed, setParsed] = useState<ParsedSchematic | null>(null);
   const [project, setProject] = useState<ElecProject | null>(() => loadProject());
   const [error, setError] = useState<string | null>(null);
@@ -99,7 +114,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "elec-app-project.json";
+    link.download = "muzil-tools-project.json";
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -190,65 +205,125 @@ export default function App() {
   }
 
   const firstPinId = project?.components.find((component) => component.pins.length > 0)?.pins[0].id ?? "project";
+  const activeItem = workspaceItems.find((item) => item.id === activeWorkspace) ?? workspaceItems[0];
+  const ActiveIcon = activeItem.icon;
 
   return (
     <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <h1>Elec App</h1>
-          <p>MF-26 engine/elec wiring debugger</p>
+      <aside className="app-sidebar">
+        <div className="app-brand">
+          <span>MF-26</span>
+          <strong>Muzil Tools</strong>
         </div>
-      </header>
-      <nav className="workspace-tabs" aria-label="작업 탭">
-        <button
-          type="button"
-          className={activeWorkspace === "logReplay" ? "active" : ""}
-          onClick={() => setActiveWorkspace("logReplay")}
-        >
-          로그 재생
-        </button>
-        <button
-          type="button"
-          className={activeWorkspace === "wiring" ? "active" : ""}
-          onClick={() => setActiveWorkspace("wiring")}
-        >
-          배선 디버거
-        </button>
-      </nav>
-      {activeWorkspace === "logReplay" ? (
-        <LogReplayTab />
-      ) : (
-        <>
-          <ProjectHome
-            currentFileName={parsed?.source.fileName ?? project?.source?.fileName ?? null}
-            onJsonFile={(file) => void handleJsonFile(file)}
-            onProjectFile={(file) => void handleProjectFile(file)}
-            onExport={handleExport}
-          />
-          <ImportAnalysis parsed={parsed} error={error} />
-          <UpdateSummary result={updateResult} />
-          {project ? (
-            <>
-              <ClassificationQueue components={project.components} onConfirm={confirmClassification} />
-              <SearchDebugger components={project.components} graph={project.graph} />
-              <ConnectorPinout components={project.components} notes={project.notes} measurements={project.measurements} />
-              <ComponentInfoPanel
-                component={project.components[0] ?? null}
-                notes={project.notes}
-                measurements={project.measurements}
-                attachments={project.attachments}
-              />
-              <NotesMeasurements targetId={firstPinId} onAddNote={addNote} onAddMeasurement={addMeasurement} />
-              <ReferenceTabs attachments={project.attachments} onAddLink={addReferenceLink} onAddFile={addReferenceFile} />
-            </>
+        <nav className="workspace-rail" aria-label="작업 공간">
+          {workspaceItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={activeWorkspace === item.id ? "active" : ""}
+                onClick={() => setActiveWorkspace(item.id)}
+              >
+                <Icon size={18} aria-hidden="true" />
+                <span>
+                  <strong>{item.label}</strong>
+                  <small>{item.description}</small>
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+        <div className="sidebar-status">
+          <span>회로도</span>
+          <strong>{project?.source?.fileName ?? "미업로드"}</strong>
+        </div>
+      </aside>
+
+      <section className="app-main">
+        <header className="workspace-header">
+          <div>
+            <span>
+              <ActiveIcon size={17} aria-hidden="true" />
+              {activeItem.label}
+            </span>
+            <h1>{activeWorkspace === "logReplay" ? "EMU 로그 재생" : activeItem.label}</h1>
+            <p>
+              {activeWorkspace === "logReplay"
+                ? "기록된 CSV를 재생하면서 센서, GPS, G-G, 이벤트를 같은 시간축에서 확인합니다."
+                : activeWorkspace === "wiring"
+                  ? "EasyEDA 회로도에서 ECU, 커넥터, 센서 핀의 연결 경로를 추적합니다."
+                  : activeWorkspace === "references"
+                    ? "배선도 이미지, 대회 규정, 데이터시트 링크를 프로젝트와 함께 보관합니다."
+                    : "회로도 JSON과 프로젝트 파일을 업로드하거나 내보냅니다."}
+            </p>
+          </div>
+          <div className="workspace-header__meta">
+            <span>{project ? `${project.components.length} components` : "No schematic"}</span>
+            <span>{project ? `${project.attachments.length} refs` : "0 refs"}</span>
+          </div>
+        </header>
+
+        {activeWorkspace === "logReplay" ? <LogReplayTab /> : null}
+
+        {activeWorkspace === "wiring" ? (
+          <>
+            <ProjectHome
+              currentFileName={parsed?.source.fileName ?? project?.source?.fileName ?? null}
+              onJsonFile={(file) => void handleJsonFile(file)}
+              onProjectFile={(file) => void handleProjectFile(file)}
+              onExport={handleExport}
+            />
+            <ImportAnalysis parsed={parsed} error={error} />
+            <UpdateSummary result={updateResult} />
+            {project ? (
+              <>
+                <SearchDebugger components={project.components} graph={project.graph} />
+                <ConnectorPinout components={project.components} notes={project.notes} measurements={project.measurements} />
+                <ComponentInfoPanel
+                  component={project.components[0] ?? null}
+                  notes={project.notes}
+                  measurements={project.measurements}
+                  attachments={project.attachments}
+                />
+                <NotesMeasurements targetId={firstPinId} onAddNote={addNote} onAddMeasurement={addMeasurement} />
+                <ClassificationQueue components={project.components} onConfirm={confirmClassification} />
+              </>
+            ) : (
+              <section className="empty-state workbench-empty">
+                <UploadCloud size={24} aria-hidden="true" />
+                <h2>회로도 프로젝트가 없습니다</h2>
+                <p>EasyEDA JSON 또는 Muzil Tools 프로젝트 파일을 업로드하면 배선 검색과 커넥터 추적을 시작할 수 있습니다.</p>
+              </section>
+            )}
+          </>
+        ) : null}
+
+        {activeWorkspace === "references" ? (
+          project ? (
+            <ReferenceTabs attachments={project.attachments} onAddLink={addReferenceLink} onAddFile={addReferenceFile} />
           ) : (
-            <section className="empty-state">
-              <h2>프로젝트 없음</h2>
-              <p>EasyEDA JSON 또는 Elec App 프로젝트 파일을 가져오세요.</p>
+            <section className="empty-state workbench-empty">
+              <FileImage size={24} aria-hidden="true" />
+              <h2>자료를 연결할 프로젝트가 없습니다</h2>
+              <p>먼저 프로젝트 탭에서 회로도 또는 프로젝트 파일을 불러오면 배선도, 규정, 데이터시트를 저장할 수 있습니다.</p>
             </section>
-          )}
-        </>
-      )}
+          )
+        ) : null}
+
+        {activeWorkspace === "settings" ? (
+          <>
+            <ProjectHome
+              currentFileName={parsed?.source.fileName ?? project?.source?.fileName ?? null}
+              onJsonFile={(file) => void handleJsonFile(file)}
+              onProjectFile={(file) => void handleProjectFile(file)}
+              onExport={handleExport}
+            />
+            <ImportAnalysis parsed={parsed} error={error} />
+            <UpdateSummary result={updateResult} />
+          </>
+        ) : null}
+      </section>
     </main>
   );
 }

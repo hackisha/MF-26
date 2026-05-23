@@ -1,3 +1,4 @@
+import { Pause, Play, RotateCcw, SkipBack, SkipForward } from "lucide-react";
 import type { LogEvent, LogSession, PlaybackState } from "../../domain/logReplayTypes";
 
 interface PlaybackControlsProps {
@@ -30,24 +31,35 @@ export function PlaybackControls({ session, playback, events, onPlaybackChange, 
 
   return (
     <section className="panel playback-panel">
+      <div className="playback-panel__header">
+        <div>
+          <h2>재생 컨트롤</h2>
+          <p>
+            {formatTime(playback.currentTimeMs)} / {formatTime(duration)}
+          </p>
+        </div>
+        <span>{playback.speed}x</span>
+      </div>
       <div className="playback-controls">
-        <button type="button" onClick={() => onSeek(0)}>
-          처음
+        <button type="button" aria-label="처음으로 이동" onClick={() => onSeek(0)}>
+          <RotateCcw size={17} />
         </button>
-        <button type="button" onClick={() => jumpToEvent(-1)}>
-          이전 이벤트
+        <button type="button" aria-label="이전 이벤트" onClick={() => jumpToEvent(-1)}>
+          <SkipBack size={17} />
         </button>
         <button
           type="button"
+          aria-label={playback.isPlaying ? "일시정지" : "재생"}
           disabled={duration <= 0}
           onClick={() => onPlaybackChange({ ...playback, isPlaying: !playback.isPlaying })}
         >
-          {playback.isPlaying ? "일시정지" : "재생"}
+          {playback.isPlaying ? <Pause size={17} /> : <Play size={17} />}
         </button>
-        <button type="button" onClick={() => jumpToEvent(1)}>
-          다음 이벤트
+        <button type="button" aria-label="다음 이벤트" onClick={() => jumpToEvent(1)}>
+          <SkipForward size={17} />
         </button>
         <select
+          aria-label="재생 속도"
           value={playback.speed}
           onChange={(event) => onPlaybackChange({ ...playback, speed: Number(event.target.value) })}
         >
@@ -57,11 +69,9 @@ export function PlaybackControls({ session, playback, events, onPlaybackChange, 
             </option>
           ))}
         </select>
-        <span>
-          {formatTime(playback.currentTimeMs)} / {formatTime(duration)}
-        </span>
       </div>
       <input
+        aria-label="재생 위치"
         className="playback-range"
         type="range"
         min={0}
