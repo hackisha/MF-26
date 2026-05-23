@@ -41,20 +41,20 @@ const baseChannels: Record<string, SensorChannel> = {
   EGT1_C: channel("EGT1_C", "Exhaust Gas Temp 1", ["EGT1_C"], "degC", "Engine", "#ef4444"),
   EGT2_C: channel("EGT2_C", "Exhaust Gas Temp 2", ["EGT2_C"], "degC", "Engine", "#f97316"),
   Batt_V: channel("Batt_V", "Battery Voltage", ["Batt_V", "Battery_V"], "V", "Electrical", "#eab308"),
-  ax_raw: channel("ax_raw", "Raw Accel X", ["ax_raw", "AccelX_raw"], "count", "IMU", "#475569", false),
-  ay_raw: channel("ay_raw", "Raw Accel Y", ["ay_raw", "AccelY_raw"], "count", "IMU", "#64748b", false),
-  az_raw: channel("az_raw", "Raw Accel Z", ["az_raw", "AccelZ_raw"], "count", "IMU", "#94a3b8", false),
-  ax_corrected_g: channel("ax_corrected_g", "Corrected Accel X", ["ax_corrected_g", "ax_raw"], "g", "IMU", "#7c3aed", true, undefined, {
+  ax_g: channel("ax_g", "Raw Accel X", ["ax_g"], "g", "IMU", "#475569", false),
+  ay_g: channel("ay_g", "Raw Accel Y", ["ay_g"], "g", "IMU", "#64748b", false),
+  az_g: channel("az_g", "Raw Accel Z", ["az_g"], "g", "IMU", "#94a3b8", false),
+  ax_corrected_g: channel("ax_corrected_g", "Corrected Accel X", ["ax_g"], "g", "IMU", "#7c3aed", true, undefined, {
     type: "scaleOffset",
     scale: 0.125,
     offset: 0
   }),
-  ay_corrected_g: channel("ay_corrected_g", "Corrected Accel Y", ["ay_corrected_g", "ay_raw"], "g", "IMU", "#db2777", true, undefined, {
+  ay_corrected_g: channel("ay_corrected_g", "Corrected Accel Y", ["ay_g"], "g", "IMU", "#db2777", true, undefined, {
     type: "scaleOffset",
     scale: 0.125,
     offset: 0
   }),
-  az_corrected_g: channel("az_corrected_g", "Corrected Accel Z", ["az_corrected_g", "az_raw"], "g", "IMU", "#4f46e5", false, undefined, {
+  az_corrected_g: channel("az_corrected_g", "Corrected Accel Z", ["az_g"], "g", "IMU", "#4f46e5", false, undefined, {
     type: "scaleOffset",
     scale: 0.125,
     offset: 0

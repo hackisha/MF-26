@@ -36,6 +36,15 @@ describe("defaultProfiles", () => {
 
   it("defines corrected ADXL345 acceleration channels", () => {
     const profile2025 = defaultProfiles.find((profile) => profile.id === "2025-vehicle");
+    expect(profile2025?.channels.ax_g.sourceColumns).toContain("ax_g");
+    expect(profile2025?.channels.ay_g.sourceColumns).toContain("ay_g");
+    expect(profile2025?.channels.az_g.sourceColumns).toContain("az_g");
+    expect(profile2025?.channels.ax_corrected_g.sourceColumns).toContain("ax_g");
+    expect(profile2025?.channels.ay_corrected_g.sourceColumns).toContain("ay_g");
+    expect(profile2025?.channels.az_corrected_g.sourceColumns).toContain("az_g");
+    expect(profile2025?.channels.ax_corrected_g.sourceColumns).not.toContain("ax_corrected_g");
+    expect(profile2025?.channels.ay_corrected_g.sourceColumns).not.toContain("ay_corrected_g");
+    expect(profile2025?.channels.az_corrected_g.sourceColumns).not.toContain("az_corrected_g");
     expect(profile2025?.channels.ax_corrected_g.calibration).toEqual({ type: "scaleOffset", scale: 0.125, offset: 0 });
     expect(profile2025?.channels.ay_corrected_g.calibration).toEqual({ type: "scaleOffset", scale: 0.125, offset: 0 });
     expect(profile2025?.channels.az_corrected_g.calibration).toEqual({ type: "scaleOffset", scale: 0.125, offset: 0 });
