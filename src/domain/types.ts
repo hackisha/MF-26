@@ -106,3 +106,12 @@ export type Segment = {
   endSec: number;
   source: "manual" | "event" | "gps";
 };
+
+export type AnalysisSession = {
+  filePath: string;
+  profileId: string;
+  log: AppliedLog;
+  diagnostics: DiagnosticFinding[];
+  events: DetectedEvent[];
+  segments: Segment[];
+};
