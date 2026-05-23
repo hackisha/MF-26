@@ -23,11 +23,11 @@ function downsample<T>(items: T[], max: number): T[] {
 }
 
 function colorForSpeed(speed: number): string {
-  if (!Number.isFinite(speed)) return "#38bdf8";
-  if (speed < 30) return "#38bdf8";
-  if (speed < 70) return "#22c55e";
-  if (speed < 110) return "#facc15";
-  return "#f97316";
+  if (!Number.isFinite(speed)) return "#2563eb";
+  if (speed < 30) return "#22c55e";
+  if (speed < 70) return "#16a34a";
+  if (speed < 110) return "#f59e0b";
+  return "#dc2626";
 }
 
 export function GpsTrackPanel({ session, currentSample, gpsConfig }: GpsTrackPanelProps) {
@@ -48,13 +48,13 @@ export function GpsTrackPanel({ session, currentSample, gpsConfig }: GpsTrackPan
   return (
     <section className="panel gps-panel">
       <div className="section-heading">
-        <h3>GPS 경로</h3>
+        <h3>GPS 궤적</h3>
         <span>
           {projected.points.length.toLocaleString()} points
           {Number.isFinite(currentSpeed) ? ` · ${currentSpeed.toFixed(1)} km/h` : ""}
         </span>
       </div>
-      <svg viewBox="0 0 500 300" preserveAspectRatio="xMidYMid meet" aria-label="GPS 경로">
+      <svg viewBox="0 0 500 300" preserveAspectRatio="xMidYMid meet" aria-label="GPS 궤적">
         {renderPoints.slice(1).map((point, index) => {
           const previous = renderPoints[index];
           const x1 = scale(previous.xMeters, projected.bounds.minX, projected.bounds.maxX, 500);
@@ -74,7 +74,7 @@ export function GpsTrackPanel({ session, currentSample, gpsConfig }: GpsTrackPan
             />
           );
         })}
-        {Number.isFinite(currentX) && Number.isFinite(currentY) ? <circle cx={currentX} cy={currentY} r="8" fill="#ffc300" /> : null}
+        {Number.isFinite(currentX) && Number.isFinite(currentY) ? <circle cx={currentX} cy={currentY} r="8" fill="#f59e0b" /> : null}
       </svg>
     </section>
   );

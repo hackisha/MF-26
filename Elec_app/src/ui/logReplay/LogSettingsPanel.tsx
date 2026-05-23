@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { LogReplaySettings } from "../../domain/logSettingsTypes";
+import type { EventRuleConfig, LogReplaySettings } from "../../domain/logSettingsTypes";
 
 interface LogSettingsPanelProps {
   settings: LogReplaySettings;
@@ -9,6 +9,12 @@ interface LogSettingsPanelProps {
 function numberOrFallback(value: string, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function severityLabel(severity: EventRuleConfig["severity"]): string {
+  if (severity === "danger") return "위험";
+  if (severity === "warning") return "주의";
+  return "정보";
 }
 
 export function LogSettingsPanel({ settings, onSettingsChange }: LogSettingsPanelProps) {
@@ -34,6 +40,13 @@ export function LogSettingsPanel({ settings, onSettingsChange }: LogSettingsPane
     });
   }
 
+  function updateEventRule(id: string, patch: Partial<EventRuleConfig>) {
+    onSettingsChange({
+      ...settings,
+      eventRules: settings.eventRules.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)),
+    });
+  }
+
   function addDerivedSensor() {
     const label = derivedLabel.trim();
     const expression = derivedExpression.trim();
@@ -49,7 +62,7 @@ export function LogSettingsPanel({ settings, onSettingsChange }: LogSettingsPane
           unit: "",
           group: "custom",
           precision: 2,
-          color: "#ffc300",
+          color: "#1d4ed8",
           fallback: "empty",
           enabled: true,
         },
@@ -63,7 +76,7 @@ export function LogSettingsPanel({ settings, onSettingsChange }: LogSettingsPane
     <section className="panel log-settings-panel">
       <div className="section-heading">
         <h3>로그 해석 설정</h3>
-        <span>배율, GPS, 자유수식</span>
+        <span>배율, GPS, 자유수식, 이벤트 기준</span>
       </div>
       <div className="settings-grid">
         <div className="settings-box">
@@ -103,6 +116,45 @@ export function LogSettingsPanel({ settings, onSettingsChange }: LogSettingsPane
               onChange={(event) => updateGps("jumpThresholdMeters", event.target.value)}
             />
           </label>
+        </div>
+        <div className="settings-box settings-box--wide">
+          <h4>이상 이벤트 감지</h4>
+          <div className="event-rule-editor">
+            {settings.eventRules.map((rule) => (
+              <div key={rule.id} className="event-rule-row">
+                <label className="event-rule-row__enabled">
+                  <input
+                    type="checkbox"
+                    checked={rule.enabled}
+                    onChange={(event) => updateEventRule(rule.id, { enabled: event.target.checked })}
+                  />
+                  {rule.label}
+                </label>
+                <label className="field">
+                  {rule.label} 감지식
+                  <input
+                    aria-label={`${rule.label} 감지식`}
+                    value={rule.expression}
+                    onChange={(event) => updateEventRule(rule.id, { expression: event.target.value })}
+                  />
+                </label>
+                <label className="field">
+                  {rule.label} 심각도
+                  <select
+                    aria-label={`${rule.label} 심각도`}
+                    value={rule.severity}
+                    onChange={(event) => updateEventRule(rule.id, { severity: event.target.value as EventRuleConfig["severity"] })}
+                  >
+                    {(["info", "warning", "danger"] as const).map((severity) => (
+                      <option key={severity} value={severity}>
+                        {severityLabel(severity)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            ))}
+          </div>
         </div>
         <div className="settings-box">
           <h4>자유수식 센서</h4>

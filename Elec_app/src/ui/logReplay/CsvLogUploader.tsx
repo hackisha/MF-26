@@ -30,7 +30,7 @@ export function CsvLogUploader({ session, error, onFileText, onClear }: CsvLogUp
   }
 
   return (
-    <section className="panel log-uploader">
+    <section className="panel log-uploader" data-testid="log-uploader">
       <div className="log-uploader__intro">
         <div>
           <h2>EMU 로그 재생</h2>

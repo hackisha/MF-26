@@ -70,9 +70,9 @@ export function GGDiagram({ session, currentSample, accelConfig }: GGDiagramProp
         <line x1="0" x2="300" y1="150" y2="150" className="chart-grid" />
         <line x1="150" x2="150" y1="0" y2="300" className="chart-grid" />
         {points.map((point, index) => (
-          <circle key={`${point.x}-${point.y}-${index}`} cx={point.x} cy={point.y} r="2" fill="rgba(76,201,240,.35)" />
+          <circle key={`${point.x}-${point.y}-${index}`} cx={point.x} cy={point.y} r="2" fill="rgba(37,99,235,.32)" />
         ))}
-        <circle cx={current.x} cy={current.y} r="8" fill="#ffc300" />
+        <circle cx={current.x} cy={current.y} r="8" fill="#f59e0b" />
       </svg>
     </section>
   );

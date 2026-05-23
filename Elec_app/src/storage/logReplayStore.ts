@@ -1,6 +1,6 @@
 import type { LogReplaySettings } from "../domain/logSettingsTypes";
 
-export type LogReplayInnerTab = "dashboard" | "overlay" | "gps" | "gg" | "events" | "sensors" | "settings";
+export type LogReplayInnerTab = "overview" | "gps" | "motion" | "powertrain" | "events" | "sensors" | "settings";
 
 export interface StoredLogReplayState {
   csv: {
@@ -9,7 +9,7 @@ export interface StoredLogReplayState {
   };
   settings: LogReplaySettings;
   ui: {
-    activeTab: LogReplayInnerTab;
+    activeTab: LogReplayInnerTab | "dashboard" | "overlay" | "gg";
     overlayKeys: string[];
     cardKeys: string[];
   };
