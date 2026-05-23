@@ -1,5 +1,9 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { parseCsv } from "../../src/domain/csvImport";
 import { defaultProfiles } from "../../src/domain/defaultProfiles";
+import { applyProfile } from "../../src/domain/profileApply";
 
 const csvHeader2025 = [
   "Timestamp",
@@ -205,5 +209,20 @@ describe("defaultProfiles", () => {
     expect(profile2025?.channels.RPM.sourceColumns).toEqual(["RPM", "EngineSpeed_RPM"]);
     expect(rule2025?.all?.[0].value).toBe(6000);
     expect(overlay2025?.channelIds).toEqual(["TPS_percent", "ay_corrected_g"]);
+  });
+});
+
+describe("applyProfile", () => {
+  it("creates numeric rows and corrected ADXL345 channels", () => {
+    const csv = fs.readFileSync(path.join(process.cwd(), "tests/fixtures/2025-sample.csv"), "utf8");
+    const parsed = parseCsv(csv);
+    const profile2025 = defaultProfiles[0];
+    const applied = applyProfile("2025-sample.csv", parsed, profile2025);
+
+    expect(applied.rows).toHaveLength(5);
+    expect(applied.rows[1].values.EOT_IN).toBe(73);
+    expect(applied.rows[1].values.ax_corrected_g).toBeCloseTo(0.2);
+    expect(applied.rows[1].values.ay_corrected_g).toBeCloseTo(0.3);
+    expect(applied.rows[1].values.az_corrected_g).toBeCloseTo(1.01);
   });
 });
