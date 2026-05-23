@@ -5,12 +5,21 @@ import fs from "node:fs/promises";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined || !app.isPackaged;
+const devOrigin = "http://127.0.0.1:5173";
+const maxHtmlReportBytes = 10 * 1024 * 1024;
 
 function rendererUrl(route = "/") {
   if (isDev) {
-    return `http://127.0.0.1:5173${route}`;
+    return `${devOrigin}${route}`;
   }
   return `file://${path.join(__dirname, "../dist/index.html")}${route === "/" ? "" : `#${route}`}`;
+}
+
+function isAllowedNavigation(url: string) {
+  if (isDev) {
+    return url.startsWith(`${devOrigin}/`) || url === devOrigin;
+  }
+  return url.startsWith("file://");
 }
 
 function createWindow(route = "/") {
@@ -24,6 +33,13 @@ function createWindow(route = "/") {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false
+    }
+  });
+
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  win.webContents.on("will-navigate", (event, url) => {
+    if (!isAllowedNavigation(url)) {
+      event.preventDefault();
     }
   });
 
@@ -57,6 +73,14 @@ ipcMain.handle("file:openCsv", async () => {
 });
 
 ipcMain.handle("file:saveHtmlReport", async (_event, html: string) => {
+  if (typeof html !== "string") {
+    throw new Error("HTML report payload must be a string.");
+  }
+
+  if (Buffer.byteLength(html, "utf8") > maxHtmlReportBytes) {
+    throw new Error("HTML report payload exceeds the 10 MB limit.");
+  }
+
   const result = await dialog.showSaveDialog({
     title: "Save HTML report",
     defaultPath: "mf-log-analyzer-report.html",

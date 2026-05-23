@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "electron:dev": "concurrently \"npm run dev\" \"tsc -p tsconfig.node.json --watch\" \"wait-on http://127.0.0.1:5173 dist-electron/main.js dist-electron/preload.js && electron .\"",
     "build": "tsc -b && vite build && tsc -p tsconfig.node.json",
     "test": "vitest run",
     "test:watch": "vitest",
