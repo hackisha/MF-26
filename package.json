@@ -1,0 +1,47 @@
+{
+  "name": "mf-log-analyzer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop CSV datalog analyzer for MF race car logs",
+  "main": "dist-electron/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "build": "tsc -b && vite build && tsc -p tsconfig.node.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "lint": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@react-three/fiber": "^9.0.0",
+    "electron": "^35.0.0",
+    "leaflet": "^1.9.4",
+    "papaparse": "^5.5.0",
+    "plotly.js-dist-min": "^2.35.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-plotly.js": "^2.6.0",
+    "three": "^0.174.0",
+    "zod": "^3.24.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.51.0",
+    "@testing-library/jest-dom": "^6.6.0",
+    "@testing-library/react": "^16.2.0",
+    "@types/leaflet": "^1.9.16",
+    "@types/node": "^22.13.0",
+    "@types/papaparse": "^5.3.15",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "concurrently": "^9.1.0",
+    "jsdom": "^26.0.0",
+    "typescript": "^5.8.0",
+    "vite": "^6.2.0",
+    "vitest": "^3.0.0",
+    "wait-on": "^8.0.0"
+  }
+}
