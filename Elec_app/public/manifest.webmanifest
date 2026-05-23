@@ -1,9 +1,0 @@
-{
-  "name": "Muzil Tools",
-  "short_name": "Muzil Tools",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#f5f7f8",
-  "theme_color": "#12343b",
-  "description": "MF-26 log replay and wiring debug workbench"
-}
