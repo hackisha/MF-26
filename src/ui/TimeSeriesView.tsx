@@ -1,8 +1,11 @@
-// @ts-expect-error react-plotly.js does not ship bundled TypeScript declarations in this project.
-import Plot from "react-plotly.js";
+import { useMemo } from "react";
+import createPlotlyComponent from "react-plotly.js/factory";
+import Plotly from "plotly.js-dist-min";
 import { useSessionStore } from "../state/sessionStore";
 import type { NumericLogRow, OverlayPreset, SensorChannel, VehicleProfile } from "../domain/types";
 import { ChannelPicker } from "./ChannelPicker";
+
+const Plot = createPlotlyComponent(Plotly);
 
 type PlotPoint = number | null;
 
@@ -17,11 +20,35 @@ type Trace = {
     width: number;
   };
   connectgaps: false;
+  yaxis: string;
 };
 
 type PlottableChannel = {
   channel: SensorChannel;
   values: PlotPoint[];
+};
+
+type PlotAxis = {
+  title: { text: string };
+  zeroline: false;
+  automargin: true;
+  overlaying?: "y";
+  side?: "left" | "right";
+  anchor?: "free";
+  position?: number;
+};
+
+type PlotLayout = {
+  autosize: true;
+  margin: { t: number; r: number; b: number; l: number };
+  paper_bgcolor: string;
+  plot_bgcolor: string;
+  hovermode: "x unified";
+  showlegend: true;
+  legend: { orientation: "h"; x: number; y: number };
+  xaxis: { title: { text: string }; zeroline: false; domain?: [number, number] };
+  yaxis: PlotAxis;
+  [axisKey: `yaxis${number}`]: PlotAxis;
 };
 
 function finiteOrNull(value: number): PlotPoint {
@@ -74,13 +101,57 @@ function traceName(channel: SensorChannel): string {
   return channel.displayName;
 }
 
-function tracesForOverlay(
-  profile: VehicleProfile,
-  overlay: OverlayPreset,
-  rows: NumericLogRow[]
-): Trace[] {
+function traceAxisId(index: number, overlay: OverlayPreset): string {
+  if (overlay.mode === "normalized") return "y";
+  return index === 0 ? "y" : `y${index + 1}`;
+}
+
+function layoutAxisKey(index: number): "yaxis" | `yaxis${number}` {
+  return index === 0 ? "yaxis" : `yaxis${index + 1}`;
+}
+
+function axisTitle(channel: SensorChannel): string {
+  return channel.unit ? `${channel.displayName} (${channel.unit})` : channel.displayName;
+}
+
+function clampAxisPosition(position: number): number {
+  return Math.min(1, Math.max(0, Number(position.toFixed(2))));
+}
+
+function axisPosition(index: number, traceCount: number): number | undefined {
+  if (index === 0) return undefined;
+
+  const extraLeftAxes = Math.floor(traceCount / 2);
+  const extraRightAxes = Math.ceil((traceCount - 1) / 2);
+  const leftPadding = Math.min(0.2, extraLeftAxes * 0.05);
+  const rightPadding = Math.min(0.2, extraRightAxes * 0.05);
+
+  if (index % 2 === 1) {
+    const rightOrdinal = Math.floor((index - 1) / 2);
+    return clampAxisPosition(1 - rightPadding + rightOrdinal * 0.05);
+  }
+
+  const leftOrdinal = Math.floor(index / 2) - 1;
+  return clampAxisPosition(leftPadding - leftOrdinal * 0.05);
+}
+
+function axisSide(index: number): "left" | "right" {
+  return index % 2 === 1 ? "right" : "left";
+}
+
+function xAxisDomain(traceCount: number, overlay: OverlayPreset): [number, number] | undefined {
+  if (overlay.mode !== "separateAxes" || traceCount < 3) return undefined;
+
+  const extraLeftAxes = Math.floor(traceCount / 2);
+  const extraRightAxes = Math.ceil((traceCount - 1) / 2);
+  const leftPadding = Math.min(0.2, extraLeftAxes * 0.05);
+  const rightPadding = Math.min(0.2, extraRightAxes * 0.05);
+  return [leftPadding, 1 - rightPadding];
+}
+
+function tracesForChannels(overlay: OverlayPreset, rows: NumericLogRow[], channels: PlottableChannel[]): Trace[] {
   const xValues = rows.map((row) => finiteOrNull(row.timestampSec));
-  return plottableChannels(profile, overlay, rows).map(({ channel, values }) => ({
+  return channels.map(({ channel, values }, index) => ({
     x: xValues,
     y: overlay.mode === "normalized" ? normalizeValues(values) : values,
     type: "scatter",
@@ -90,8 +161,46 @@ function tracesForOverlay(
       color: channel.color,
       width: 2
     },
-    connectgaps: false
+    connectgaps: false,
+    yaxis: traceAxisId(index, overlay)
   }));
+}
+
+function layoutForChannels(overlay: OverlayPreset, channels: PlottableChannel[]): PlotLayout {
+  const domain = xAxisDomain(channels.length, overlay);
+  const layout: PlotLayout = {
+    autosize: true,
+    margin: { t: 16, r: overlay.mode === "separateAxes" ? 72 : 24, b: 48, l: overlay.mode === "separateAxes" ? 72 : 56 },
+    paper_bgcolor: "#ffffff",
+    plot_bgcolor: "#ffffff",
+    hovermode: "x unified",
+    showlegend: true,
+    legend: { orientation: "h", x: 0, y: 1.12 },
+    xaxis: { title: { text: "Time (s)" }, zeroline: false, ...(domain ? { domain } : {}) },
+    yaxis: {
+      title: { text: overlay.mode === "normalized" ? "Normalized value" : axisTitle(channels[0].channel) },
+      zeroline: false,
+      automargin: true,
+      side: "left"
+    }
+  };
+
+  if (overlay.mode === "separateAxes") {
+    channels.slice(1).forEach(({ channel }, offset) => {
+      const index = offset + 1;
+      layout[layoutAxisKey(index)] = {
+        title: { text: axisTitle(channel) },
+        zeroline: false,
+        automargin: true,
+        overlaying: "y",
+        side: axisSide(index),
+        anchor: "free",
+        position: axisPosition(index, channels.length)
+      };
+    });
+  }
+
+  return layout;
 }
 
 export function TimeSeriesView() {
@@ -120,7 +229,12 @@ export function TimeSeriesView() {
   }
 
   const overlay = resolveOverlay(profile, selectedOverlay);
-  const traces = overlay ? tracesForOverlay(profile, overlay, session.log.rows) : [];
+  const channels = useMemo(
+    () => (overlay ? plottableChannels(profile, overlay, session.log.rows) : []),
+    [overlay, profile, session.log.rows]
+  );
+  const traces = useMemo(() => (overlay ? tracesForChannels(overlay, session.log.rows, channels) : []), [channels, overlay, session.log.rows]);
+  const layout = useMemo(() => (overlay && channels.length > 0 ? layoutForChannels(overlay, channels) : null), [channels, overlay]);
 
   return (
     <section className="time-series-view" aria-label="Time-series graph">
@@ -128,34 +242,26 @@ export function TimeSeriesView() {
         <ChannelPicker profile={profile} selectedOverlay={overlay} onOverlayChange={setSelectedOverlay} />
         {overlay && (
           <p className="toolbar-note">
-            {overlay.mode === "normalized" ? "Normalized 0-100 scale" : "Single-axis native-unit overlay"}
+            {overlay.mode === "normalized" ? "Normalized 0-100 scale" : "Separate native-unit axes"}
           </p>
         )}
       </div>
 
-      {traces.length === 0 ? (
+      {!overlay ? (
+        <section className="empty-state">
+          <h2>No overlays configured</h2>
+          <p>This profile does not define time-series overlay presets yet.</p>
+        </section>
+      ) : traces.length === 0 ? (
         <section className="empty-state">
           <h2>No plottable channels</h2>
-          <p>The selected overlay has no configured channels with finite values in this log.</p>
+          <p>The selected overlay has configured channels, but none contain finite values in this log.</p>
         </section>
       ) : (
         <div className="graph-panel">
           <Plot
             data={traces}
-            layout={{
-              autosize: true,
-              margin: { t: 16, r: 24, b: 48, l: 56 },
-              paper_bgcolor: "#ffffff",
-              plot_bgcolor: "#ffffff",
-              hovermode: "x unified",
-              showlegend: true,
-              legend: { orientation: "h", x: 0, y: 1.12 },
-              xaxis: { title: { text: "Time (s)" }, zeroline: false },
-              yaxis: {
-                title: { text: overlay?.mode === "normalized" ? "Normalized value" : "Value" },
-                zeroline: false
-              }
-            }}
+            layout={layout ?? undefined}
             config={{ displaylogo: false, responsive: true }}
             useResizeHandler
             className="time-series-plot"

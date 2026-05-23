@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { DiagnosticsView } from "./DiagnosticsView";
 import { SummaryView } from "./SummaryView";
 import { Tabs, tabButtonId, tabPanelId, type TabId } from "./Tabs";
-import { TimeSeriesView } from "./TimeSeriesView";
+
+const TimeSeriesView = lazy(() => import("./TimeSeriesView").then((module) => ({ default: module.TimeSeriesView })));
 
 const placeholders: Record<Exclude<TabId, "summary" | "diagnostics" | "time-series">, string> = {
   behavior: "Vehicle behavior view is next.",
@@ -25,7 +26,11 @@ export function Layout() {
       >
         {activeTab === "summary" && <SummaryView />}
         {activeTab === "diagnostics" && <DiagnosticsView />}
-        {activeTab === "time-series" && <TimeSeriesView />}
+        {activeTab === "time-series" && (
+          <Suspense fallback={<section className="empty-state">Loading graph...</section>}>
+            <TimeSeriesView />
+          </Suspense>
+        )}
         {activeTab !== "summary" && activeTab !== "diagnostics" && activeTab !== "time-series" && (
           <section className="empty-state">{placeholders[activeTab]}</section>
         )}
