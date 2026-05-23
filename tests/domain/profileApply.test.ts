@@ -1,6 +1,72 @@
 import { describe, expect, it } from "vitest";
 import { defaultProfiles } from "../../src/domain/defaultProfiles";
 
+const csvHeader2025 = [
+  "Timestamp",
+  "Latitude",
+  "Longitude",
+  "GPS_Speed_KPH",
+  "Satellites",
+  "Altitude_m",
+  "Heading_deg",
+  "RPM",
+  "TPS_percent",
+  "IAT_C",
+  "MAP_kPa",
+  "PulseWidth_ms",
+  "AnalogIn1_V",
+  "AnalogIn2_V",
+  "AnalogIn3_V",
+  "AnalogIn4_V",
+  "VSS_kmh",
+  "Baro_kPa",
+  "OilTemp_C",
+  "OilPressure_bar",
+  "FuelPressure_bar",
+  "CLT_C",
+  "EOT_OUT",
+  "fuelPumpTemp",
+  "IgnAngle_deg",
+  "DwellTime_ms",
+  "WBO_Lambda",
+  "LambdaCorrection_percent",
+  "EGT1_C",
+  "EGT2_C",
+  "Gear",
+  "EmuTemp_C",
+  "Batt_V",
+  "CEL_Error",
+  "Flags1",
+  "Ethanol_percent",
+  "DBW_Pos_percent",
+  "DBW_Target_percent",
+  "TC_drpm_raw",
+  "TC_drpm",
+  "TC_TorqueReduction_percent",
+  "PitLimit_TorqueReduction_percent",
+  "AnalogIn5_V",
+  "AnalogIn6_V",
+  "OutFlags1",
+  "OutFlags2",
+  "OutFlags3",
+  "OutFlags4",
+  "BoostTarget_kPa",
+  "PWM1_DC_percent",
+  "DSG_Mode",
+  "LambdaTarget",
+  "PWM2_DC_percent",
+  "FuelUsed_L",
+  "ax_g",
+  "ay_g",
+  "az_g",
+  "gx_dps",
+  "gy_dps",
+  "gz_dps",
+  "ADU_ax_g",
+  "ADU_ay_g",
+  "ADU_az_g"
+];
+
 describe("defaultProfiles", () => {
   it("ships 2025 and 2026 vehicle profiles", () => {
     expect(defaultProfiles.map((profile) => profile.id)).toEqual(["2025-vehicle", "2026-vehicle"]);
@@ -9,6 +75,15 @@ describe("defaultProfiles", () => {
   it("maps OilTemp_C as the 2025 source for EOT_IN", () => {
     const profile2025 = defaultProfiles.find((profile) => profile.id === "2025-vehicle");
     expect(profile2025?.channels.EOT_IN.sourceColumns).toContain("OilTemp_C");
+  });
+
+  it("covers every source column from the 2025 CSV header", () => {
+    const profile2025 = defaultProfiles.find((profile) => profile.id === "2025-vehicle");
+    const coveredSourceColumns = new Set(
+      Object.values(profile2025?.channels ?? {}).flatMap((channel) => channel.sourceColumns)
+    );
+
+    expect(csvHeader2025.filter((sourceColumn) => !coveredSourceColumns.has(sourceColumn))).toEqual([]);
   });
 
   it("defines GPS position and VSS_kmh channels for 2025 logs", () => {
@@ -81,19 +156,20 @@ describe("defaultProfiles", () => {
   });
 
   it("defines 2026-only suspension, aero, and steering channels", () => {
+    const profile2025 = defaultProfiles.find((profile) => profile.id === "2025-vehicle");
     const profile2026 = defaultProfiles.find((profile) => profile.id === "2026-vehicle");
+    const channelIds2026Only = [
+      "Susp_FL_mm",
+      "Susp_FR_mm",
+      "Susp_RL_mm",
+      "Susp_RR_mm",
+      "Pitot_dP_Pa",
+      "Pitot_AirSpeed_KPH",
+      "SteeringAngle_deg"
+    ];
 
-    expect(Object.keys(profile2026?.channels ?? {})).toEqual(
-      expect.arrayContaining([
-        "Susp_FL_mm",
-        "Susp_FR_mm",
-        "Susp_RL_mm",
-        "Susp_RR_mm",
-        "Pitot_dP_Pa",
-        "Pitot_AirSpeed_KPH",
-        "SteeringAngle_deg"
-      ])
-    );
+    expect(Object.keys(profile2026?.channels ?? {})).toEqual(expect.arrayContaining(channelIds2026Only));
+    expect(Object.keys(profile2025?.channels ?? {})).not.toEqual(expect.arrayContaining(channelIds2026Only));
   });
 
   it("defines corrected ADXL345 acceleration channels", () => {
@@ -110,5 +186,24 @@ describe("defaultProfiles", () => {
     expect(profile2025?.channels.ax_corrected_g.calibration).toEqual({ type: "scaleOffset", scale: 0.125, offset: 0 });
     expect(profile2025?.channels.ay_corrected_g.calibration).toEqual({ type: "scaleOffset", scale: 0.125, offset: 0 });
     expect(profile2025?.channels.az_corrected_g.calibration).toEqual({ type: "scaleOffset", scale: 0.125, offset: 0 });
+  });
+
+  it("does not share mutable channel, rule, or overlay objects between 2025 and 2026 profiles", () => {
+    const profile2025 = defaultProfiles.find((profile) => profile.id === "2025-vehicle");
+    const profile2026 = defaultProfiles.find((profile) => profile.id === "2026-vehicle");
+    const rule2025 = profile2025?.rules.find((rule) => rule.id === "high-rpm-low-oil-pressure");
+    const rule2026 = profile2026?.rules.find((rule) => rule.id === "high-rpm-low-oil-pressure");
+    const overlay2025 = profile2025?.overlays.find((overlay) => overlay.id === "gg-inputs");
+    const overlay2026 = profile2026?.overlays.find((overlay) => overlay.id === "gg-inputs");
+
+    profile2026?.channels.RPM.sourceColumns.push("Mutated_RPM");
+    if (rule2026?.all?.[0]) {
+      rule2026.all[0].value = 7000;
+    }
+    overlay2026?.channelIds.push("Mutated_Channel");
+
+    expect(profile2025?.channels.RPM.sourceColumns).toEqual(["RPM", "EngineSpeed_RPM"]);
+    expect(rule2025?.all?.[0].value).toBe(6000);
+    expect(overlay2025?.channelIds).toEqual(["TPS_percent", "ay_corrected_g"]);
   });
 });
