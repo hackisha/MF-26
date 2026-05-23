@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractLogEvents, findNearestSample, limitOverlaySelection, normalizeSeries } from "./logReplayAnalysis";
 import { parseEmuLogCsv } from "./logReplayParser";
+import { createDefaultLogReplaySettings } from "./logSettingsDefaults";
 
 const session = parseEmuLogCsv(
   [
@@ -68,5 +69,12 @@ describe("log replay analysis", () => {
     expect(eventTypes).toContain("rpm-zero");
     expect(eventTypes).toContain("gps-gap");
     expect(eventTypes).toContain("gps-jump");
+  });
+
+  it("does not trigger default rule events for missing sensors", () => {
+    const missingOil = parseEmuLogCsv(["Timestamp,RPM", "0.00,4000", "0.05,4500"].join("\n"), "missing-oil.csv");
+    const settings = createDefaultLogReplaySettings(missingOil.sensors);
+
+    expect(extractLogEvents(missingOil, settings).map((event) => event.type)).not.toContain("low-oil-pressure");
   });
 });

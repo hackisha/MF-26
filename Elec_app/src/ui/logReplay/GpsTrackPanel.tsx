@@ -1,17 +1,20 @@
 import { useMemo } from "react";
+import { projectGpsTrack } from "../../domain/gpsProjection";
+import type { GpsConfig } from "../../domain/logSettingsTypes";
 import type { LogSample, LogSession } from "../../domain/logReplayTypes";
 
 interface GpsTrackPanelProps {
   session: LogSession;
   currentSample: LogSample;
+  gpsConfig: GpsConfig;
 }
+
+const MAX_GPS_POINTS = 800;
 
 function scale(value: number, min: number, max: number, size: number): number {
   if (min === max) return size / 2;
   return ((value - min) / (max - min)) * size;
 }
-
-const MAX_GPS_POINTS = 800;
 
 function downsample<T>(items: T[], max: number): T[] {
   if (items.length <= max) return items;
@@ -27,66 +30,51 @@ function colorForSpeed(speed: number): string {
   return "#f97316";
 }
 
-export function GpsTrackPanel({ session, currentSample }: GpsTrackPanelProps) {
-  const points = useMemo(
-    () =>
-      session.samples
-        .map((sample) => ({ lat: Number(sample.values.Latitude), lon: Number(sample.values.Longitude), sample }))
-        .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon)),
-    [session.samples],
-  );
-  const geometry = useMemo(() => {
-    if (points.length < 2) return null;
-    const lats = points.map((point) => point.lat);
-    const lons = points.map((point) => point.lon);
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLon = Math.min(...lons);
-    const maxLon = Math.max(...lons);
-    const renderPoints = downsample(points, MAX_GPS_POINTS);
-    const screenPoints = renderPoints.map((point) => ({
-      x: scale(point.lon, minLon, maxLon, 500),
-      y: 300 - scale(point.lat, minLat, maxLat, 300),
-      speed: Number(point.sample.values.GPS_Speed_KPH ?? point.sample.values.VSS_kmh),
-    }));
-    return { minLat, maxLat, minLon, maxLon, screenPoints };
-  }, [points]);
+export function GpsTrackPanel({ session, currentSample, gpsConfig }: GpsTrackPanelProps) {
+  const projected = useMemo(() => projectGpsTrack(session.samples, gpsConfig), [gpsConfig, session.samples]);
+  const renderPoints = useMemo(() => downsample(projected.points, MAX_GPS_POINTS), [projected.points]);
 
-  if (!geometry) {
+  if (projected.points.length < 2) {
     return <section className="panel empty-panel">GPS 컬럼이 없거나 경로를 그리기에 데이터가 부족합니다.</section>;
   }
-  const currentLat = Number(currentSample.values.Latitude);
-  const currentLon = Number(currentSample.values.Longitude);
-  const currentX = scale(currentLon, geometry.minLon, geometry.maxLon, 500);
-  const currentY = 300 - scale(currentLat, geometry.minLat, geometry.maxLat, 300);
-  const currentSpeed = Number(currentSample.values.GPS_Speed_KPH ?? currentSample.values.VSS_kmh);
+
+  const currentProjected = projected.points.reduce((closest, point) => {
+    return Math.abs(point.sample.timeMs - currentSample.timeMs) < Math.abs(closest.sample.timeMs - currentSample.timeMs) ? point : closest;
+  }, projected.points[0]);
+  const currentX = currentProjected ? scale(currentProjected.xMeters, projected.bounds.minX, projected.bounds.maxX, 500) : Number.NaN;
+  const currentY = currentProjected ? 300 - scale(currentProjected.yMeters, projected.bounds.minY, projected.bounds.maxY, 300) : Number.NaN;
+  const currentSpeed = Number(currentSample.values[gpsConfig.speedKey] ?? currentSample.values.VSS_kmh);
 
   return (
     <section className="panel gps-panel">
       <div className="section-heading">
         <h3>GPS 경로</h3>
         <span>
-          {points.length.toLocaleString()} points
+          {projected.points.length.toLocaleString()} points
           {Number.isFinite(currentSpeed) ? ` · ${currentSpeed.toFixed(1)} km/h` : ""}
         </span>
       </div>
       <svg viewBox="0 0 500 300" preserveAspectRatio="xMidYMid meet" aria-label="GPS 경로">
-        {geometry.screenPoints.slice(1).map((point, index) => {
-          const previous = geometry.screenPoints[index];
+        {renderPoints.slice(1).map((point, index) => {
+          const previous = renderPoints[index];
+          const x1 = scale(previous.xMeters, projected.bounds.minX, projected.bounds.maxX, 500);
+          const y1 = 300 - scale(previous.yMeters, projected.bounds.minY, projected.bounds.maxY, 300);
+          const x2 = scale(point.xMeters, projected.bounds.minX, projected.bounds.maxX, 500);
+          const y2 = 300 - scale(point.yMeters, projected.bounds.minY, projected.bounds.maxY, 300);
           return (
             <line
-              key={`${previous.x}-${previous.y}-${point.x}-${point.y}`}
-              x1={previous.x}
-              y1={previous.y}
-              x2={point.x}
-              y2={point.y}
+              key={`${previous.sample.rowIndex}-${point.sample.rowIndex}`}
+              x1={x1}
+              y1={y1}
+              x2={x2}
+              y2={y2}
               stroke={colorForSpeed(point.speed)}
               strokeWidth="4"
               strokeLinecap="round"
             />
           );
         })}
-        {Number.isFinite(currentX) && Number.isFinite(currentY) ? <circle cx={currentX} cy={currentY} r="8" fill="#facc15" /> : null}
+        {Number.isFinite(currentX) && Number.isFinite(currentY) ? <circle cx={currentX} cy={currentY} r="8" fill="#ffc300" /> : null}
       </svg>
     </section>
   );

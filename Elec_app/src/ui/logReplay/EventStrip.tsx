@@ -13,7 +13,7 @@ export function EventStrip({ session, events, currentTimeMs, onSeek }: EventStri
   return (
     <section className="panel event-strip-panel">
       <div className="section-heading">
-        <h3>이벤트/이상 감지</h3>
+        <h3>이벤트 이상 감지</h3>
         <span>{events.length}개</span>
       </div>
       <div className="event-strip">
@@ -32,7 +32,7 @@ export function EventStrip({ session, events, currentTimeMs, onSeek }: EventStri
         ))}
       </div>
       <div className="event-list">
-        {events.slice(0, 8).map((event) => (
+        {events.slice(0, 12).map((event) => (
           <button key={event.id} type="button" onClick={() => onSeek(event.timeMs)}>
             <strong>{event.label}</strong>
             <span>{(event.timeMs / 1000).toFixed(2)}s</span>

@@ -22,9 +22,15 @@ export const EMU_SENSOR_DEFINITIONS = {
   ax_g: { label: "Accel X", unit: "g", type: "number" },
   ay_g: { label: "Accel Y", unit: "g", type: "number" },
   az_g: { label: "Accel Z", unit: "g", type: "number" },
+  ADXL_ax_g: { label: "ADXL Accel X", unit: "g", type: "number" },
+  ADXL_ay_g: { label: "ADXL Accel Y", unit: "g", type: "number" },
+  ADXL_az_g: { label: "ADXL Accel Z", unit: "g", type: "number" },
   ADU_ax_g: { label: "ADU Accel X", unit: "g", type: "number" },
   ADU_ay_g: { label: "ADU Accel Y", unit: "g", type: "number" },
   ADU_az_g: { label: "ADU Accel Z", unit: "g", type: "number" },
+  adu_x: { label: "ADU Angular X", unit: "deg/s", type: "number" },
+  adu_y: { label: "ADU Angular Y", unit: "deg/s", type: "number" },
+  adu_z: { label: "ADU Angular Z", unit: "deg/s", type: "number" },
 } as const satisfies Record<string, Omit<SensorDefinition, "key">>;
 
 export type EmuSensorKey = keyof typeof EMU_SENSOR_DEFINITIONS;

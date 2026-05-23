@@ -6,13 +6,12 @@ interface CsvLogUploaderProps {
   session: LogSession | null;
   error: string | null;
   onFileText: (fileName: string, text: string) => void;
+  onClear?: () => void;
 }
 
-export function CsvLogUploader({ session, error, onFileText }: CsvLogUploaderProps) {
+export function CsvLogUploader({ session, error, onFileText, onClear }: CsvLogUploaderProps) {
   const missingRecommended = session ? DEFAULT_CARD_KEYS.filter((key) => !session.columns.includes(key)) : [];
-  const invalidEntries = session
-    ? Object.entries(session.summary.invalidCounts).filter(([, count]) => count > 0)
-    : [];
+  const invalidEntries = session ? Object.entries(session.summary.invalidCounts).filter(([, count]) => count > 0) : [];
   const recognizedSensors = session
     ? session.sensors.filter((sensor) => sensor.key !== "Timestamp" && (sensor.type === "number" || sensor.type === "state"))
     : [];
@@ -27,6 +26,7 @@ export function CsvLogUploader({ session, error, onFileText }: CsvLogUploaderPro
     }
 
     onFileText(file.name, await file.text());
+    event.currentTarget.value = "";
   }
 
   return (
@@ -34,19 +34,26 @@ export function CsvLogUploader({ session, error, onFileText }: CsvLogUploaderPro
       <div className="log-uploader__intro">
         <div>
           <h2>EMU 로그 재생</h2>
-          <p>EMU-LOGGER CSV를 업로드하면 기록된 차량 상태를 시간축에 맞춰 재생합니다.</p>
+          <p>EMU-LOGGER CSV를 업로드하면 주행 데이터를 시간축에 맞춰 재생합니다. 마지막 업로드는 브라우저에 저장됩니다.</p>
         </div>
-        <label className="file-picker">
-          <input aria-label="CSV 로그 파일" type="file" accept=".csv,text/csv" onChange={handleChange} />
-          CSV 업로드
-        </label>
+        <div className="log-uploader__actions">
+          {session && onClear ? (
+            <button type="button" onClick={onClear}>
+              저장 로그 지우기
+            </button>
+          ) : null}
+          <label className="file-picker">
+            <input aria-label="CSV 로그 파일" type="file" accept=".csv,text/csv" onChange={handleChange} />
+            CSV 업로드
+          </label>
+        </div>
       </div>
       {error ? <p className="error-text">{error}</p> : null}
       {session ? (
         <>
           <div className="log-summary-grid">
             <span>파일: {session.fileName}</span>
-            <span>행 수: {session.summary.rowCount.toLocaleString()}</span>
+            <span>행: {session.summary.rowCount.toLocaleString()}</span>
             <span>길이: {(session.summary.durationMs / 1000).toFixed(1)}s</span>
             <span>추정 주기: {session.summary.estimatedSampleRateHz?.toFixed(1) ?? "-"}Hz</span>
             <span>시작: {session.summary.startLabel || "-"}</span>
@@ -60,7 +67,7 @@ export function CsvLogUploader({ session, error, onFileText }: CsvLogUploaderPro
               <p>{recognizedSensors.map((sensor) => sensor.key).join(", ") || "-"}</p>
             </div>
             <div>
-              <strong>빈 값/오류</strong>
+              <strong>빈 값 오류</strong>
               <p>{invalidEntries.map(([key, count]) => `${key} ${count}`).join(", ") || "없음"}</p>
             </div>
           </div>

@@ -611,6 +611,312 @@ textarea {
   font-weight: 700;
 }
 
+.log-replay {
+  --logger-bg: #070707;
+  --logger-panel: #111111;
+  --logger-panel-2: #171717;
+  --logger-line: #2c2c2c;
+  --logger-yellow: #ffc300;
+  --logger-text: #f5f5f5;
+  --logger-muted: #a3a3a3;
+  color: var(--logger-text);
+}
+
+.log-replay .panel {
+  border-color: var(--logger-line);
+  background: var(--logger-panel);
+  color: var(--logger-text);
+}
+
+.log-replay .section-heading span,
+.log-replay .overlay-legend,
+.log-replay .empty-panel,
+.log-replay .log-detail-list p,
+.log-replay .log-uploader__intro p,
+.log-replay .playback-panel__header p {
+  color: var(--logger-muted);
+}
+
+.log-uploader__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.log-replay .file-picker,
+.log-replay button,
+.log-replay input {
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  background: #141414;
+  color: var(--logger-text);
+}
+
+.log-replay .file-picker,
+.log-replay button {
+  cursor: pointer;
+  padding: 8px 10px;
+}
+
+.log-replay button:hover,
+.log-replay .file-picker:hover,
+.log-inner-tabs button.active,
+.log-replay .chip.selected {
+  border-color: rgba(255, 195, 0, 0.72);
+  background: rgba(255, 195, 0, 0.12);
+  color: var(--logger-yellow);
+}
+
+.log-replay .log-summary-grid span,
+.log-replay .log-detail-list div,
+.log-replay .sensor-card,
+.settings-box {
+  border: 1px solid var(--logger-line);
+  background: var(--logger-panel-2);
+}
+
+.log-inner-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 24px;
+  border-bottom: 1px solid var(--logger-line);
+  padding-bottom: 10px;
+}
+
+.emu-dashboard {
+  display: grid;
+  gap: 18px;
+  margin: 16px 24px;
+  border: 1px solid #2b2b2b;
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 50% 0, rgba(255, 195, 0, 0.12), transparent 30%),
+    #070707;
+  padding: 18px;
+  box-shadow: inset 0 0 18px rgba(255, 195, 0, 0.08);
+}
+
+.emu-dashboard__top,
+.emu-dashboard__core,
+.emu-dashboard__cards,
+.emu-dashboard__alarm {
+  display: flex;
+  align-items: center;
+}
+
+.emu-dashboard__top {
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #242424;
+  padding-bottom: 12px;
+}
+
+.emu-dashboard__top div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.emu-dashboard__top strong,
+.emu-dashboard__time,
+.emu-dashboard__speed strong,
+.emu-dashboard__cards strong,
+.emu-dashboard__alarm strong {
+  color: var(--logger-yellow);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-weight: 900;
+}
+
+.emu-dashboard__top span,
+.emu-dashboard__speed span,
+.emu-dashboard__speed small,
+.emu-dashboard__cards span,
+.emu-dashboard__cards small,
+.emu-dashboard__alarm span {
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.emu-dashboard__core {
+  display: grid;
+  grid-template-columns: 140px minmax(260px, 1fr) 180px;
+  gap: 18px;
+}
+
+.emu-dashboard__gear {
+  color: var(--logger-yellow);
+  font-size: 92px;
+  font-weight: 900;
+  line-height: 1;
+  text-align: center;
+  text-shadow: 0 0 16px rgba(255, 195, 0, 0.5);
+}
+
+.emu-dashboard__rpm {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.emu-dashboard__rpm span {
+  color: #9ca3af;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.emu-dashboard__rpm strong {
+  color: #ffffff;
+  font-size: 44px;
+  line-height: 1;
+}
+
+.emu-dashboard__speed {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  border: 1px solid var(--logger-line);
+  border-radius: 8px;
+  background: #101010;
+  padding: 14px;
+}
+
+.emu-dashboard__speed strong {
+  font-size: 38px;
+}
+
+.emu-dashboard__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.emu-dashboard__cards article {
+  display: grid;
+  gap: 5px;
+  min-height: 82px;
+  border: 1px solid #252525;
+  border-radius: 7px;
+  background: #101010;
+  padding: 11px;
+}
+
+.emu-dashboard__cards strong {
+  font-size: 25px;
+  line-height: 1;
+}
+
+.emu-dashboard__alarm {
+  justify-content: space-between;
+  border: 1px solid #252525;
+  border-radius: 8px;
+  background: #101010;
+  padding: 10px 12px;
+}
+
+.emu-dashboard__alarm.active {
+  border-color: #ef4444;
+  box-shadow: inset 0 0 14px rgba(239, 68, 68, 0.18);
+}
+
+.log-replay .overlay-chart,
+.log-replay .event-strip {
+  border-color: var(--logger-line);
+  background: #090909;
+}
+
+.log-replay .playhead-line {
+  background: rgba(255, 195, 0, 0.92);
+  box-shadow: 0 0 16px rgba(255, 195, 0, 0.5);
+}
+
+.log-replay .chart-grid,
+.log-replay .gg-ring {
+  stroke: #333333;
+}
+
+.overlay-tooltip {
+  position: absolute;
+  z-index: 4;
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+  max-width: min(260px, 80vw);
+  transform: translateX(10px);
+  border: 1px solid rgba(255, 195, 0, 0.58);
+  border-radius: 6px;
+  background: rgba(8, 8, 8, 0.94);
+  padding: 8px;
+  pointer-events: none;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
+}
+
+.overlay-tooltip strong {
+  color: #ffffff;
+}
+
+.overlay-tooltip span {
+  white-space: nowrap;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.settings-box {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.settings-box h4,
+.settings-box p {
+  margin: 0;
+}
+
+.settings-box p,
+.settings-box code,
+.derived-list {
+  color: var(--logger-muted);
+  font-size: 13px;
+}
+
+.settings-box input,
+.log-sensors-panel input {
+  min-width: 0;
+  padding: 8px;
+}
+
+.derived-list {
+  display: grid;
+  gap: 4px;
+}
+
+.log-sensor-table {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.log-sensor-table > div {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(90px, 120px) minmax(60px, 90px) minmax(70px, 90px);
+  gap: 10px;
+  align-items: center;
+  border-bottom: 1px solid #242424;
+  padding: 8px 2px;
+}
+
+.log-sensor-table__head {
+  color: var(--logger-yellow);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .telemetry-preview {
   margin: 16px 24px 0;
   padding: 14px;
@@ -1478,6 +1784,15 @@ textarea {
 
   .emu-speed {
     font-size: 28px;
+  }
+
+  .emu-dashboard__core {
+    grid-template-columns: 1fr;
+  }
+
+  .emu-dashboard__gear,
+  .emu-dashboard__speed {
+    justify-self: stretch;
   }
 }
 
