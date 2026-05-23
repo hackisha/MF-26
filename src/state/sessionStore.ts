@@ -16,20 +16,22 @@ export type SessionSnapshot = {
   profiles: VehicleProfile[];
   selectedProfileId: string;
   session: AnalysisSession | null;
-  currentTimeSec: number;
+  currentTimeSec: number | null;
   selectedEventId: string | null;
   selectedOverlayId: string | null;
 };
 
-type DesktopApi = {
-  openCsv?: () => Promise<CsvOpenResult | null>;
+type MfLogAnalyzerApi = {
+  openCsv: () => Promise<CsvOpenResult | null>;
+  saveHtmlReport: (html: string) => Promise<string | null>;
+  popout: (route: string) => Promise<boolean>;
   setSessionSnapshot?: (snapshot: SessionSnapshot) => Promise<void> | void;
   getSessionSnapshot?: () => Promise<SessionSnapshot | null> | SessionSnapshot | null;
 };
 
 declare global {
   interface Window {
-    mfLogAnalyzer?: DesktopApi;
+    mfLogAnalyzer?: MfLogAnalyzerApi;
   }
 }
 
@@ -37,15 +39,15 @@ type SessionState = {
   profiles: VehicleProfile[];
   selectedProfileId: string;
   session: AnalysisSession | null;
-  currentTimeSec: number;
+  currentTimeSec: number | null;
   selectedEventId: string | null;
   selectedOverlay: OverlayPreset | null;
   setSelectedProfileId: (profileId: string) => void;
   openCsv: () => Promise<void>;
   addManualSegment: (name: string, startSec: number, endSec: number) => void;
-  setCurrentTimeSec: (currentTimeSec: number) => void;
+  setCurrentTimeSec: (currentTimeSec: number | null) => void;
   setSelectedEventId: (selectedEventId: string | null) => void;
-  setSelectedOverlay: (overlayId: string | null) => void;
+  setSelectedOverlay: (overlay: OverlayPreset | null) => void;
   updateProfile: (profile: VehicleProfile) => void;
 };
 
@@ -66,8 +68,13 @@ function overlayForProfile(profile: VehicleProfile, overlayId?: string | null): 
   return profile.overlays[0] ?? null;
 }
 
-function firstTimestampSec(session: AnalysisSession | null): number {
-  return session?.log.rows[0]?.timestampSec ?? 0;
+function selectedOverlayForProfile(profile: VehicleProfile, overlay: OverlayPreset | null): OverlayPreset | null {
+  if (overlay && profile.overlays.some((profileOverlay) => profileOverlay.id === overlay.id)) return overlay;
+  return profile.overlays[0] ?? null;
+}
+
+function firstTimestampSec(session: AnalysisSession | null): number | null {
+  return session?.log.rows[0]?.timestampSec ?? null;
 }
 
 function manualSegments(segments: Segment[]): Segment[] {
@@ -110,7 +117,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
     profiles: defaultProfiles,
     selectedProfileId: initialProfile.id,
     session: null,
-    currentTimeSec: 0,
+    currentTimeSec: null,
     selectedEventId: null,
     selectedOverlay: overlayForProfile(initialProfile),
     setSelectedProfileId: (profileId) => {
@@ -124,7 +131,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
       void publishSessionSnapshot();
     },
     openCsv: async () => {
-      const result = await window.mfLogAnalyzer?.openCsv?.();
+      const result = await window.mfLogAnalyzer?.openCsv();
       if (!result) return;
 
       const { profiles, selectedProfileId } = get();
@@ -159,11 +166,11 @@ export const useSessionStore = create<SessionState>((set, get) => {
       set({ selectedEventId });
       void publishSessionSnapshot();
     },
-    setSelectedOverlay: (overlayId) => {
+    setSelectedOverlay: (overlay) => {
       const { profiles, selectedProfileId } = get();
       const profile = profileById(profiles, selectedProfileId);
 
-      set({ selectedOverlay: overlayForProfile(profile, overlayId) });
+      set({ selectedOverlay: selectedOverlayForProfile(profile, overlay) });
       void publishSessionSnapshot();
     },
     updateProfile: (profile) => {
