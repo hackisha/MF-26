@@ -57,12 +57,17 @@ function maxCorrectedG(log: AppliedLog): number | null {
 }
 
 function durationSec(log: AppliedLog): number {
-  if (log.rows.length === 0) return 0;
+  let minimum: number | null = null;
+  let maximum: number | null = null;
 
-  const first = log.rows[0].timestampSec;
-  const last = log.rows[log.rows.length - 1].timestampSec;
+  for (const row of log.rows) {
+    if (!isFiniteNumber(row.timestampSec)) continue;
+    minimum = minimum === null ? row.timestampSec : Math.min(minimum, row.timestampSec);
+    maximum = maximum === null ? row.timestampSec : Math.max(maximum, row.timestampSec);
+  }
 
-  return Math.max(0, last - first);
+  if (minimum === null || maximum === null) return 0;
+  return Math.max(0, maximum - minimum);
 }
 
 function countEvents(events: DetectedEvent[], severity: DetectedEvent["severity"]): number {

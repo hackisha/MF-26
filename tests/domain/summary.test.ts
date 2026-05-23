@@ -74,6 +74,67 @@ describe("summarizeLog", () => {
     expect(summary.maxCorrectedG).toBe(1.6);
   });
 
+  it("uses the full finite timestamp range for non-monotonic logs", () => {
+    expect(
+      summarizeLog(
+        testLog([row(0, 0, {}), row(1, 10, {}), row(2, 5, {})]),
+        []
+      ).durationSec
+    ).toBe(10);
+    expect(
+      summarizeLog(
+        testLog([row(0, 10, {}), row(1, 0, {})]),
+        []
+      ).durationSec
+    ).toBe(10);
+  });
+
+  it("summarizes empty logs with null metrics and event counts", () => {
+    const summary = summarizeLog(testLog([]), [
+      {
+        id: "empty-warning",
+        ruleId: "empty-warning",
+        name: "Empty Warning",
+        severity: "warning",
+        startSec: 0,
+        endSec: 0,
+        description: "warning event"
+      },
+      {
+        id: "empty-critical",
+        ruleId: "empty-critical",
+        name: "Empty Critical",
+        severity: "critical",
+        startSec: 0,
+        endSec: 0,
+        description: "critical event"
+      }
+    ]);
+
+    expect(summary).toEqual({
+      durationSec: 0,
+      maxSpeedKph: null,
+      maxRpm: null,
+      maxCorrectedG: null,
+      maxEotInC: null,
+      minOilPressureBar: null,
+      warningEventCount: 1,
+      criticalEventCount: 1
+    });
+  });
+
+  it("falls back to VSS speed when GPS speed has no finite values", () => {
+    const summary = summarizeLog(
+      testLog([
+        row(0, 0, { GPS_Speed_KPH: null, VSS_kmh: 35 }),
+        row(1, 1, { GPS_Speed_KPH: Number.NaN, VSS_kmh: 42 })
+      ]),
+      []
+    );
+
+    expect(summary.maxSpeedKph).toBe(42);
+  });
+
   it("scans large logs without spreading channel values into function arguments", () => {
     const rows = Array.from({ length: 150_000 }, (_, index) =>
       row(index, index * 0.1, {
