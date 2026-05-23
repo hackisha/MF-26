@@ -101,7 +101,7 @@ function suspiciousAdxlScaleFinding(log: AppliedLog): DiagnosticFinding | null {
     severity: "info",
     title: "Suspicious raw ADXL scale",
     detail: "Raw lateral acceleration is high while the corrected ADXL345 channel remains in the expected range.",
-    affectedChannelIds: ["ay_g", "ay_corrected_g"]
+    affectedChannelIds: ["ax_g", "ay_g", "az_g", "ax_corrected_g", "ay_corrected_g", "az_corrected_g"]
   };
 }
 

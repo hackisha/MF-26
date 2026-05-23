@@ -23,6 +23,20 @@ describe("runDiagnostics", () => {
     );
   });
 
+  it("reports suspicious raw ADXL scale against every raw and corrected accel channel", () => {
+    const findings = runDiagnostics(loadAppliedLog(), profile2025);
+    const suspiciousAdxl = findings.find((finding) => finding.id === "suspicious-raw-adxl-scale");
+
+    expect(suspiciousAdxl?.affectedChannelIds).toEqual([
+      "ax_g",
+      "ay_g",
+      "az_g",
+      "ax_corrected_g",
+      "ay_corrected_g",
+      "az_corrected_g"
+    ]);
+  });
+
   it("reports low battery voltage against Batt_V as a warning", () => {
     const findings = runDiagnostics(loadAppliedLog(), profile2025);
     const lowBattery = findings.find((finding) => finding.id === "low-battery-voltage");
