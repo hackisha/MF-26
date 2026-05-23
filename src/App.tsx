@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { fileNameFromPath, hydrateSessionSnapshot, useSessionStore } from "./state/sessionStore";
+import { Layout } from "./ui/Layout";
 
 export default function App() {
   const profiles = useSessionStore((state) => state.profiles);
@@ -39,19 +40,7 @@ export default function App() {
           </button>
         </div>
       </header>
-      <section className="empty-state">
-        {session ? (
-          <>
-            <h2>{session.log.fileName}</h2>
-            <p>
-              {session.log.rows.length.toLocaleString()} rows, {session.diagnostics.length.toLocaleString()} diagnostics,{" "}
-              {session.events.length.toLocaleString()} events.
-            </p>
-          </>
-        ) : (
-          "No log loaded."
-        )}
-      </section>
+      <Layout />
     </main>
   );
 }
