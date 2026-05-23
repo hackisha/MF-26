@@ -1,0 +1,9 @@
+{
+  "name": "Elec App",
+  "short_name": "Elec App",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f7f8",
+  "theme_color": "#12343b",
+  "description": "Offline wiring debugger for MF-26 engine/elec team"
+}
