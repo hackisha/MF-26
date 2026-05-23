@@ -78,7 +78,7 @@ const profile2026Channels: Record<string, SensorChannel> = {
 const defaultRules: ThresholdRule[] = [
   {
     id: "high-rpm-low-oil-pressure",
-    name: "High RPM Low Oil Pressure",
+    name: "High RPM Oil Pressure Drop",
     severity: "critical",
     all: [
       { channelId: "RPM", op: ">", value: 6000 },
@@ -122,14 +122,15 @@ const baseOverlays: OverlayPreset[] = [
     mode: "separateAxes"
   },
   {
-    id: "driver-input-vs-response",
+    id: "gg-inputs",
     name: "Driver Input vs Response",
     channelIds: ["TPS_percent", "ay_corrected_g"],
     mode: "normalized"
   }
 ];
 
-const defaultReportSections = ["summary", "diagnostics", "graphs", "events"];
+const reportSections2025 = ["summary", "diagnostics", "events", "overlays", "behavior", "segments"];
+const reportSections2026 = ["summary", "diagnostics", "events", "overlays", "behavior", "map", "segments"];
 
 export const defaultProfiles: VehicleProfile[] = [
   {
@@ -139,7 +140,7 @@ export const defaultProfiles: VehicleProfile[] = [
     channels: baseChannels,
     rules: defaultRules,
     overlays: baseOverlays,
-    reportSections: defaultReportSections
+    reportSections: reportSections2025
   },
   {
     id: "2026-vehicle",
@@ -156,6 +157,6 @@ export const defaultProfiles: VehicleProfile[] = [
         mode: "separateAxes"
       }
     ],
-    reportSections: defaultReportSections
+    reportSections: reportSections2026
   }
 ];
