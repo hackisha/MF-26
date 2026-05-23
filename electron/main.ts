@@ -1,25 +1,38 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import fs from "node:fs/promises";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.VITE_DEV_SERVER_URL !== undefined || !app.isPackaged;
 const devOrigin = "http://127.0.0.1:5173";
 const maxHtmlReportBytes = 10 * 1024 * 1024;
+const rendererEntryUrl = pathToFileURL(path.join(__dirname, "../dist/index.html")).toString();
 
 function rendererUrl(route = "/") {
   if (isDev) {
     return `${devOrigin}${route}`;
   }
-  return `file://${path.join(__dirname, "../dist/index.html")}${route === "/" ? "" : `#${route}`}`;
+  return `${rendererEntryUrl}${route === "/" ? "" : `#${route}`}`;
 }
 
 function isAllowedNavigation(url: string) {
   if (isDev) {
     return url.startsWith(`${devOrigin}/`) || url === devOrigin;
   }
-  return url.startsWith("file://");
+  return url === rendererEntryUrl || url.startsWith(`${rendererEntryUrl}#`);
+}
+
+function validateRoute(route: unknown) {
+  if (typeof route !== "string") {
+    throw new Error("Pop-out route must be a string.");
+  }
+
+  if (!route.startsWith("/") || route.startsWith("//") || /^[a-z][a-z0-9+.-]*:/i.test(route)) {
+    throw new Error("Pop-out route must be an app-local path.");
+  }
+
+  return route;
 }
 
 function createWindow(route = "/") {
@@ -92,7 +105,7 @@ ipcMain.handle("file:saveHtmlReport", async (_event, html: string) => {
   return result.filePath;
 });
 
-ipcMain.handle("view:popout", async (_event, route: string) => {
-  createWindow(route);
+ipcMain.handle("view:popout", async (_event, route: unknown) => {
+  createWindow(validateRoute(route));
   return true;
 });
