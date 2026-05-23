@@ -25,7 +25,7 @@ const workspaceItems: Array<{
   description: string;
   icon: typeof Gauge;
 }> = [
-  { id: "logReplay", label: "로그 재생", description: "CSV 리플레이", icon: Gauge },
+  { id: "logReplay", label: "로그 분석", description: "CSV 분석/재생", icon: Gauge },
   { id: "wiring", label: "배선 디버거", description: "핀/커넥터 추적", icon: Cable },
   { id: "references", label: "자료 보관함", description: "배선도/규정/데이터시트", icon: BookOpen },
   { id: "settings", label: "프로젝트", description: "업로드/내보내기", icon: Settings },
@@ -247,10 +247,10 @@ export default function App() {
               <ActiveIcon size={17} aria-hidden="true" />
               {activeItem.label}
             </span>
-            <h1>{activeWorkspace === "logReplay" ? "EMU 로그 재생" : activeItem.label}</h1>
+            <h1>{activeWorkspace === "logReplay" ? "주행 데이터 분석" : activeItem.label}</h1>
             <p>
               {activeWorkspace === "logReplay"
-                ? "기록된 CSV를 재생하면서 센서, GPS, G-G, 이벤트를 같은 시간축에서 확인합니다."
+                ? "CSV 로그를 GPS, G-G, 센서 시계열, 이벤트 기준으로 나누어 한 화면에서 확인합니다."
                 : activeWorkspace === "wiring"
                   ? "EasyEDA 회로도에서 ECU, 커넥터, 센서 핀의 연결 경로를 추적합니다."
                   : activeWorkspace === "references"
@@ -264,7 +264,9 @@ export default function App() {
           </div>
         </header>
 
-        {activeWorkspace === "logReplay" ? <LogReplayTab /> : null}
+        <section className="workspace-view" hidden={activeWorkspace !== "logReplay"} aria-hidden={activeWorkspace !== "logReplay"}>
+          <LogReplayTab />
+        </section>
 
         {activeWorkspace === "wiring" ? (
           <>
