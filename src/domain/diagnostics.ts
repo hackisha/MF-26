@@ -12,12 +12,25 @@ function hasAnyValue(log: AppliedLog, channelId: string): boolean {
 
 function minValue(log: AppliedLog, channelId: string): number | null {
   const values = valuesFor(log, channelId);
-  return values.length > 0 ? Math.min(...values) : null;
+  let minimum: number | null = null;
+
+  for (const value of values) {
+    minimum = minimum === null ? value : Math.min(minimum, value);
+  }
+
+  return minimum;
 }
 
 function maxAbs(log: AppliedLog, channelId: string): number | null {
   const values = valuesFor(log, channelId);
-  return values.length > 0 ? Math.max(...values.map((value) => Math.abs(value))) : null;
+  let maximum: number | null = null;
+
+  for (const value of values) {
+    const absoluteValue = Math.abs(value);
+    maximum = maximum === null ? absoluteValue : Math.max(maximum, absoluteValue);
+  }
+
+  return maximum;
 }
 
 function hasSourceColumn(rawHeaders: Set<string>, channel: SensorChannel): boolean {
