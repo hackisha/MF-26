@@ -1,12 +1,24 @@
 import type { AppliedLog, DetectedEvent, NumericLogRow, RuleCondition, ThresholdRule, VehicleProfile } from "./types";
 
 function compare(value: number, condition: RuleCondition): boolean {
-  if (condition.op === ">") return value > condition.value;
-  if (condition.op === ">=") return value >= condition.value;
-  if (condition.op === "<") return value < condition.value;
-  if (condition.op === "<=") return value <= condition.value;
-  if (condition.op === "==") return value === condition.value;
-  return value !== condition.value;
+  switch (condition.op) {
+    case ">":
+      return value > condition.value;
+    case ">=":
+      return value >= condition.value;
+    case "<":
+      return value < condition.value;
+    case "<=":
+      return value <= condition.value;
+    case "==":
+      return value === condition.value;
+    case "!=":
+      return value !== condition.value;
+    default: {
+      const exhaustiveCheck: never = condition.op;
+      return exhaustiveCheck;
+    }
+  }
 }
 
 function matchesCondition(row: NumericLogRow, condition: RuleCondition): boolean {
@@ -18,6 +30,7 @@ function matchesCondition(row: NumericLogRow, condition: RuleCondition): boolean
 function matchesRule(row: NumericLogRow, rule: ThresholdRule): boolean {
   const all = rule.all ?? [];
   const any = rule.any ?? [];
+  if (all.length === 0 && any.length === 0) return false;
 
   const allMatches = all.length === 0 || all.every((condition) => matchesCondition(row, condition));
   const anyMatches = any.length === 0 || any.some((condition) => matchesCondition(row, condition));
@@ -25,9 +38,9 @@ function matchesRule(row: NumericLogRow, rule: ThresholdRule): boolean {
   return allMatches && anyMatches;
 }
 
-function createEvent(rule: ThresholdRule, startSec: number, endSec: number): DetectedEvent {
+function createEvent(rule: ThresholdRule, eventOrdinal: number, startSec: number, endSec: number): DetectedEvent {
   return {
-    id: `${rule.id}-${startSec.toFixed(2)}`,
+    id: `${rule.id}-${eventOrdinal}-${startSec.toFixed(3)}`,
     ruleId: rule.id,
     name: rule.name,
     severity: rule.severity,
@@ -47,6 +60,7 @@ export function detectEvents(log: AppliedLog, profile: VehicleProfile): Detected
   for (const rule of profile.rules) {
     let openStartSec: number | null = null;
     let previousMatchedSec: number | null = null;
+    let eventOrdinal = 0;
 
     for (const row of log.rows) {
       if (matchesRule(row, rule)) {
@@ -56,7 +70,8 @@ export function detectEvents(log: AppliedLog, profile: VehicleProfile): Detected
       }
 
       if (openStartSec !== null && previousMatchedSec !== null && durationMeetsRule(openStartSec, previousMatchedSec, rule)) {
-        events.push(createEvent(rule, openStartSec, previousMatchedSec));
+        events.push(createEvent(rule, eventOrdinal, openStartSec, previousMatchedSec));
+        eventOrdinal += 1;
       }
 
       openStartSec = null;
@@ -64,7 +79,7 @@ export function detectEvents(log: AppliedLog, profile: VehicleProfile): Detected
     }
 
     if (openStartSec !== null && previousMatchedSec !== null && durationMeetsRule(openStartSec, previousMatchedSec, rule)) {
-      events.push(createEvent(rule, openStartSec, previousMatchedSec));
+      events.push(createEvent(rule, eventOrdinal, openStartSec, previousMatchedSec));
     }
   }
 

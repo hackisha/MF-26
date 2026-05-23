@@ -62,10 +62,19 @@ function rule(overrides: Partial<ThresholdRule>): ThresholdRule {
 describe("detectEvents", () => {
   it("detects configured events in the 2025 sample fixture", () => {
     const events = detectEvents(loadAppliedLog(), profile2025);
+    const highRpmLowOilPressure = events.find((event) => event.ruleId === "high-rpm-low-oil-pressure");
+    const lowBatteryVoltage = events.find((event) => event.ruleId === "low-battery-voltage");
 
-    expect(events.map((event) => event.ruleId)).toEqual(
-      expect.arrayContaining(["high-rpm-low-oil-pressure", "low-battery-voltage"])
-    );
+    expect(highRpmLowOilPressure).toMatchObject({
+      severity: "critical",
+      startSec: 0.2,
+      endSec: 1.5
+    });
+    expect(lowBatteryVoltage).toMatchObject({
+      severity: "warning",
+      startSec: 0.3,
+      endSec: 1.5
+    });
   });
 
   it("creates event-backed segments from detected events", () => {
@@ -132,6 +141,58 @@ describe("detectEvents", () => {
           minDurationSec: 0.5
         })
       ])
+    );
+
+    expect(events).toEqual([]);
+  });
+
+  it("uses only the first and last confirmed matching samples for duration", () => {
+    const events = detectEvents(
+      testLog([row(10, { Batt_V: 11.6 }), row(11.5, { Batt_V: 12.4 })]),
+      testProfile([
+        rule({
+          all: [{ channelId: "Batt_V", op: "<", value: 11.8 }],
+          minDurationSec: 1
+        })
+      ])
+    );
+
+    expect(events).toEqual([]);
+  });
+
+  it("emits final open events when confirmed matching sample span meets minDurationSec", () => {
+    const events = detectEvents(
+      testLog([row(10, { Batt_V: 11.6 }), row(11.5, { Batt_V: 11.6 })]),
+      testProfile([
+        rule({
+          all: [{ channelId: "Batt_V", op: "<", value: 11.8 }],
+          minDurationSec: 1
+        })
+      ])
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ startSec: 10, endSec: 11.5 });
+  });
+
+  it("uses stable unique IDs for same-rule windows that start in the same centisecond", () => {
+    const events = detectEvents(
+      testLog([
+        row(1.0041, { RPM: 7000 }),
+        row(1.0042, { RPM: 3000 }),
+        row(1.0043, { RPM: 7000 })
+      ]),
+      testProfile([rule({ all: [{ channelId: "RPM", op: ">", value: 6000 }] })])
+    );
+
+    expect(events).toHaveLength(2);
+    expect(new Set(events.map((event) => event.id)).size).toBe(events.length);
+  });
+
+  it("does not match rules without all or any conditions", () => {
+    const events = detectEvents(
+      testLog([row(0, { RPM: 7000 })]),
+      testProfile([rule({ all: undefined, any: undefined })])
     );
 
     expect(events).toEqual([]);
