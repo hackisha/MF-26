@@ -78,11 +78,13 @@ describe("TimeSeriesView", () => {
   });
 
   it("assigns separate y axes and layout definitions for separateAxes overlays", () => {
+    useSessionStore.getState().setCurrentTimeSec(1);
     render(<TimeSeriesView />);
 
     const traces = plotCalls.at(-1)?.data as Array<{ yaxis: string }>;
     const layout = plotCalls.at(-1)?.layout as Record<string, { title?: { text: string }; side?: string; overlaying?: string; position?: number }> & {
       xaxis: { domain?: [number, number] };
+      shapes?: Array<{ type: string; x0: number; x1: number; yref: string }>;
     };
 
     expect(traces.map((trace) => trace.yaxis)).toEqual(["y", "y2", "y3"]);
@@ -94,6 +96,7 @@ describe("TimeSeriesView", () => {
     expect(layout.xaxis.domain).toBeDefined();
     expect(layout.yaxis2.position).toBe(layout.xaxis.domain?.[1]);
     expect(layout.yaxis3.position).toBeLessThan(layout.xaxis.domain?.[0] ?? 0);
+    expect(layout.shapes?.[0]).toMatchObject({ type: "line", x0: 1, x1: 1, yref: "paper" });
   });
 
   it("normalizes normalized overlays to a 0-100 scale", () => {

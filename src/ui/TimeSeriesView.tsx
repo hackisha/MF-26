@@ -40,6 +40,17 @@ type PlotAxis = {
   position?: number;
 };
 
+type PlotShape = {
+  type: "line";
+  x0: number;
+  x1: number;
+  y0: 0;
+  y1: 1;
+  xref: "x";
+  yref: "paper";
+  line: { color: string; width: number; dash: "dot" };
+};
+
 type PlotLayout = {
   autosize: true;
   margin: { t: number; r: number; b: number; l: number };
@@ -50,6 +61,7 @@ type PlotLayout = {
   legend: { orientation: "h"; x: number; y: number };
   xaxis: { title: { text: string }; zeroline: false; domain?: [number, number] };
   yaxis: PlotAxis;
+  shapes?: PlotShape[];
   [axisKey: `yaxis${number}`]: PlotAxis;
 };
 
@@ -60,6 +72,10 @@ type AxisPadding = {
 
 function finiteOrNull(value: number): PlotPoint {
   return Number.isFinite(value) ? value : null;
+}
+
+function finiteNumber(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 function normalizeValues(values: PlotPoint[]): PlotPoint[] {
@@ -179,7 +195,20 @@ function tracesForChannels(overlay: OverlayPreset, rows: NumericLogRow[], channe
   }));
 }
 
-function layoutForChannels(overlay: OverlayPreset, channels: PlottableChannel[]): PlotLayout {
+function playbackCursorShape(currentTimeSec: number): PlotShape {
+  return {
+    type: "line",
+    x0: currentTimeSec,
+    x1: currentTimeSec,
+    y0: 0,
+    y1: 1,
+    xref: "x",
+    yref: "paper",
+    line: { color: "#b45309", width: 1.5, dash: "dot" }
+  };
+}
+
+function layoutForChannels(overlay: OverlayPreset, channels: PlottableChannel[], currentTimeSec: number | null): PlotLayout {
   const domain = xAxisDomain(channels.length, overlay);
   const padding = axisPadding(channels.length);
   const layout: PlotLayout = {
@@ -201,7 +230,8 @@ function layoutForChannels(overlay: OverlayPreset, channels: PlottableChannel[])
       zeroline: false,
       automargin: true,
       side: "left"
-    }
+    },
+    ...(finiteNumber(currentTimeSec) ? { shapes: [playbackCursorShape(currentTimeSec)] } : {})
   };
 
   if (overlay.mode === "separateAxes") {
@@ -230,12 +260,16 @@ type LoadedTimeSeriesViewProps = {
 };
 
 function LoadedTimeSeriesView({ session, profile, overlay, setSelectedOverlay }: LoadedTimeSeriesViewProps) {
+  const currentTimeSec = useSessionStore((state) => state.currentTimeSec);
   const channels = useMemo(
     () => (overlay ? plottableChannels(profile, overlay, session.log.rows) : []),
     [overlay, profile, session.log.rows]
   );
   const traces = useMemo(() => (overlay ? tracesForChannels(overlay, session.log.rows, channels) : []), [channels, overlay, session.log.rows]);
-  const layout = useMemo(() => (overlay && channels.length > 0 ? layoutForChannels(overlay, channels) : null), [channels, overlay]);
+  const layout = useMemo(
+    () => (overlay && channels.length > 0 ? layoutForChannels(overlay, channels, currentTimeSec) : null),
+    [channels, currentTimeSec, overlay]
+  );
 
   return (
     <section className="time-series-view" aria-label="Time-series graph">

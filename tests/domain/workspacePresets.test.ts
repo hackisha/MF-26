@@ -23,12 +23,10 @@ describe("workspacePresets", () => {
     ]);
     expect(defaultWorkspacePresets.find((preset) => preset.id === "cooling-review")?.panels.map((panel) => panel.view)).toEqual([
       "time-series",
-      "playback",
       "map-lap"
     ]);
     expect(defaultWorkspacePresets.find((preset) => preset.id === "vehicle-behavior")?.panels.map((panel) => panel.view)).toEqual([
       "behavior",
-      "playback",
       "map-lap"
     ]);
   });

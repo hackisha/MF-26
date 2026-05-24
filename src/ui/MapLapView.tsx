@@ -4,7 +4,7 @@ import createPlotlyComponent from "react-plotly.js/factory";
 import Plotly from "plotly.js-dist-min";
 import { useSessionStore } from "../state/sessionStore";
 import type { AnalysisSession, DetectedEvent, NumericLogRow, Segment } from "../domain/types";
-import type { Map as LeafletMap } from "leaflet";
+import type { CircleMarker, Map as LeafletMap } from "leaflet";
 import { SeverityBadge } from "./SeverityBadge";
 
 const Plot = createPlotlyComponent(Plotly);
@@ -21,16 +21,17 @@ type MapTrace = {
   y: number[];
   text: string[];
   type: "scatter";
-  mode: "lines+markers";
+  mode: "lines+markers" | "markers";
   name: string;
-  line: { color: string; width: number };
+  line?: { color: string; width: number };
   marker: {
-    color: number[];
-    colorscale: string;
+    color: number[] | string;
+    colorscale?: string;
     size: number;
     opacity: number;
-    colorbar: { title: { text: string } };
+    colorbar?: { title: { text: string } };
     line: { color: string; width: number };
+    symbol?: string;
   };
   hovertemplate: string;
 };
@@ -85,6 +86,25 @@ function coordinatePoints(rows: NumericLogRow[]): CoordinatePoint[] {
     .filter((point): point is CoordinatePoint => point !== null);
 }
 
+function nearestCoordinatePoint(points: CoordinatePoint[], timeSec: number | null): CoordinatePoint | null {
+  const targetTimeSec = finiteNumber(timeSec);
+  if (targetTimeSec === null || points.length === 0) return null;
+  if (targetTimeSec <= points[0].timestampSec) return points[0];
+  if (targetTimeSec >= points[points.length - 1].timestampSec) return points[points.length - 1];
+
+  let low = 0;
+  let high = points.length - 1;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (points[mid].timestampSec < targetTimeSec) low = mid + 1;
+    else high = mid;
+  }
+
+  const after = points[low];
+  const before = points[low - 1];
+  return Math.abs(after.timestampSec - targetTimeSec) < Math.abs(targetTimeSec - before.timestampSec) ? after : before;
+}
+
 function maxSpeed(points: CoordinatePoint[]): number | null {
   const speeds = points.map((point) => point.speedKph).filter((speed): speed is number => speed !== null);
   if (speeds.length === 0) return null;
@@ -99,8 +119,8 @@ function formatSpeed(value: number | null): string {
   return value === null ? "n/a" : `${value.toFixed(1)} km/h`;
 }
 
-function mapTrace(points: CoordinatePoint[]): MapTrace[] {
-  return [
+function mapTrace(points: CoordinatePoint[], currentPoint: CoordinatePoint | null): MapTrace[] {
+  const traces: MapTrace[] = [
     {
       x: points.map((point) => point.longitude),
       y: points.map((point) => point.latitude),
@@ -120,6 +140,27 @@ function mapTrace(points: CoordinatePoint[]): MapTrace[] {
       hovertemplate: "Lon %{x:.6f}<br>Lat %{y:.6f}<br>%{text}<extra></extra>"
     }
   ];
+
+  if (currentPoint) {
+    traces.push({
+      x: [currentPoint.longitude],
+      y: [currentPoint.latitude],
+      text: [`t=${formatSeconds(currentPoint.timestampSec)}, speed=${formatSpeed(currentPoint.speedKph)}`],
+      type: "scatter",
+      mode: "markers",
+      name: "Current playback position",
+      marker: {
+        color: "#be123c",
+        size: 15,
+        opacity: 0.96,
+        symbol: "diamond",
+        line: { color: "#ffffff", width: 2 }
+      },
+      hovertemplate: "Current<br>Lon %{x:.6f}<br>Lat %{y:.6f}<br>%{text}<extra></extra>"
+    });
+  }
+
+  return traces;
 }
 
 function mapLayout(): MapLayout {
@@ -157,9 +198,30 @@ function segmentRange(segment: Segment): string {
   return `${formatSeconds(segment.startSec)} - ${formatSeconds(segment.endSec)}`;
 }
 
-function OnlineLeafletMap({ points }: { points: CoordinatePoint[] }) {
+function OnlineLeafletMap({ points, currentPoint }: { points: CoordinatePoint[]; currentPoint: CoordinatePoint | null }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const currentMarkerRef = useRef<CircleMarker | null>(null);
+  const currentPointRef = useRef<CoordinatePoint | null>(currentPoint);
+  const leafletRef = useRef<Awaited<typeof import("leaflet")> | null>(null);
+  const mapRef = useRef<LeafletMap | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
+
+  function drawCurrentMarker(point: CoordinatePoint | null) {
+    const L = leafletRef.current;
+    const map = mapRef.current;
+
+    currentMarkerRef.current?.remove();
+    currentMarkerRef.current = null;
+    if (!L || !map || !point) return;
+
+    currentMarkerRef.current = L.circleMarker([point.latitude, point.longitude], {
+      radius: 8,
+      color: "#be123c",
+      fillColor: "#be123c",
+      fillOpacity: 0.9,
+      weight: 2
+    }).addTo(map);
+  }
 
   useEffect(() => {
     let disposed = false;
@@ -172,10 +234,12 @@ function OnlineLeafletMap({ points }: { points: CoordinatePoint[] }) {
         const L = await import("leaflet");
         if (disposed || !containerRef.current) return;
 
+        leafletRef.current = L;
         map = L.map(containerRef.current, {
           zoomControl: true,
           scrollWheelZoom: true
         });
+        mapRef.current = map;
 
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
           maxZoom: 19,
@@ -192,6 +256,7 @@ function OnlineLeafletMap({ points }: { points: CoordinatePoint[] }) {
           fillOpacity: 1,
           weight: 3
         }).addTo(map);
+        drawCurrentMarker(currentPointRef.current);
 
         const bounds = L.latLngBounds(latLngs);
         if (bounds.isValid()) {
@@ -208,9 +273,18 @@ function OnlineLeafletMap({ points }: { points: CoordinatePoint[] }) {
 
     return () => {
       disposed = true;
+      currentMarkerRef.current?.remove();
+      currentMarkerRef.current = null;
+      mapRef.current = null;
+      leafletRef.current = null;
       map?.remove();
     };
   }, [points]);
+
+  useEffect(() => {
+    currentPointRef.current = currentPoint;
+    drawCurrentMarker(currentPoint);
+  }, [currentPoint]);
 
   return (
     <div className="online-map-shell">
@@ -228,6 +302,7 @@ function OnlineLeafletMap({ points }: { points: CoordinatePoint[] }) {
 
 function LoadedMapLapView({ session }: { session: AnalysisSession }) {
   const addManualSegment = useSessionStore((state) => state.addManualSegment);
+  const currentTimeSec = useSessionStore((state) => state.currentTimeSec);
   const [mapMode, setMapMode] = useState<MapMode>("offline");
   const [name, setName] = useState("");
   const [startSec, setStartSec] = useState("");
@@ -235,7 +310,8 @@ function LoadedMapLapView({ session }: { session: AnalysisSession }) {
   const [error, setError] = useState<string | null>(null);
 
   const points = useMemo(() => coordinatePoints(session.log.rows), [session.log.rows]);
-  const traces = useMemo(() => mapTrace(points), [points]);
+  const currentPoint = useMemo(() => nearestCoordinatePoint(points, currentTimeSec), [currentTimeSec, points]);
+  const traces = useMemo(() => mapTrace(points, currentPoint), [currentPoint, points]);
   const layout = useMemo(() => mapLayout(), []);
   const plottedMaxSpeed = useMemo(() => maxSpeed(points), [points]);
   const onlineMapEnabled = mapMode === "online";
@@ -309,7 +385,7 @@ function LoadedMapLapView({ session }: { session: AnalysisSession }) {
               <p>This offline fallback needs finite Longitude and Latitude samples.</p>
             </div>
           ) : onlineMapEnabled ? (
-            <OnlineLeafletMap points={points} />
+            <OnlineLeafletMap points={points} currentPoint={currentPoint} />
           ) : (
             <Plot
               data={traces}

@@ -47,8 +47,7 @@ export const defaultWorkspacePresets: WorkspacePreset[] = [
     id: "cooling-review",
     name: "Cooling Review",
     panels: [
-      { id: "cooling-graph", view: "time-series", title: workspacePanelLabels["time-series"], x: 0, y: 0, width: 8, height: 5 },
-      { id: "cooling-playback", view: "playback", title: workspacePanelLabels.playback, x: 8, y: 0, width: 4, height: 3 },
+      { id: "cooling-graph", view: "time-series", title: workspacePanelLabels["time-series"], x: 0, y: 0, width: 12, height: 5 },
       { id: "cooling-map", view: "map-lap", title: workspacePanelLabels["map-lap"], x: 0, y: 5, width: 12, height: 3 }
     ]
   },
@@ -56,8 +55,7 @@ export const defaultWorkspacePresets: WorkspacePreset[] = [
     id: "vehicle-behavior",
     name: "Vehicle Behavior",
     panels: [
-      { id: "behavior-model", view: "behavior", title: workspacePanelLabels.behavior, x: 0, y: 0, width: 8, height: 5 },
-      { id: "behavior-playback", view: "playback", title: workspacePanelLabels.playback, x: 8, y: 0, width: 4, height: 3 },
+      { id: "behavior-model", view: "behavior", title: workspacePanelLabels.behavior, x: 0, y: 0, width: 12, height: 5 },
       { id: "behavior-map", view: "map-lap", title: workspacePanelLabels["map-lap"], x: 0, y: 5, width: 12, height: 3 }
     ]
   },
@@ -66,8 +64,7 @@ export const defaultWorkspacePresets: WorkspacePreset[] = [
     name: "Engine Safety",
     panels: [
       { id: "safety-diagnostics", view: "diagnostics", title: workspacePanelLabels.diagnostics, x: 0, y: 0, width: 4, height: 8 },
-      { id: "safety-graph", view: "time-series", title: workspacePanelLabels["time-series"], x: 4, y: 0, width: 8, height: 5 },
-      { id: "safety-playback", view: "playback", title: workspacePanelLabels.playback, x: 4, y: 5, width: 8, height: 3 }
+      { id: "safety-graph", view: "time-series", title: workspacePanelLabels["time-series"], x: 4, y: 0, width: 8, height: 8 }
     ]
   }
 ];

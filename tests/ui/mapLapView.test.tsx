@@ -103,12 +103,14 @@ describe("MapLapView", () => {
   });
 
   it("filters unusable coordinates and colors points by GPS speed with VSS fallback", () => {
+    useSessionStore.getState().setCurrentTimeSec(1.1);
     render(<MapLapView />);
 
     const traces = plotCalls.at(-1)?.data as Array<{
       x: number[];
       y: number[];
       text: string[];
+      name: string;
       marker: { color: number[]; colorbar: { title: { text: string } } };
       mode: string;
       type: string;
@@ -127,6 +129,7 @@ describe("MapLapView", () => {
     ]);
     expect(traces[0].mode).toBe("lines+markers");
     expect(traces[0].type).toBe("scatter");
+    expect(traces[1]).toMatchObject({ name: "Current playback position", x: [127.2], y: [37.2], mode: "markers" });
     expect(layout.yaxis.scaleanchor).toBe("x");
     expect(layout.yaxis.scaleratio).toBe(1);
     expect(layout.xaxis.title.text).toBe("Longitude");

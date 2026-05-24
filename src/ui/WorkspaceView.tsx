@@ -15,6 +15,7 @@ import {
   type WorkspacePreset
 } from "../domain/workspacePresets";
 import { DiagnosticsView } from "./DiagnosticsView";
+import { PlaybackControls } from "./PlaybackControls";
 import { SummaryView } from "./SummaryView";
 
 const TimeSeriesView = lazy(() => import("./TimeSeriesView").then((module) => ({ default: module.TimeSeriesView })));
@@ -263,6 +264,14 @@ export function WorkspaceView({ renderPanel = defaultRenderPanel }: WorkspaceVie
           </span>
         ) : null}
       </div>
+
+      <PlaybackControls
+        title="Shared CSV Playback"
+        description="Drive the shared time cursor for every panel in this workspace."
+        className="workspace-playback-rail"
+        ariaLabel="Workspace playback controls"
+        emptyMessage="Open a CSV log to replay it across this workspace."
+      />
 
       <div
         className="workspace-desktop"
