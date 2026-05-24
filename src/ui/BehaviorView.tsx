@@ -1,11 +1,17 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import createPlotlyComponent from "react-plotly.js/factory";
 import Plotly from "plotly.js-dist-min";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { useSessionStore } from "../state/sessionStore";
 import type { AnalysisSession, NumericLogRow } from "../domain/types";
 
 const Plot = createPlotlyComponent(Plotly);
+const vehicleModelUrl = "/models/car.glb";
+
+type CloneableObject3D = object & {
+  clone: (recursive?: boolean) => CloneableObject3D;
+};
 
 type GgPoint = {
   ax: number;
@@ -292,6 +298,73 @@ function cueScale(snapshot: MotionCueSnapshot): { x: number; y: number; z: numbe
   return snapshot.source === "gyro" ? { x: 160, y: 160, z: 180 } : { x: 2.5, y: 2.5, z: 2.5 };
 }
 
+function FallbackVehicleBody() {
+  return (
+    <>
+      <mesh position={[0, 0.25, 0]}>
+        <boxGeometry args={[2.4, 0.32, 1.05]} />
+        <meshStandardMaterial color="#0f766e" roughness={0.45} metalness={0.12} />
+      </mesh>
+      <mesh position={[1.38, 0.25, 0]} rotation={[0, 0, -Math.PI / 2]}>
+        <coneGeometry args={[0.45, 0.82, 4]} />
+        <meshStandardMaterial color="#d97706" roughness={0.38} metalness={0.08} />
+      </mesh>
+      <mesh position={[-1.05, 0.36, 0]}>
+        <boxGeometry args={[0.34, 0.45, 1.2]} />
+        <meshStandardMaterial color="#155e75" roughness={0.5} />
+      </mesh>
+      {[
+        [-0.78, -0.05, -0.66],
+        [-0.78, -0.05, 0.66],
+        [0.82, -0.05, -0.66],
+        [0.82, -0.05, 0.66]
+      ].map(([x, y, z]) => (
+        <mesh key={`${x}-${z}`} position={[x, y, z]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.22, 0.22, 0.18, 24]} />
+          <meshStandardMaterial color="#172026" roughness={0.7} />
+        </mesh>
+      ))}
+      <mesh position={[1.9, 0.25, 0]} rotation={[0, 0, -Math.PI / 2]}>
+        <coneGeometry args={[0.13, 0.42, 24]} />
+        <meshStandardMaterial color="#be123c" emissive="#7f1d1d" emissiveIntensity={0.12} />
+      </mesh>
+    </>
+  );
+}
+
+function GlbVehicleBody({ modelUrl = vehicleModelUrl }: { modelUrl?: string }) {
+  const [loadedScene, setLoadedScene] = useState<CloneableObject3D | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadedScene(null);
+    setFailed(false);
+
+    const loader = new GLTFLoader();
+    loader.load(
+      modelUrl,
+      (gltf) => {
+        if (!cancelled) setLoadedScene(gltf.scene);
+      },
+      undefined,
+      () => {
+        if (!cancelled) setFailed(true);
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [modelUrl]);
+
+  const scene = useMemo(() => loadedScene?.clone(true) ?? null, [loadedScene]);
+
+  if (failed || !scene) return <FallbackVehicleBody />;
+
+  return <primitive object={scene} position={[0.06, -0.09, 0]} scale={0.55} />;
+}
+
 function VehicleTendencyModel({ snapshot }: { snapshot: MotionCueSnapshot }) {
   const scale = cueScale(snapshot);
   const pitch = scaledCue(snapshot.y, scale.y, 0.34);
@@ -300,37 +373,11 @@ function VehicleTendencyModel({ snapshot }: { snapshot: MotionCueSnapshot }) {
   const yawCue = clamp(Math.abs(snapshot.z) / (snapshot.source === "gyro" ? 120 : 1.4), 0.18, 1);
 
   return (
-    <Canvas camera={{ position: [4, 3, 5], fov: 42 }} className="behavior-canvas">
+    <Canvas camera={{ position: [4, 3, 5], fov: 42 }} className="behavior-canvas" gl={{ preserveDrawingBuffer: true }}>
       <ambientLight intensity={0.6} />
       <directionalLight position={[4, 6, 5]} intensity={1.2} />
       <group rotation={[pitch, yaw, -roll]}>
-        <mesh position={[0, 0.25, 0]}>
-          <boxGeometry args={[2.4, 0.32, 1.05]} />
-          <meshStandardMaterial color="#0f766e" roughness={0.45} metalness={0.12} />
-        </mesh>
-        <mesh position={[1.38, 0.25, 0]} rotation={[0, 0, -Math.PI / 2]}>
-          <coneGeometry args={[0.45, 0.82, 4]} />
-          <meshStandardMaterial color="#d97706" roughness={0.38} metalness={0.08} />
-        </mesh>
-        <mesh position={[-1.05, 0.36, 0]}>
-          <boxGeometry args={[0.34, 0.45, 1.2]} />
-          <meshStandardMaterial color="#155e75" roughness={0.5} />
-        </mesh>
-        {[
-          [-0.78, -0.05, -0.66],
-          [-0.78, -0.05, 0.66],
-          [0.82, -0.05, -0.66],
-          [0.82, -0.05, 0.66]
-        ].map(([x, y, z]) => (
-          <mesh key={`${x}-${z}`} position={[x, y, z]} rotation={[Math.PI / 2, 0, 0]}>
-            <cylinderGeometry args={[0.22, 0.22, 0.18, 24]} />
-            <meshStandardMaterial color="#172026" roughness={0.7} />
-          </mesh>
-        ))}
-        <mesh position={[1.9, 0.25, 0]} rotation={[0, 0, -Math.PI / 2]}>
-          <coneGeometry args={[0.13, 0.42, 24]} />
-          <meshStandardMaterial color="#be123c" emissive="#7f1d1d" emissiveIntensity={0.12} />
-        </mesh>
+        <GlbVehicleBody />
       </group>
       <mesh position={[0, -0.36, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[1.55, 1.61, 48, 1, 0, Math.PI * yawCue]} />

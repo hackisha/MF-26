@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
-import type { ComponentProps } from "react";
+import { render, screen, waitFor } from "@testing-library/react";
+import type { ComponentProps, ReactNode } from "react";
 import { defaultProfiles } from "../../src/domain/defaultProfiles";
 import type { AnalysisSession, VehicleProfile } from "../../src/domain/types";
 import { useSessionStore } from "../../src/state/sessionStore";
 import { BehaviorView } from "../../src/ui/BehaviorView";
 
 const plotCalls: Array<ComponentProps<"div"> & { data?: unknown; layout?: unknown; config?: unknown }> = [];
+const gltfLoadCalls = vi.hoisted((): string[] => []);
+const renderCanvasChildren = vi.hoisted(() => ({ current: false }));
 
 vi.mock("plotly.js-dist-min", () => ({ default: {} }));
 
@@ -18,7 +20,18 @@ vi.mock("react-plotly.js/factory", () => ({
 }));
 
 vi.mock("@react-three/fiber", () => ({
-  Canvas: () => <div data-testid="behavior-canvas" />
+  Canvas: ({ children }: { children?: ReactNode }) => (
+    <div data-testid="behavior-canvas">{renderCanvasChildren.current ? children : null}</div>
+  )
+}));
+
+vi.mock("three/examples/jsm/loaders/GLTFLoader.js", () => ({
+  GLTFLoader: class {
+    load(url: string, onLoad: (gltf: { scene: { clone: () => object } }) => void) {
+      gltfLoadCalls.push(url);
+      onLoad({ scene: { clone: () => ({}) } });
+    }
+  }
 }));
 
 function createSession(): AnalysisSession {
@@ -74,6 +87,8 @@ function resetStore(session: AnalysisSession | null = null, profiles: VehiclePro
 describe("BehaviorView", () => {
   beforeEach(() => {
     plotCalls.length = 0;
+    gltfLoadCalls.length = 0;
+    renderCanvasChildren.current = false;
     resetStore(createSession());
   });
 
@@ -191,6 +206,19 @@ describe("BehaviorView", () => {
     expect(screen.getByText("-3.0 deg/s")).not.toBeNull();
     expect(screen.getAllByText("12.0 deg/s").length).toBeGreaterThan(0);
     expect(screen.queryByText("30.0 deg/s")).toBeNull();
+  });
+
+  it("loads the bundled GLB car model for the motion cue", async () => {
+    renderCanvasChildren.current = true;
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    render(<BehaviorView />);
+
+    await waitFor(() => {
+      expect(gltfLoadCalls).toContain("/models/car.glb");
+    });
+
+    consoleError.mockRestore();
   });
 
   it("explains when gyro and ADU cue values are unavailable", () => {
