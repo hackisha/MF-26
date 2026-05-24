@@ -652,13 +652,105 @@ input {
   font-size: 13px;
 }
 
+.report-view,
+.settings-view {
+  min-width: 0;
+}
+
+.status-message {
+  margin: 0;
+  color: #047857;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.report-preview {
+  width: 100%;
+  min-height: min(72vh, 760px);
+  box-sizing: border-box;
+  border: 1px solid #d8e0e5;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.7fr) minmax(0, 1.3fr);
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+
+.settings-metadata {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.settings-metadata div {
+  min-width: 0;
+  border-bottom: 1px solid #edf1f4;
+  padding-bottom: 9px;
+}
+
+.settings-metadata div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.settings-metadata dt {
+  color: #60707a;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.settings-metadata dd {
+  margin: 4px 0 0;
+  color: #172026;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.json-editor-label {
+  display: block;
+  margin-bottom: 6px;
+  color: #51606a;
+  font-size: 12px;
+}
+
+.json-editor {
+  width: 100%;
+  min-height: min(48vh, 520px);
+  box-sizing: border-box;
+  resize: vertical;
+  border: 1px solid #a9b4bc;
+  border-radius: 8px;
+  background: #fbfcfd;
+  color: #172026;
+  padding: 10px;
+  font: 13px/1.45 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  margin-top: 10px;
+}
+
+.settings-channel-table {
+  min-width: 860px;
+}
+
 @media (max-width: 900px) {
   .view-grid {
     grid-template-columns: 1fr;
   }
 
   .behavior-grid,
-  .map-lap-grid {
+  .map-lap-grid,
+  .settings-grid {
     grid-template-columns: 1fr;
   }
 
@@ -694,7 +786,8 @@ input {
 
   .behavior-plot,
   .map-lap-plot,
-  .behavior-model-shell {
+  .behavior-model-shell,
+  .report-preview {
     min-height: 320px;
   }
 
@@ -721,6 +814,14 @@ input {
   }
 
   .manual-segment-form button {
+    width: 100%;
+  }
+
+  .settings-actions {
+    align-items: stretch;
+  }
+
+  .settings-actions button {
     width: 100%;
   }
 }
