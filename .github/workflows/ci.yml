@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "codex/**"
+
+jobs:
+  verify:
+    name: Verify app
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      PLAYWRIGHT_PORT: "5177"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install chromium
+
+      - name: Typecheck
+        run: npm run lint
+
+      - name: Unit and UI tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: E2E smoke test
+        run: npm run test:e2e -- tests/e2e/app-smoke.spec.ts
