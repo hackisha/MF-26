@@ -1,11 +1,11 @@
 import { create } from "zustand";
-import { parseCsv } from "../domain/csvImport";
+import { parseCsv, type CsvImportWarning } from "../domain/csvImport";
 import { defaultProfiles } from "../domain/defaultProfiles";
 import { runDiagnostics } from "../domain/diagnostics";
 import { detectEvents } from "../domain/events";
 import { applyProfile } from "../domain/profileApply";
 import { createManualSegment, segmentsFromEvents } from "../domain/segments";
-import type { AnalysisSession, OverlayPreset, Segment, VehicleProfile } from "../domain/types";
+import type { AnalysisSession, DiagnosticFinding, OverlayPreset, Segment, VehicleProfile } from "../domain/types";
 
 type CsvOpenResult = {
   filePath: string;
@@ -95,7 +95,7 @@ function manualSegments(segments: Segment[]): Segment[] {
 function createSession(sourceCsv: SourceCsv, profile: VehicleProfile, preservedManualSegments: Segment[] = []): AnalysisSession {
   const parsed = parseCsv(sourceCsv.text);
   const log = applyProfile(fileNameFromPath(sourceCsv.filePath), parsed, profile);
-  const diagnostics = runDiagnostics(log, profile);
+  const diagnostics = [...csvImportDiagnostics(parsed.warnings), ...runDiagnostics(log, profile)];
   const events = detectEvents(log, profile);
 
   return {
@@ -106,6 +106,20 @@ function createSession(sourceCsv: SourceCsv, profile: VehicleProfile, preservedM
     events,
     segments: [...segmentsFromEvents(events), ...preservedManualSegments]
   };
+}
+
+function csvImportDiagnostics(warnings: CsvImportWarning[]): DiagnosticFinding[] {
+  return warnings.map((warning) => {
+    const row = warning.row ?? "unknown";
+
+    return {
+      id: `csv-import-warning-${row}-${warning.code}`,
+      severity: "warning",
+      title: "Skipped malformed CSV row",
+      detail: `Row ${row} was skipped: ${warning.message}`,
+      affectedChannelIds: ["CSV"]
+    };
+  });
 }
 
 function sanitizeSelectedEventId(session: AnalysisSession | null, selectedEventId: string | null): string | null {

@@ -218,6 +218,23 @@ describe("applyProfile", () => {
 
     expect(parsed.headers).toEqual(["Timestamp", "RPM"]);
     expect(parsed.rows).toEqual([{ Timestamp: "0.10", RPM: "00123" }]);
+    expect(parsed.warnings).toEqual([]);
+  });
+
+  it("skips malformed field-count rows and records import warnings", () => {
+    const parsed = parseCsv("Timestamp,RPM\n0,1000\nbad-row\n1,2000\n");
+
+    expect(parsed.rows).toEqual([
+      { Timestamp: "0", RPM: "1000" },
+      { Timestamp: "1", RPM: "2000" }
+    ]);
+    expect(parsed.warnings).toEqual([
+      {
+        code: "TooFewFields",
+        message: "Too few fields: expected 2 fields but parsed 1",
+        row: 1
+      }
+    ]);
   });
 
   it("creates numeric rows and corrected ADXL345 channels", () => {
