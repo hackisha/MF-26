@@ -152,20 +152,36 @@ describe("BehaviorView", () => {
         gx_dps: null,
         gy_dps: null,
         gz_dps: null,
-        ADU_ax_g: index === 3 ? 0.24 : null,
-        ADU_ay_g: index === 3 ? -0.18 : null,
-        ADU_az_g: index === 3 ? 1.02 : null
+        ADU_ax_g: index === 1 ? 0.24 : index === 3 ? 0.91 : null,
+        ADU_ay_g: index === 1 ? -0.18 : index === 3 ? -0.71 : null,
+        ADU_az_g: index === 1 ? 1.02 : index === 3 ? 1.41 : null
       }
     }));
     resetStore(session);
+    useSessionStore.getState().setCurrentTimeSec(1.1);
 
     render(<BehaviorView />);
 
     expect(screen.getByText("ADU axis cue")).not.toBeNull();
-    expect(screen.getByText("Using ADU_ax_g, ADU_ay_g, ADU_az_g because gyro rate columns are unavailable.")).not.toBeNull();
+    expect(screen.getByText("Using ADU_ax_g, ADU_ay_g, ADU_az_g at the shared playback time.")).not.toBeNull();
     expect(screen.getByTestId("behavior-canvas")).not.toBeNull();
     expect(screen.getByText("ADU X")).not.toBeNull();
     expect(screen.getByText("0.24 g")).not.toBeNull();
+    expect(screen.queryByText("0.91 g")).toBeNull();
+  });
+
+  it("updates the gyro cue from the shared playback time instead of the final sample", () => {
+    resetStore(createSession());
+    useSessionStore.getState().setCurrentTimeSec(0.2);
+
+    render(<BehaviorView />);
+
+    expect(screen.getByText("Gyro roll/pitch/yaw cue")).not.toBeNull();
+    expect(screen.getByText("Uses gx_dps, gy_dps, gz_dps at the shared playback time.")).not.toBeNull();
+    expect(screen.getByText("5.0 deg/s")).not.toBeNull();
+    expect(screen.getByText("-3.0 deg/s")).not.toBeNull();
+    expect(screen.getAllByText("12.0 deg/s").length).toBeGreaterThan(0);
+    expect(screen.queryByText("30.0 deg/s")).toBeNull();
   });
 
   it("explains when gyro and ADU cue values are unavailable", () => {
@@ -190,11 +206,11 @@ describe("BehaviorView", () => {
     expect(
       screen.getByText("This CSV has no usable gyro rate or ADU axis values, so the 3D cue is hidden.")
     ).not.toBeNull();
-    expect(screen.getByText("latest yaw rate")).not.toBeNull();
+    expect(screen.getByText("current yaw rate")).not.toBeNull();
     expect(screen.getByText("n/a")).not.toBeNull();
   });
 
-  it("uses the latest finite yaw rate even when roll and pitch are unavailable", () => {
+  it("uses the current yaw rate even when roll and pitch are unavailable", () => {
     const session = createSession();
     session.log.rows = session.log.rows.map((row, index) => ({
       ...row,
@@ -206,6 +222,7 @@ describe("BehaviorView", () => {
       }
     }));
     resetStore(session);
+    useSessionStore.getState().setCurrentTimeSec(3);
 
     render(<BehaviorView />);
 

@@ -52,7 +52,8 @@ describe("PopoutButton", () => {
   });
 
   it("falls back to a browser window when the desktop pop-out API is unavailable", async () => {
-    const open = vi.fn(() => ({} as Window));
+    const openedWindow = { opener: window } as unknown as Window;
+    const open = vi.fn(() => openedWindow);
     vi.stubGlobal("open", open);
     window.mfLogAnalyzer = {
       openCsv: vi.fn(async () => null),
@@ -65,8 +66,9 @@ describe("PopoutButton", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open this view in a new window" }));
 
     await waitFor(() => {
-      expect(open).toHaveBeenCalledWith("/behavior", "_blank", "noopener,noreferrer");
+      expect(open).toHaveBeenCalledWith("/behavior", "_blank");
     });
+    expect(openedWindow.opener).toBeNull();
     expect(screen.getByText("New window")).not.toBeNull();
   });
 

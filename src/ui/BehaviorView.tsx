@@ -37,6 +37,7 @@ type GgTrace = {
     size: number;
     opacity: number;
     line: { color: string; width: number };
+    symbol?: "diamond";
   };
   line?: {
     color: string;
@@ -89,38 +90,67 @@ function finiteNumber(value: number | null | undefined): number | null {
 
 function correctedGgPoints(rows: NumericLogRow[]): GgPoint[] {
   return rows
-    .map((row) => {
-      const ax = finiteNumber(row.values.ax_corrected_g);
-      const ay = finiteNumber(row.values.ay_corrected_g);
-      return ax !== null && ay !== null ? { ax, ay } : null;
-    })
+    .map((row) => ggPointForRow(row))
     .filter((point): point is GgPoint => point !== null);
 }
 
-function latestMotionCueSnapshot(rows: NumericLogRow[]): MotionCueSnapshot | null {
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    const row = rows[index];
-    const gx = finiteNumber(row.values.gx_dps);
-    const gy = finiteNumber(row.values.gy_dps);
-    const gz = finiteNumber(row.values.gz_dps);
-    if (gx !== null && gy !== null && gz !== null) return { x: gx, y: gy, z: gz, source: "gyro" };
+function ggPointForRow(row: NumericLogRow): GgPoint | null {
+  const ax = finiteNumber(row.values.ax_corrected_g);
+  const ay = finiteNumber(row.values.ay_corrected_g);
+  return ax !== null && ay !== null ? { ax, ay } : null;
+}
+
+function nearestRowIndex(rows: NumericLogRow[], timeSec: number): number {
+  if (rows.length === 0) return -1;
+  if (timeSec <= rows[0].timestampSec) return 0;
+  if (timeSec >= rows[rows.length - 1].timestampSec) return rows.length - 1;
+
+  let low = 0;
+  let high = rows.length - 1;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (rows[mid].timestampSec < timeSec) low = mid + 1;
+    else high = mid;
   }
 
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    const row = rows[index];
-    const aduX = finiteNumber(row.values.ADU_ax_g);
-    const aduY = finiteNumber(row.values.ADU_ay_g);
-    const aduZ = finiteNumber(row.values.ADU_az_g);
-    if (aduX !== null && aduY !== null && aduZ !== null) return { x: aduX, y: aduY, z: aduZ, source: "adu" };
-  }
+  const after = rows[low];
+  const before = rows[low - 1];
+  return Math.abs(after.timestampSec - timeSec) < Math.abs(timeSec - before.timestampSec) ? low : low - 1;
+}
+
+function rowAtTime(rows: NumericLogRow[], currentTimeSec: number | null): NumericLogRow | null {
+  if (rows.length === 0) return null;
+  const timeSec = currentTimeSec ?? rows[0].timestampSec;
+  const index = nearestRowIndex(rows, timeSec);
+  return index >= 0 ? rows[index] : null;
+}
+
+function motionCueForRow(row: NumericLogRow): MotionCueSnapshot | null {
+  const gx = finiteNumber(row.values.gx_dps);
+  const gy = finiteNumber(row.values.gy_dps);
+  const gz = finiteNumber(row.values.gz_dps);
+  if (gx !== null && gy !== null && gz !== null) return { x: gx, y: gy, z: gz, source: "gyro" };
+
+  const aduX = finiteNumber(row.values.ADU_ax_g);
+  const aduY = finiteNumber(row.values.ADU_ay_g);
+  const aduZ = finiteNumber(row.values.ADU_az_g);
+  if (aduX !== null && aduY !== null && aduZ !== null) return { x: aduX, y: aduY, z: aduZ, source: "adu" };
 
   return null;
 }
 
-function latestFiniteChannel(rows: NumericLogRow[], channelId: string): number | null {
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    const value = finiteNumber(rows[index].values[channelId]);
-    if (value !== null) return value;
+function motionCueAtTime(rows: NumericLogRow[], currentTimeSec: number | null): MotionCueSnapshot | null {
+  if (rows.length === 0) return null;
+
+  const nearestIndex = nearestRowIndex(rows, currentTimeSec ?? rows[0].timestampSec);
+  for (let distance = 0; distance < rows.length; distance += 1) {
+    const candidateIndexes = distance === 0 ? [nearestIndex] : [nearestIndex - distance, nearestIndex + distance];
+    for (const candidateIndex of candidateIndexes) {
+      const row = rows[candidateIndex];
+      if (!row) continue;
+      const cue = motionCueForRow(row);
+      if (cue) return cue;
+    }
   }
 
   return null;
@@ -158,8 +188,25 @@ function limitCircleTrace(radiusG: number): GgTrace {
   };
 }
 
-function ggTrace(points: GgPoint[]): GgTrace[] {
-  return [
+function currentGgTrace(point: GgPoint): GgTrace {
+  return {
+    x: [point.ax],
+    y: [point.ay],
+    type: "scatter",
+    mode: "markers",
+    name: "Current playback sample",
+    marker: {
+      color: "#be123c",
+      size: 13,
+      opacity: 0.95,
+      line: { color: "#ffffff", width: 1.5 },
+      symbol: "diamond"
+    }
+  };
+}
+
+function ggTrace(points: GgPoint[], currentPoint: GgPoint | null): GgTrace[] {
+  const traces: GgTrace[] = [
     {
       x: points.map((point) => point.ax),
       y: points.map((point) => point.ay),
@@ -175,6 +222,9 @@ function ggTrace(points: GgPoint[]): GgTrace[] {
     },
     limitCircleTrace(ggLimitRadiusG)
   ];
+
+  if (currentPoint) traces.push(currentGgTrace(currentPoint));
+  return traces;
 }
 
 function ggAxisLimit(points: GgPoint[]): number {
@@ -292,17 +342,20 @@ function VehicleTendencyModel({ snapshot }: { snapshot: MotionCueSnapshot }) {
 }
 
 function LoadedBehaviorView({ session }: { session: AnalysisSession }) {
+  const currentTimeSec = useSessionStore((state) => state.currentTimeSec);
   const points = useMemo(() => correctedGgPoints(session.log.rows), [session.log.rows]);
-  const motionCue = useMemo(() => latestMotionCueSnapshot(session.log.rows), [session.log.rows]);
-  const latestYawRate = useMemo(() => latestFiniteChannel(session.log.rows, "gz_dps"), [session.log.rows]);
-  const stats = useMemo(() => behaviorStats(points, latestYawRate), [latestYawRate, points]);
-  const traces = useMemo(() => ggTrace(points), [points]);
+  const currentRow = useMemo(() => rowAtTime(session.log.rows, currentTimeSec), [currentTimeSec, session.log.rows]);
+  const currentGgPoint = useMemo(() => (currentRow ? ggPointForRow(currentRow) : null), [currentRow]);
+  const motionCue = useMemo(() => motionCueAtTime(session.log.rows, currentTimeSec), [currentTimeSec, session.log.rows]);
+  const currentYawRate = useMemo(() => finiteNumber(currentRow?.values.gz_dps), [currentRow]);
+  const stats = useMemo(() => behaviorStats(points, currentYawRate), [currentYawRate, points]);
+  const traces = useMemo(() => ggTrace(points, currentGgPoint), [currentGgPoint, points]);
   const layout = useMemo(() => ggLayout(ggAxisLimit(points)), [points]);
 
   return (
     <section className="behavior-view" aria-label="Vehicle behavior analysis">
       <div className="behavior-note">
-        Gyro-driven model shows instantaneous roll, pitch, and yaw tendency only. If gyro rate columns are missing, ADU axes are shown as a qualitative cue.
+        The 3D cue follows the shared playback time cursor. Gyro and ADU axes show qualitative tendency only, not a precision attitude estimate.
       </div>
 
       <div className="behavior-stat-strip" aria-label="Behavior statistics">
@@ -315,7 +368,7 @@ function LoadedBehaviorView({ session }: { session: AnalysisSession }) {
           <strong>{formatG(stats.peakLongitudinalG)}</strong>
         </div>
         <div className="behavior-stat">
-          <span>latest yaw rate</span>
+          <span>current yaw rate</span>
           <strong>{formatDps(stats.latestYawRate)}</strong>
         </div>
         <div className="behavior-stat">
@@ -351,8 +404,8 @@ function LoadedBehaviorView({ session }: { session: AnalysisSession }) {
             <h2>{motionCue?.source === "adu" ? "ADU axis cue" : "Gyro roll/pitch/yaw cue"}</h2>
             <p>
               {motionCue?.source === "adu"
-                ? "Using ADU_ax_g, ADU_ay_g, ADU_az_g because gyro rate columns are unavailable."
-                : "Uses the latest finite gx_dps, gy_dps, gz_dps sample."}
+                ? "Using ADU_ax_g, ADU_ay_g, ADU_az_g at the shared playback time."
+                : "Uses gx_dps, gy_dps, gz_dps at the shared playback time."}
             </p>
           </div>
           {motionCue ? (

@@ -26,8 +26,13 @@ export function PopoutButton({ route }: PopoutButtonProps) {
         await publishSessionSnapshot().catch(() => undefined);
         await window.mfLogAnalyzer!.popout(route);
       } else {
-        const opened = window.open(route, "_blank", "noopener,noreferrer");
+        const opened = window.open(route, "_blank");
         if (!opened) throw new Error("Browser blocked the new window.");
+        try {
+          opened.opener = null;
+        } catch {
+          // Best-effort browser fallback hardening; opening the window is the primary action.
+        }
       }
       setStatus("idle");
     } catch (error) {
