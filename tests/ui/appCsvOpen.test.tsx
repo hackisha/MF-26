@@ -49,6 +49,13 @@ describe("App CSV open fallback", () => {
     expect(useSessionStore.getState().session?.log.fileName).toBe("fallback.csv");
   });
 
+  it("does not expose the removed Workspace tab", () => {
+    render(<App />);
+
+    expect(screen.queryByRole("tab", { name: "Workspace" })).toBeNull();
+    expect(screen.getByRole("tab", { name: "CSV Playback" })).not.toBeNull();
+  });
+
   it("shows an error when the desktop CSV open flow fails", async () => {
     window.mfLogAnalyzer = {
       openCsv: vi.fn(async () => {

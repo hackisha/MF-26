@@ -6,7 +6,6 @@ import { Tabs, tabButtonId, tabPanelId, tabs, type TabId } from "./Tabs";
 
 const TimeSeriesView = lazy(() => import("./TimeSeriesView").then((module) => ({ default: module.TimeSeriesView })));
 const PlaybackView = lazy(() => import("./PlaybackView").then((module) => ({ default: module.PlaybackView })));
-const WorkspaceView = lazy(() => import("./WorkspaceView").then((module) => ({ default: module.WorkspaceView })));
 const BehaviorView = lazy(() => import("./BehaviorView").then((module) => ({ default: module.BehaviorView })));
 const MapLapView = lazy(() => import("./MapLapView").then((module) => ({ default: module.MapLapView })));
 const ReportView = lazy(() => import("./ReportView").then((module) => ({ default: module.ReportView })));
@@ -55,11 +54,6 @@ export function Layout() {
         {activeTab === "playback" && (
           <Suspense fallback={<section className="empty-state">Loading CSV playback...</section>}>
             <PlaybackView />
-          </Suspense>
-        )}
-        {activeTab === "workspace" && (
-          <Suspense fallback={<section className="empty-state">Loading workspace...</section>}>
-            <WorkspaceView />
           </Suspense>
         )}
         {activeTab === "time-series" && (

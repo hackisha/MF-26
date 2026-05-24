@@ -4,7 +4,6 @@ export type TabId =
   | "summary"
   | "diagnostics"
   | "playback"
-  | "workspace"
   | "time-series"
   | "behavior"
   | "map-lap"
@@ -15,7 +14,6 @@ export const tabs: Array<{ id: TabId; label: string }> = [
   { id: "summary", label: "Summary" },
   { id: "diagnostics", label: "Log Diagnostics" },
   { id: "playback", label: "CSV Playback" },
-  { id: "workspace", label: "Workspace" },
   { id: "time-series", label: "Time-Series Graph" },
   { id: "behavior", label: "Vehicle Behavior" },
   { id: "map-lap", label: "Map / Lap" },
@@ -36,7 +34,6 @@ export function Tabs({ activeTab, onChange }: { activeTab: TabId; onChange: (tab
     summary: null,
     diagnostics: null,
     playback: null,
-    workspace: null,
     "time-series": null,
     behavior: null,
     "map-lap": null,
