@@ -1,10 +1,11 @@
 import { useRef } from "react";
 
-export type TabId = "summary" | "diagnostics" | "time-series" | "behavior" | "map-lap" | "report" | "settings";
+export type TabId = "summary" | "diagnostics" | "playback" | "time-series" | "behavior" | "map-lap" | "report" | "settings";
 
 export const tabs: Array<{ id: TabId; label: string }> = [
   { id: "summary", label: "Summary" },
   { id: "diagnostics", label: "Log Diagnostics" },
+  { id: "playback", label: "CSV Playback" },
   { id: "time-series", label: "Time-Series Graph" },
   { id: "behavior", label: "Vehicle Behavior" },
   { id: "map-lap", label: "Map / Lap" },
@@ -24,6 +25,7 @@ export function Tabs({ activeTab, onChange }: { activeTab: TabId; onChange: (tab
   const tabRefs = useRef<Record<TabId, HTMLButtonElement | null>>({
     summary: null,
     diagnostics: null,
+    playback: null,
     "time-series": null,
     behavior: null,
     "map-lap": null,

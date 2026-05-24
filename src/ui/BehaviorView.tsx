@@ -12,10 +12,11 @@ type GgPoint = {
   ay: number;
 };
 
-type GyroSnapshot = {
-  gx: number;
-  gy: number;
-  gz: number;
+type MotionCueSnapshot = {
+  x: number;
+  y: number;
+  z: number;
+  source: "gyro" | "adu";
 };
 
 type BehaviorStats = {
@@ -96,13 +97,21 @@ function correctedGgPoints(rows: NumericLogRow[]): GgPoint[] {
     .filter((point): point is GgPoint => point !== null);
 }
 
-function latestGyroSnapshot(rows: NumericLogRow[]): GyroSnapshot | null {
+function latestMotionCueSnapshot(rows: NumericLogRow[]): MotionCueSnapshot | null {
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const row = rows[index];
     const gx = finiteNumber(row.values.gx_dps);
     const gy = finiteNumber(row.values.gy_dps);
     const gz = finiteNumber(row.values.gz_dps);
-    if (gx !== null && gy !== null && gz !== null) return { gx, gy, gz };
+    if (gx !== null && gy !== null && gz !== null) return { x: gx, y: gy, z: gz, source: "gyro" };
+  }
+
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    const aduX = finiteNumber(row.values.ADU_ax_g);
+    const aduY = finiteNumber(row.values.ADU_ay_g);
+    const aduZ = finiteNumber(row.values.ADU_az_g);
+    if (aduX !== null && aduY !== null && aduZ !== null) return { x: aduX, y: aduY, z: aduZ, source: "adu" };
   }
 
   return null;
@@ -225,15 +234,20 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function scaledRate(value: number, maxDps: number, maxRadians: number): number {
-  return clamp(value / maxDps, -1, 1) * maxRadians;
+function scaledCue(value: number, maxValue: number, maxRadians: number): number {
+  return clamp(value / maxValue, -1, 1) * maxRadians;
 }
 
-function VehicleTendencyModel({ gyro }: { gyro: GyroSnapshot }) {
-  const pitch = scaledRate(gyro.gy, 160, 0.34);
-  const yaw = scaledRate(gyro.gz, 180, 0.52);
-  const roll = scaledRate(gyro.gx, 160, 0.42);
-  const yawCue = clamp(Math.abs(gyro.gz) / 120, 0.18, 1);
+function cueScale(snapshot: MotionCueSnapshot): { x: number; y: number; z: number } {
+  return snapshot.source === "gyro" ? { x: 160, y: 160, z: 180 } : { x: 2.5, y: 2.5, z: 2.5 };
+}
+
+function VehicleTendencyModel({ snapshot }: { snapshot: MotionCueSnapshot }) {
+  const scale = cueScale(snapshot);
+  const pitch = scaledCue(snapshot.y, scale.y, 0.34);
+  const yaw = scaledCue(snapshot.z, scale.z, 0.52);
+  const roll = scaledCue(snapshot.x, scale.x, 0.42);
+  const yawCue = clamp(Math.abs(snapshot.z) / (snapshot.source === "gyro" ? 120 : 1.4), 0.18, 1);
 
   return (
     <Canvas camera={{ position: [4, 3, 5], fov: 42 }} className="behavior-canvas">
@@ -279,7 +293,7 @@ function VehicleTendencyModel({ gyro }: { gyro: GyroSnapshot }) {
 
 function LoadedBehaviorView({ session }: { session: AnalysisSession }) {
   const points = useMemo(() => correctedGgPoints(session.log.rows), [session.log.rows]);
-  const gyro = useMemo(() => latestGyroSnapshot(session.log.rows), [session.log.rows]);
+  const motionCue = useMemo(() => latestMotionCueSnapshot(session.log.rows), [session.log.rows]);
   const latestYawRate = useMemo(() => latestFiniteChannel(session.log.rows, "gz_dps"), [session.log.rows]);
   const stats = useMemo(() => behaviorStats(points, latestYawRate), [latestYawRate, points]);
   const traces = useMemo(() => ggTrace(points), [points]);
@@ -288,7 +302,7 @@ function LoadedBehaviorView({ session }: { session: AnalysisSession }) {
   return (
     <section className="behavior-view" aria-label="Vehicle behavior analysis">
       <div className="behavior-note">
-        Gyro-driven model shows instantaneous roll, pitch, and yaw tendency only. It is not a precision attitude estimate.
+        Gyro-driven model shows instantaneous roll, pitch, and yaw tendency only. If gyro rate columns are missing, ADU axes are shown as a qualitative cue.
       </div>
 
       <div className="behavior-stat-strip" aria-label="Behavior statistics">
@@ -332,33 +346,37 @@ function LoadedBehaviorView({ session }: { session: AnalysisSession }) {
           )}
         </section>
 
-        <section className="behavior-panel" aria-label="Gyro roll pitch yaw cue">
+        <section className="behavior-panel" aria-label="Motion cue model">
           <div className="behavior-panel-heading">
-            <h2>Gyro roll/pitch/yaw cue</h2>
-            <p>Uses the latest finite gx_dps, gy_dps, gz_dps sample.</p>
+            <h2>{motionCue?.source === "adu" ? "ADU axis cue" : "Gyro roll/pitch/yaw cue"}</h2>
+            <p>
+              {motionCue?.source === "adu"
+                ? "Using ADU_ax_g, ADU_ay_g, ADU_az_g because gyro rate columns are unavailable."
+                : "Uses the latest finite gx_dps, gy_dps, gz_dps sample."}
+            </p>
           </div>
-          {gyro ? (
+          {motionCue ? (
             <div className="behavior-model-shell">
-              <VehicleTendencyModel gyro={gyro} />
+              <VehicleTendencyModel snapshot={motionCue} />
               <dl className="rate-readout">
                 <div>
-                  <dt>roll rate</dt>
-                  <dd>{formatDps(gyro.gx)}</dd>
+                  <dt>{motionCue.source === "adu" ? "ADU X" : "roll rate"}</dt>
+                  <dd>{motionCue.source === "adu" ? formatG(motionCue.x) : formatDps(motionCue.x)}</dd>
                 </div>
                 <div>
-                  <dt>pitch rate</dt>
-                  <dd>{formatDps(gyro.gy)}</dd>
+                  <dt>{motionCue.source === "adu" ? "ADU Y" : "pitch rate"}</dt>
+                  <dd>{motionCue.source === "adu" ? formatG(motionCue.y) : formatDps(motionCue.y)}</dd>
                 </div>
                 <div>
-                  <dt>yaw rate</dt>
-                  <dd>{formatDps(gyro.gz)}</dd>
+                  <dt>{motionCue.source === "adu" ? "ADU Z" : "yaw rate"}</dt>
+                  <dd>{motionCue.source === "adu" ? formatG(motionCue.z) : formatDps(motionCue.z)}</dd>
                 </div>
               </dl>
             </div>
           ) : (
             <div className="inline-empty">
-              <h3>Gyro data unavailable</h3>
-              <p>This CSV has no usable gx_dps, gy_dps, and gz_dps values, so the roll/pitch/yaw cue is hidden.</p>
+              <h3>Motion cue unavailable</h3>
+              <p>This CSV has no usable gyro rate or ADU axis values, so the 3D cue is hidden.</p>
             </div>
           )}
         </section>

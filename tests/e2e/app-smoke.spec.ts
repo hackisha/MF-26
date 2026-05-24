@@ -43,6 +43,7 @@ test("loads a CSV and exposes the app shell views", async ({ page }) => {
   const expectedTabs = [
     "Summary",
     "Log Diagnostics",
+    "CSV Playback",
     "Time-Series Graph",
     "Vehicle Behavior",
     "Map / Lap",

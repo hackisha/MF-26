@@ -220,7 +220,6 @@ export const useSessionStore = create<SessionState>((set, get) => {
     setCurrentTimeSec: (currentTimeSec) => {
       set({ currentTimeSec });
       publishSelectionSync();
-      void publishSessionSnapshot();
     },
     setSelectedEventId: (selectedEventId) => {
       set({ selectedEventId });

@@ -17,6 +17,21 @@ vi.mock("react-plotly.js/factory", () => ({
   }
 }));
 
+vi.mock("leaflet", () => {
+  const addTo = vi.fn(() => ({}));
+  const remove = vi.fn();
+  const fitBounds = vi.fn();
+  const setView = vi.fn();
+
+  return {
+    map: vi.fn(() => ({ remove, fitBounds, setView })),
+    tileLayer: vi.fn(() => ({ addTo })),
+    polyline: vi.fn(() => ({ addTo, getBounds: vi.fn(() => ({})) })),
+    circleMarker: vi.fn(() => ({ addTo })),
+    latLngBounds: vi.fn(() => ({ isValid: vi.fn(() => true) }))
+  };
+});
+
 function createSession(): AnalysisSession {
   return {
     filePath: "C:\\logs\\gps.csv",
@@ -119,6 +134,21 @@ describe("MapLapView", () => {
     expect(screen.getByLabelText("Map lap statistics").textContent).toContain("90.0 km/h");
   });
 
+  it("toggles from the offline plot to an online OpenStreetMap layer", () => {
+    render(<MapLapView />);
+
+    const toggle = screen.getByRole("button", { name: "Use online map" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByText("Offline coordinate fallback")).not.toBeNull();
+
+    fireEvent.click(toggle);
+
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("Online map tiles")).not.toBeNull();
+    expect(screen.getByLabelText("Online GPS map with OpenStreetMap tiles")).not.toBeNull();
+    expect(screen.queryByTestId("map-lap-plot")).toBeNull();
+  });
+
   it("shows a no-coordinate empty state when no finite coordinate pairs are available", () => {
     const session = createSession();
     session.log.rows = session.log.rows.map((row) => ({
@@ -137,6 +167,7 @@ describe("MapLapView", () => {
   it("shows event severity and manual segment badges", () => {
     render(<MapLapView />);
 
+    expect(screen.getByLabelText("Scrollable segment list").className).toContain("segment-list-scroll");
     expect(screen.getByText("warning")).not.toBeNull();
     expect(screen.getByText("manual")).not.toBeNull();
     expect(screen.getByText("High Lateral G")).not.toBeNull();

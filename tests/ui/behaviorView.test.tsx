@@ -143,19 +143,52 @@ describe("BehaviorView", () => {
     expect(screen.getByTestId("behavior-canvas")).not.toBeNull();
   });
 
-  it("explains when gyro values are unavailable", () => {
+  it("uses ADU axis values as the behavior cue when gyro rate columns are unavailable", () => {
     const session = createSession();
-    session.log.rows = session.log.rows.map((row) => ({
+    session.log.rows = session.log.rows.map((row, index) => ({
       ...row,
-      values: { ...row.values, gx_dps: null, gy_dps: Number.NaN, gz_dps: Number.POSITIVE_INFINITY }
+      values: {
+        ...row.values,
+        gx_dps: null,
+        gy_dps: null,
+        gz_dps: null,
+        ADU_ax_g: index === 3 ? 0.24 : null,
+        ADU_ay_g: index === 3 ? -0.18 : null,
+        ADU_az_g: index === 3 ? 1.02 : null
+      }
     }));
     resetStore(session);
 
     render(<BehaviorView />);
 
-    expect(screen.getByText("Gyro data unavailable")).not.toBeNull();
+    expect(screen.getByText("ADU axis cue")).not.toBeNull();
+    expect(screen.getByText("Using ADU_ax_g, ADU_ay_g, ADU_az_g because gyro rate columns are unavailable.")).not.toBeNull();
+    expect(screen.getByTestId("behavior-canvas")).not.toBeNull();
+    expect(screen.getByText("ADU X")).not.toBeNull();
+    expect(screen.getByText("0.24 g")).not.toBeNull();
+  });
+
+  it("explains when gyro and ADU cue values are unavailable", () => {
+    const session = createSession();
+    session.log.rows = session.log.rows.map((row) => ({
+      ...row,
+      values: {
+        ...row.values,
+        gx_dps: null,
+        gy_dps: Number.NaN,
+        gz_dps: Number.POSITIVE_INFINITY,
+        ADU_ax_g: null,
+        ADU_ay_g: null,
+        ADU_az_g: null
+      }
+    }));
+    resetStore(session);
+
+    render(<BehaviorView />);
+
+    expect(screen.getByText("Motion cue unavailable")).not.toBeNull();
     expect(
-      screen.getByText("This CSV has no usable gx_dps, gy_dps, and gz_dps values, so the roll/pitch/yaw cue is hidden.")
+      screen.getByText("This CSV has no usable gyro rate or ADU axis values, so the 3D cue is hidden.")
     ).not.toBeNull();
     expect(screen.getByText("latest yaw rate")).not.toBeNull();
     expect(screen.getByText("n/a")).not.toBeNull();
@@ -177,6 +210,6 @@ describe("BehaviorView", () => {
     render(<BehaviorView />);
 
     expect(screen.getByText("44.0 deg/s")).not.toBeNull();
-    expect(screen.getByText("Gyro data unavailable")).not.toBeNull();
+    expect(screen.getByText("Motion cue unavailable")).not.toBeNull();
   });
 });

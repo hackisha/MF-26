@@ -5,8 +5,13 @@ type PopoutButtonProps = {
   route: string;
 };
 
+function messageFromError(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown window error.";
+}
+
 export function PopoutButton({ route }: PopoutButtonProps) {
   const [status, setStatus] = useState<"idle" | "opening" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const hasDesktopPopout = typeof window.mfLogAnalyzer?.popout === "function";
   const hasBrowserPopout = typeof window.open === "function";
   const canOpenWindow = hasDesktopPopout || hasBrowserPopout;
@@ -15,16 +20,18 @@ export function PopoutButton({ route }: PopoutButtonProps) {
     if (!canOpenWindow || status === "opening") return;
 
     setStatus("opening");
+    setErrorMessage(null);
     try {
       if (hasDesktopPopout) {
-        await publishSessionSnapshot();
+        await publishSessionSnapshot().catch(() => undefined);
         await window.mfLogAnalyzer!.popout(route);
       } else {
         const opened = window.open(route, "_blank", "noopener,noreferrer");
         if (!opened) throw new Error("Browser blocked the new window.");
       }
       setStatus("idle");
-    } catch {
+    } catch (error) {
+      setErrorMessage(`Could not open a new window: ${messageFromError(error)}`);
       setStatus("error");
     }
   }
@@ -45,7 +52,7 @@ export function PopoutButton({ route }: PopoutButtonProps) {
       </button>
       {status === "error" ? (
         <span className="popout-status" role="alert">
-          Could not open a new window.
+          {errorMessage ?? "Could not open a new window."}
         </span>
       ) : null}
     </span>

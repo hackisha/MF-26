@@ -231,6 +231,16 @@ describe("session store", () => {
     cleanup();
   });
 
+  it("does not persist full snapshots for high-frequency time cursor changes", async () => {
+    const setSessionSnapshot = vi.fn(async () => undefined);
+    installDesktopApi({ setSessionSnapshot });
+
+    useSessionStore.getState().setCurrentTimeSec(1.2);
+    await Promise.resolve();
+
+    expect(setSessionSnapshot).not.toHaveBeenCalled();
+  });
+
   it("hydrates selection changes from another window without rebroadcasting them", () => {
     vi.stubGlobal("BroadcastChannel", MockBroadcastChannel);
     const setSessionSnapshot = vi.fn(async () => undefined);

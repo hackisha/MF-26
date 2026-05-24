@@ -1,8 +1,10 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import "leaflet/dist/leaflet.css";
 import createPlotlyComponent from "react-plotly.js/factory";
 import Plotly from "plotly.js-dist-min";
 import { useSessionStore } from "../state/sessionStore";
 import type { AnalysisSession, DetectedEvent, NumericLogRow, Segment } from "../domain/types";
+import type { Map as LeafletMap } from "leaflet";
 import { SeverityBadge } from "./SeverityBadge";
 
 const Plot = createPlotlyComponent(Plotly);
@@ -55,6 +57,8 @@ type MapLayout = {
     automargin: true;
   };
 };
+
+type MapMode = "offline" | "online";
 
 function finiteNumber(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -153,8 +157,78 @@ function segmentRange(segment: Segment): string {
   return `${formatSeconds(segment.startSec)} - ${formatSeconds(segment.endSec)}`;
 }
 
+function OnlineLeafletMap({ points }: { points: CoordinatePoint[] }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [mapError, setMapError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let disposed = false;
+    let map: LeafletMap | null = null;
+
+    async function mountMap() {
+      if (!containerRef.current || points.length === 0) return;
+
+      try {
+        const L = await import("leaflet");
+        if (disposed || !containerRef.current) return;
+
+        map = L.map(containerRef.current, {
+          zoomControl: true,
+          scrollWheelZoom: true
+        });
+
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        const latLngs = points.map((point) => [point.latitude, point.longitude] as [number, number]);
+        L.polyline(latLngs, { color: "#0f766e", weight: 4, opacity: 0.82 }).addTo(map);
+        L.circleMarker(latLngs[0], { radius: 6, color: "#0f766e", fillColor: "#ffffff", fillOpacity: 1, weight: 3 }).addTo(map);
+        L.circleMarker(latLngs.at(-1) ?? latLngs[0], {
+          radius: 6,
+          color: "#b45309",
+          fillColor: "#ffffff",
+          fillOpacity: 1,
+          weight: 3
+        }).addTo(map);
+
+        const bounds = L.latLngBounds(latLngs);
+        if (bounds.isValid()) {
+          map.fitBounds(bounds, { padding: [28, 28], maxZoom: 18 });
+        } else {
+          map.setView(latLngs[0], 15);
+        }
+      } catch {
+        if (!disposed) setMapError("Online map could not be initialized.");
+      }
+    }
+
+    void mountMap();
+
+    return () => {
+      disposed = true;
+      map?.remove();
+    };
+  }, [points]);
+
+  return (
+    <div className="online-map-shell">
+      <div ref={containerRef} className="leaflet-map" role="img" aria-label="Online GPS map with OpenStreetMap tiles" />
+      {mapError ? (
+        <p className="form-error" role="alert">
+          {mapError}
+        </p>
+      ) : (
+        <p className="map-attribution-note">OpenStreetMap tiles load only while internet access is available.</p>
+      )}
+    </div>
+  );
+}
+
 function LoadedMapLapView({ session }: { session: AnalysisSession }) {
   const addManualSegment = useSessionStore((state) => state.addManualSegment);
+  const [mapMode, setMapMode] = useState<MapMode>("offline");
   const [name, setName] = useState("");
   const [startSec, setStartSec] = useState("");
   const [endSec, setEndSec] = useState("");
@@ -164,6 +238,7 @@ function LoadedMapLapView({ session }: { session: AnalysisSession }) {
   const traces = useMemo(() => mapTrace(points), [points]);
   const layout = useMemo(() => mapLayout(), []);
   const plottedMaxSpeed = useMemo(() => maxSpeed(points), [points]);
+  const onlineMapEnabled = mapMode === "online";
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -189,8 +264,22 @@ function LoadedMapLapView({ session }: { session: AnalysisSession }) {
   return (
     <section className="map-lap-view" aria-label="Map and lap coordinate fallback">
       <div className="map-lap-note">
-        <strong>Offline coordinate fallback</strong>
-        <span>No online map tiles are loaded. This view plots raw Longitude and Latitude pairs from the log.</span>
+        <div>
+          <strong>{onlineMapEnabled ? "Online map tiles" : "Offline coordinate fallback"}</strong>
+          <span>
+            {onlineMapEnabled
+              ? "OpenStreetMap tiles are enabled. The GPS path still comes from the loaded CSV."
+              : "No online map tiles are loaded. This view plots raw Longitude and Latitude pairs from the log."}
+          </span>
+        </div>
+        <button
+          type="button"
+          className="map-mode-toggle"
+          aria-pressed={onlineMapEnabled}
+          onClick={() => setMapMode((currentMode) => (currentMode === "online" ? "offline" : "online"))}
+        >
+          {onlineMapEnabled ? "Use offline plot" : "Use online map"}
+        </button>
       </div>
 
       <div className="map-lap-stat-strip" aria-label="Map lap statistics">
@@ -209,16 +298,18 @@ function LoadedMapLapView({ session }: { session: AnalysisSession }) {
       </div>
 
       <div className="map-lap-grid">
-        <section className="map-lap-panel" aria-label="Offline GPS path">
+        <section className="map-lap-panel" aria-label={onlineMapEnabled ? "Online GPS path" : "Offline GPS path"}>
           <div className="map-lap-panel-heading">
             <h2>GPS path</h2>
-            <p>Finite coordinate pairs only.</p>
+            <p>{onlineMapEnabled ? "Online map tiles with CSV coordinates." : "Finite coordinate pairs only."}</p>
           </div>
           {points.length === 0 ? (
             <div className="inline-empty">
               <h3>No finite coordinate pairs</h3>
               <p>This offline fallback needs finite Longitude and Latitude samples.</p>
             </div>
+          ) : onlineMapEnabled ? (
+            <OnlineLeafletMap points={points} />
           ) : (
             <Plot
               data={traces}
@@ -230,7 +321,7 @@ function LoadedMapLapView({ session }: { session: AnalysisSession }) {
           )}
         </section>
 
-        <section className="map-lap-panel" aria-label="Segments">
+        <section className="map-lap-panel map-lap-segments-panel" aria-label="Segments">
           <div className="map-lap-panel-heading">
             <h2>Segments</h2>
             <p>Event-derived and manual windows.</p>
@@ -267,24 +358,26 @@ function LoadedMapLapView({ session }: { session: AnalysisSession }) {
             <button type="submit">Add segment</button>
           </form>
 
-          {session.segments.length === 0 ? (
-            <div className="segment-empty">No segments yet.</div>
-          ) : (
-            <ul className="segment-list">
-              {session.segments.map((segment) => {
-                const event = eventForSegment(segment, session.events);
-                return (
-                  <li key={segment.id}>
-                    <div>
-                      <strong>{segment.name}</strong>
-                      <span>{segmentRange(segment)}</span>
-                    </div>
-                    {event ? <SeverityBadge severity={event.severity} /> : <span className="manual-badge">manual</span>}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+          <div className="segment-list-scroll" aria-label="Scrollable segment list">
+            {session.segments.length === 0 ? (
+              <div className="segment-empty">No segments yet.</div>
+            ) : (
+              <ul className="segment-list">
+                {session.segments.map((segment) => {
+                  const event = eventForSegment(segment, session.events);
+                  return (
+                    <li key={segment.id}>
+                      <div>
+                        <strong>{segment.name}</strong>
+                        <span>{segmentRange(segment)}</span>
+                      </div>
+                      {event ? <SeverityBadge severity={event.severity} /> : <span className="manual-badge">manual</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </section>
       </div>
     </section>

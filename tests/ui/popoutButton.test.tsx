@@ -85,5 +85,28 @@ describe("PopoutButton", () => {
 
     expect(await screen.findByRole("alert")).not.toBeNull();
     expect(screen.getByRole("alert").textContent).toContain("Could not open a new window");
+    expect(screen.getByRole("alert").textContent).toContain("blocked");
+  });
+
+  it("still opens the desktop window when publishing the snapshot fails", async () => {
+    const popout = vi.fn(async () => true);
+    window.mfLogAnalyzer = {
+      openCsv: vi.fn(async () => null),
+      saveHtmlReport: vi.fn(async () => null),
+      setSessionSnapshot: vi.fn(async () => {
+        throw new Error("snapshot too large");
+      }),
+      getSessionSnapshot: vi.fn(async () => null),
+      popout
+    };
+
+    render(<PopoutButton route="/map-lap" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open this view in a new window" }));
+
+    await waitFor(() => {
+      expect(popout).toHaveBeenCalledWith("/map-lap");
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
