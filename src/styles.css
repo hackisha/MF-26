@@ -137,8 +137,45 @@ input {
   padding: 18px;
 }
 
+.content-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 10px 18px 0;
+}
+
 .content-area > .empty-state {
   margin: 0;
+}
+
+.popout-button {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 10px;
+  font-size: 13px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.popout-button-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
 }
 
 .view-toolbar {
@@ -767,6 +804,10 @@ input {
 @media (max-width: 560px) {
   .content-area {
     padding: 12px;
+  }
+
+  .content-toolbar {
+    padding: 8px 12px 0;
   }
 
   .metric-grid {

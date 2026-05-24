@@ -8,6 +8,7 @@ const isDev = process.env.VITE_DEV_SERVER_URL !== undefined || !app.isPackaged;
 const devOrigin = "http://127.0.0.1:5173";
 const maxHtmlReportBytes = 10 * 1024 * 1024;
 const rendererEntryUrl = pathToFileURL(path.join(__dirname, "../dist/index.html")).toString();
+let latestSessionSnapshot: unknown = null;
 
 function rendererUrl(route = "/") {
   if (isDev) {
@@ -109,3 +110,9 @@ ipcMain.handle("view:popout", async (_event, route: unknown) => {
   createWindow(validateRoute(route));
   return true;
 });
+
+ipcMain.handle("session:setSnapshot", async (_event, snapshot: unknown) => {
+  latestSessionSnapshot = snapshot;
+});
+
+ipcMain.handle("session:getSnapshot", async () => latestSessionSnapshot);

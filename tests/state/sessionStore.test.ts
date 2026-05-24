@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultProfiles } from "../../src/domain/defaultProfiles";
 import type { SessionSnapshot } from "../../src/state/sessionStore";
-import { createSessionSnapshot, hydrateSessionSnapshot, publishSessionSnapshot, useSessionStore } from "../../src/state/sessionStore";
-import type { VehicleProfile } from "../../src/domain/types";
+import {
+  createSessionSnapshot,
+  hydrateSessionSnapshot,
+  publishSessionSnapshot,
+  startSessionSelectionSync,
+  useSessionStore
+} from "../../src/state/sessionStore";
+import type { AnalysisSession, VehicleProfile } from "../../src/domain/types";
 
 const csv = [
   "Timestamp,RPM,EngineSpeed_RPM,Batt_V,OilPressure_bar,ax_g,ay_g",
@@ -12,6 +18,58 @@ const csv = [
 
 function cloneProfile(profile: VehicleProfile): VehicleProfile {
   return structuredClone(profile) as VehicleProfile;
+}
+
+function createLoadedSession(profile = defaultProfiles[0]): AnalysisSession {
+  return {
+    filePath: "C:\\logs\\session.csv",
+    profileId: profile.id,
+    log: {
+      fileName: "session.csv",
+      profileId: profile.id,
+      profileRevision: profile.revision,
+      rawHeaders: ["Timestamp", "RPM", "Batt_V"],
+      rows: [
+        { index: 0, timestampSec: 0, values: { RPM: 900, Batt_V: 11.5 } },
+        { index: 1, timestampSec: 1.2, values: { RPM: 900, Batt_V: 11.4 } }
+      ]
+    },
+    diagnostics: [],
+    events: [
+      {
+        id: "event-1",
+        ruleId: "low-battery-voltage",
+        name: "Low Battery Voltage",
+        severity: "warning",
+        startSec: 1.2,
+        endSec: 1.2,
+        description: "Battery voltage is below the expected operating range."
+      }
+    ],
+    segments: []
+  };
+}
+
+class MockBroadcastChannel {
+  static instances: MockBroadcastChannel[] = [];
+
+  listeners: Array<(event: MessageEvent) => void> = [];
+  postMessage = vi.fn();
+  close = vi.fn();
+
+  constructor(public name: string) {
+    MockBroadcastChannel.instances.push(this);
+  }
+
+  addEventListener(type: string, listener: (event: MessageEvent) => void) {
+    if (type === "message") this.listeners.push(listener);
+  }
+
+  dispatch(data: unknown) {
+    for (const listener of this.listeners) {
+      listener({ data } as MessageEvent);
+    }
+  }
 }
 
 function installDesktopApi(overrides: Partial<NonNullable<Window["mfLogAnalyzer"]>> = {}) {
@@ -43,6 +101,7 @@ describe("session store", () => {
 
   afterEach(() => {
     delete window.mfLogAnalyzer;
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -135,5 +194,69 @@ describe("session store", () => {
     await Promise.all([firstPublish, secondPublish]);
 
     expect(persistedSnapshots.map((snapshot) => snapshot.currentTimeSec)).toEqual([null, 42]);
+  });
+
+  it("broadcasts selection changes from local setters", () => {
+    vi.stubGlobal("BroadcastChannel", MockBroadcastChannel);
+    const cleanup = startSessionSelectionSync();
+    const channel = MockBroadcastChannel.instances.at(-1);
+
+    useSessionStore.getState().setCurrentTimeSec(1.2);
+
+    expect(channel?.postMessage).toHaveBeenCalledWith({
+      type: "session-selection",
+      currentTimeSec: 1.2,
+      selectedEventId: null,
+      selectedOverlayId: defaultProfiles[0].overlays[0]?.id ?? null
+    });
+
+    cleanup();
+  });
+
+  it("hydrates selection changes from another window without rebroadcasting them", () => {
+    vi.stubGlobal("BroadcastChannel", MockBroadcastChannel);
+    useSessionStore.setState({
+      sourceCsv: { filePath: "C:\\logs\\session.csv", text: csv },
+      session: createLoadedSession()
+    });
+    const cleanup = startSessionSelectionSync();
+    const channel = MockBroadcastChannel.instances.at(-1);
+
+    channel?.dispatch({
+      type: "session-selection",
+      currentTimeSec: 1.2,
+      selectedEventId: "event-1",
+      selectedOverlayId: defaultProfiles[0].overlays[1]?.id ?? null
+    });
+
+    const state = useSessionStore.getState();
+    expect(state.currentTimeSec).toBe(1.2);
+    expect(state.selectedEventId).toBe("event-1");
+    expect(state.selectedOverlay?.id).toBe(defaultProfiles[0].overlays[1]?.id);
+    expect(channel?.postMessage).not.toHaveBeenCalled();
+
+    cleanup();
+  });
+
+  it("sanitizes stale event and overlay ids received from another window", () => {
+    vi.stubGlobal("BroadcastChannel", MockBroadcastChannel);
+    useSessionStore.setState({
+      sourceCsv: { filePath: "C:\\logs\\session.csv", text: csv },
+      session: createLoadedSession()
+    });
+    const cleanup = startSessionSelectionSync();
+
+    MockBroadcastChannel.instances.at(-1)?.dispatch({
+      type: "session-selection",
+      currentTimeSec: 2,
+      selectedEventId: "missing-event",
+      selectedOverlayId: "missing-overlay"
+    });
+
+    const state = useSessionStore.getState();
+    expect(state.selectedEventId).toBeNull();
+    expect(state.selectedOverlay?.id).toBe(defaultProfiles[0].overlays[0]?.id);
+
+    cleanup();
   });
 });

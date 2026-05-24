@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { fileNameFromPath, hydrateSessionSnapshot, useSessionStore } from "./state/sessionStore";
+import { fileNameFromPath, hydrateSessionSnapshot, startSessionSelectionSync, useSessionStore } from "./state/sessionStore";
 import { Layout } from "./ui/Layout";
 
 export default function App() {
@@ -10,7 +10,20 @@ export default function App() {
   const openCsv = useSessionStore((state) => state.openCsv);
 
   useEffect(() => {
-    void hydrateSessionSnapshot();
+    let cleanup: () => void = () => undefined;
+    let active = true;
+
+    void hydrateSessionSnapshot()
+      .catch(() => undefined)
+      .finally(() => {
+        if (!active) return;
+        cleanup = startSessionSelectionSync();
+      });
+
+    return () => {
+      active = false;
+      cleanup();
+    };
   }, []);
 
   return (

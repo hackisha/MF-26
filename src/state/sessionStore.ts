@@ -38,6 +38,13 @@ declare global {
   }
 }
 
+type SelectionSyncMessage = {
+  type: "session-selection";
+  currentTimeSec: number | null;
+  selectedEventId: string | null;
+  selectedOverlayId: string | null;
+};
+
 type SessionState = {
   profiles: VehicleProfile[];
   selectedProfileId: string;
@@ -106,6 +113,40 @@ function sanitizeSelectedEventId(session: AnalysisSession | null, selectedEventI
 }
 
 let snapshotPublishQueue: Promise<void> = Promise.resolve();
+let selectionSyncChannel: BroadcastChannel | null = null;
+let suppressSelectionSyncPublish = false;
+
+function createSelectionSyncMessage(): SelectionSyncMessage {
+  const state = useSessionStore.getState();
+
+  return {
+    type: "session-selection",
+    currentTimeSec: state.currentTimeSec,
+    selectedEventId: state.selectedEventId,
+    selectedOverlayId: state.selectedOverlay?.id ?? null
+  };
+}
+
+function publishSelectionSync() {
+  if (suppressSelectionSyncPublish) return;
+  selectionSyncChannel?.postMessage(createSelectionSyncMessage());
+}
+
+function applySelectionSync(message: SelectionSyncMessage) {
+  const { profiles, selectedProfileId, session } = useSessionStore.getState();
+  const profile = profileById(profiles, selectedProfileId);
+
+  suppressSelectionSyncPublish = true;
+  try {
+    useSessionStore.setState({
+      currentTimeSec: message.currentTimeSec,
+      selectedEventId: sanitizeSelectedEventId(session, message.selectedEventId),
+      selectedOverlay: overlayForProfile(profile, message.selectedOverlayId)
+    });
+  } finally {
+    suppressSelectionSyncPublish = false;
+  }
+}
 
 export const useSessionStore = create<SessionState>((set, get) => {
   const initialProfile = defaultProfiles[0];
@@ -164,10 +205,12 @@ export const useSessionStore = create<SessionState>((set, get) => {
     },
     setCurrentTimeSec: (currentTimeSec) => {
       set({ currentTimeSec });
+      publishSelectionSync();
       void publishSessionSnapshot();
     },
     setSelectedEventId: (selectedEventId) => {
       set({ selectedEventId });
+      publishSelectionSync();
       void publishSessionSnapshot();
     },
     setSelectedOverlay: (overlay) => {
@@ -175,6 +218,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
       const profile = profileById(profiles, selectedProfileId);
 
       set({ selectedOverlay: selectedOverlayForProfile(profile, overlay) });
+      publishSelectionSync();
       void publishSessionSnapshot();
     },
     updateProfile: (profile) => {
@@ -240,4 +284,25 @@ export async function hydrateSessionSnapshot(): Promise<void> {
     selectedEventId,
     selectedOverlay: overlayForProfile(selectedProfile, snapshot.selectedOverlayId)
   });
+}
+
+export function startSessionSelectionSync(): () => void {
+  if (typeof BroadcastChannel === "undefined") return () => undefined;
+
+  selectionSyncChannel?.close();
+  const channel = new BroadcastChannel("mf-log-analyzer-session-selection");
+  selectionSyncChannel = channel;
+
+  channel.addEventListener("message", (event: MessageEvent<SelectionSyncMessage>) => {
+    if (event.data?.type !== "session-selection") return;
+    applySelectionSync(event.data);
+    void publishSessionSnapshot();
+  });
+
+  return () => {
+    if (selectionSyncChannel === channel) {
+      selectionSyncChannel = null;
+    }
+    channel.close();
+  };
 }
