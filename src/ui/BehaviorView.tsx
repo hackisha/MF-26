@@ -29,14 +29,20 @@ type GgTrace = {
   x: number[];
   y: number[];
   type: "scatter";
-  mode: "markers";
+  mode: "markers" | "lines";
   name: string;
-  marker: {
+  marker?: {
     color: string;
     size: number;
     opacity: number;
     line: { color: string; width: number };
   };
+  line?: {
+    color: string;
+    width: number;
+    dash: "dash";
+  };
+  hoverinfo?: "skip";
 };
 
 type GgLayout = {
@@ -45,12 +51,20 @@ type GgLayout = {
   paper_bgcolor: string;
   plot_bgcolor: string;
   hovermode: "closest";
-  showlegend: false;
+  showlegend: true;
+  legend: {
+    orientation: "h";
+    x: number;
+    y: number;
+    xanchor: "left";
+    yanchor: "bottom";
+  };
   xaxis: {
     title: { text: string };
     zeroline: true;
     zerolinecolor: string;
     gridcolor: string;
+    range: [number, number];
     automargin: true;
   };
   yaxis: {
@@ -58,11 +72,15 @@ type GgLayout = {
     zeroline: true;
     zerolinecolor: string;
     gridcolor: string;
+    range: [number, number];
     scaleanchor: "x";
     scaleratio: 1;
     automargin: true;
   };
 };
+
+const ggLimitRadiusG = 2;
+const circleSampleCount = 96;
 
 function finiteNumber(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -113,6 +131,24 @@ function behaviorStats(points: GgPoint[], latestYawRate: number | null): Behavio
   };
 }
 
+function limitCircleTrace(radiusG: number): GgTrace {
+  const angles = Array.from({ length: circleSampleCount + 1 }, (_value, index) => (Math.PI * 2 * index) / circleSampleCount);
+
+  return {
+    x: angles.map((angle) => radiusG * Math.cos(angle)),
+    y: angles.map((angle) => radiusG * Math.sin(angle)),
+    type: "scatter",
+    mode: "lines",
+    name: `${radiusG.toFixed(1)} g limit circle`,
+    line: {
+      color: "#b45309",
+      width: 2,
+      dash: "dash"
+    },
+    hoverinfo: "skip"
+  };
+}
+
 function ggTrace(points: GgPoint[]): GgTrace[] {
   return [
     {
@@ -127,23 +163,41 @@ function ggTrace(points: GgPoint[]): GgTrace[] {
         opacity: 0.72,
         line: { color: "#ffffff", width: 0.5 }
       }
-    }
+    },
+    limitCircleTrace(ggLimitRadiusG)
   ];
 }
 
-function ggLayout(): GgLayout {
+function ggAxisLimit(points: GgPoint[]): number {
+  const peak = Math.max(
+    ggLimitRadiusG,
+    ...points.flatMap((point) => [Math.abs(point.ax), Math.abs(point.ay)])
+  );
+
+  return Math.ceil((peak + 0.2) * 2) / 2;
+}
+
+function ggLayout(axisLimit: number): GgLayout {
   return {
     autosize: true,
     margin: { t: 18, r: 24, b: 52, l: 62 },
     paper_bgcolor: "#ffffff",
     plot_bgcolor: "#ffffff",
     hovermode: "closest",
-    showlegend: false,
+    showlegend: true,
+    legend: {
+      orientation: "h",
+      x: 0,
+      y: 1.06,
+      xanchor: "left",
+      yanchor: "bottom"
+    },
     xaxis: {
       title: { text: "Longitudinal acceleration (g)" },
       zeroline: true,
       zerolinecolor: "#6b7b86",
       gridcolor: "#e7edf1",
+      range: [-axisLimit, axisLimit],
       automargin: true
     },
     yaxis: {
@@ -151,6 +205,7 @@ function ggLayout(): GgLayout {
       zeroline: true,
       zerolinecolor: "#6b7b86",
       gridcolor: "#e7edf1",
+      range: [-axisLimit, axisLimit],
       scaleanchor: "x",
       scaleratio: 1,
       automargin: true
@@ -228,7 +283,7 @@ function LoadedBehaviorView({ session }: { session: AnalysisSession }) {
   const latestYawRate = useMemo(() => latestFiniteChannel(session.log.rows, "gz_dps"), [session.log.rows]);
   const stats = useMemo(() => behaviorStats(points, latestYawRate), [latestYawRate, points]);
   const traces = useMemo(() => ggTrace(points), [points]);
-  const layout = useMemo(() => ggLayout(), []);
+  const layout = useMemo(() => ggLayout(ggAxisLimit(points)), [points]);
 
   return (
     <section className="behavior-view" aria-label="Vehicle behavior analysis">
@@ -259,7 +314,7 @@ function LoadedBehaviorView({ session }: { session: AnalysisSession }) {
         <section className="behavior-panel" aria-label="G-G diagram">
           <div className="behavior-panel-heading">
             <h2>G-G diagram</h2>
-            <p>Corrected ADXL acceleration channels only.</p>
+            <p>Corrected ADXL acceleration with a 2.0 g reference limit circle.</p>
           </div>
           {points.length === 0 ? (
             <div className="inline-empty">
@@ -277,10 +332,10 @@ function LoadedBehaviorView({ session }: { session: AnalysisSession }) {
           )}
         </section>
 
-        <section className="behavior-panel" aria-label="Vehicle tendency model">
+        <section className="behavior-panel" aria-label="Gyro roll pitch yaw cue">
           <div className="behavior-panel-heading">
-            <h2>Rate tendency model</h2>
-            <p>Latest finite gx_dps, gy_dps, gz_dps sample.</p>
+            <h2>Gyro roll/pitch/yaw cue</h2>
+            <p>Uses the latest finite gx_dps, gy_dps, gz_dps sample.</p>
           </div>
           {gyro ? (
             <div className="behavior-model-shell">
@@ -302,8 +357,8 @@ function LoadedBehaviorView({ session }: { session: AnalysisSession }) {
             </div>
           ) : (
             <div className="inline-empty">
-              <h3>No gyro tendency</h3>
-              <p>Finite gx_dps, gy_dps, and gz_dps samples are needed for the rate-driven vehicle model.</p>
+              <h3>Gyro data unavailable</h3>
+              <p>This CSV has no usable gx_dps, gy_dps, and gz_dps values, so the roll/pitch/yaw cue is hidden.</p>
             </div>
           )}
         </section>

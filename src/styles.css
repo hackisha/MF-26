@@ -166,6 +166,14 @@ input {
   margin: 0;
 }
 
+.popout-control {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .popout-button {
   display: inline-flex;
   flex: 0 1 auto;
@@ -182,6 +190,12 @@ input {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.popout-status {
+  color: #8d241b;
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .sr-only {

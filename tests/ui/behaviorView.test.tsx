@@ -90,25 +90,36 @@ describe("BehaviorView", () => {
     expect(screen.getByText("Open a CSV log to analyze vehicle behavior.")).not.toBeNull();
   });
 
-  it("uses corrected acceleration channels and filters non-finite G-G points", () => {
+  it("uses corrected acceleration channels, filters non-finite G-G points, and draws a limit circle", () => {
     render(<BehaviorView />);
 
-    const traces = plotCalls.at(-1)?.data as Array<{ x: number[]; y: number[]; mode: string; type: string }>;
+    const traces = plotCalls.at(-1)?.data as Array<{ x: number[]; y: number[]; mode: string; type: string; name: string }>;
     const layout = plotCalls.at(-1)?.layout as {
-      xaxis: { title: { text: string }; zeroline: boolean };
-      yaxis: { title: { text: string }; scaleanchor: string; zeroline: boolean };
+      showlegend: boolean;
+      xaxis: { title: { text: string }; zeroline: boolean; range: [number, number] };
+      yaxis: { title: { text: string }; scaleanchor: string; zeroline: boolean; range: [number, number] };
     };
+    const sampleTrace = traces.find((trace) => trace.name === "Corrected G-G samples");
+    const limitTrace = traces.find((trace) => trace.name === "2.0 g limit circle");
 
     expect(screen.getByTestId("behavior-plot")).not.toBeNull();
-    expect(traces[0].x).toEqual([0.1, 0.7]);
-    expect(traces[0].y).toEqual([-0.8, 1.1]);
-    expect(traces[0].mode).toBe("markers");
-    expect(traces[0].type).toBe("scatter");
+    expect(sampleTrace?.x).toEqual([0.1, 0.7]);
+    expect(sampleTrace?.y).toEqual([-0.8, 1.1]);
+    expect(sampleTrace?.mode).toBe("markers");
+    expect(sampleTrace?.type).toBe("scatter");
+    expect(limitTrace?.mode).toBe("lines");
+    expect(Math.max(...(limitTrace?.x ?? []))).toBeCloseTo(2);
+    expect(Math.min(...(limitTrace?.x ?? []))).toBeCloseTo(-2);
+    expect(Math.max(...(limitTrace?.y ?? []))).toBeCloseTo(2);
+    expect(Math.min(...(limitTrace?.y ?? []))).toBeCloseTo(-2);
+    expect(layout.showlegend).toBe(true);
     expect(layout.xaxis.title.text).toBe("Longitudinal acceleration (g)");
     expect(layout.yaxis.title.text).toBe("Lateral acceleration (g)");
     expect(layout.yaxis.scaleanchor).toBe("x");
     expect(layout.xaxis.zeroline).toBe(true);
     expect(layout.yaxis.zeroline).toBe(true);
+    expect(layout.xaxis.range[0]).toBeLessThanOrEqual(-2);
+    expect(layout.yaxis.range[1]).toBeGreaterThanOrEqual(2);
     const stats = screen.getByLabelText("Behavior statistics");
     expect(stats.textContent).toContain("samples used");
     expect(stats.textContent).toContain("2");
@@ -132,7 +143,7 @@ describe("BehaviorView", () => {
     expect(screen.getByTestId("behavior-canvas")).not.toBeNull();
   });
 
-  it("shows an attitude empty state when gyro values are unavailable", () => {
+  it("explains when gyro values are unavailable", () => {
     const session = createSession();
     session.log.rows = session.log.rows.map((row) => ({
       ...row,
@@ -142,8 +153,10 @@ describe("BehaviorView", () => {
 
     render(<BehaviorView />);
 
-    expect(screen.getByText("No gyro tendency")).not.toBeNull();
-    expect(screen.getByText("Finite gx_dps, gy_dps, and gz_dps samples are needed for the rate-driven vehicle model.")).not.toBeNull();
+    expect(screen.getByText("Gyro data unavailable")).not.toBeNull();
+    expect(
+      screen.getByText("This CSV has no usable gx_dps, gy_dps, and gz_dps values, so the roll/pitch/yaw cue is hidden.")
+    ).not.toBeNull();
     expect(screen.getByText("latest yaw rate")).not.toBeNull();
     expect(screen.getByText("n/a")).not.toBeNull();
   });
@@ -164,6 +177,6 @@ describe("BehaviorView", () => {
     render(<BehaviorView />);
 
     expect(screen.getByText("44.0 deg/s")).not.toBeNull();
-    expect(screen.getByText("No gyro tendency")).not.toBeNull();
+    expect(screen.getByText("Gyro data unavailable")).not.toBeNull();
   });
 });

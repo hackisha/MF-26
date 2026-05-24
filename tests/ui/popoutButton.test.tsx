@@ -51,7 +51,9 @@ describe("PopoutButton", () => {
     expect(calls).toEqual(["snapshot:7", "popout:/time-series"]);
   });
 
-  it("is disabled when the desktop pop-out API is unavailable", () => {
+  it("falls back to a browser window when the desktop pop-out API is unavailable", async () => {
+    const open = vi.fn(() => ({} as Window));
+    vi.stubGlobal("open", open);
     window.mfLogAnalyzer = {
       openCsv: vi.fn(async () => null),
       saveHtmlReport: vi.fn(async () => null),
@@ -60,6 +62,28 @@ describe("PopoutButton", () => {
 
     render(<PopoutButton route="/behavior" />);
 
-    expect((screen.getByRole("button", { name: "Open this view in a new window" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Open this view in a new window" }));
+
+    await waitFor(() => {
+      expect(open).toHaveBeenCalledWith("/behavior", "_blank", "noopener,noreferrer");
+    });
+    expect(screen.getByText("New window")).not.toBeNull();
+  });
+
+  it("shows a visible error when a new window cannot be opened", async () => {
+    window.mfLogAnalyzer = {
+      openCsv: vi.fn(async () => null),
+      saveHtmlReport: vi.fn(async () => null),
+      popout: vi.fn(async () => {
+        throw new Error("blocked");
+      })
+    };
+
+    render(<PopoutButton route="/behavior" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open this view in a new window" }));
+
+    expect(await screen.findByRole("alert")).not.toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain("Could not open a new window");
   });
 });
