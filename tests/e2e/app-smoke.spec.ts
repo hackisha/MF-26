@@ -44,6 +44,7 @@ test("loads a CSV and exposes the app shell views", async ({ page }) => {
     "Summary",
     "Log Diagnostics",
     "CSV Playback",
+    "Workspace",
     "Time-Series Graph",
     "Vehicle Behavior",
     "Map / Lap",
