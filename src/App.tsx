@@ -1,6 +1,10 @@
-import { useEffect, useRef, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { fileNameFromPath, hydrateSessionSnapshot, startSessionSelectionSync, useSessionStore } from "./state/sessionStore";
 import { Layout } from "./ui/Layout";
+
+function messageFromError(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown CSV load error.";
+}
 
 export default function App() {
   const profiles = useSessionStore((state) => state.profiles);
@@ -9,6 +13,8 @@ export default function App() {
   const setSelectedProfileId = useSessionStore((state) => state.setSelectedProfileId);
   const openCsv = useSessionStore((state) => state.openCsv);
   const csvInputRef = useRef<HTMLInputElement>(null);
+  const [csvLoadError, setCsvLoadError] = useState<string | null>(null);
+  const [isCsvLoading, setIsCsvLoading] = useState(false);
 
   useEffect(() => {
     let cleanup: () => void = () => undefined;
@@ -29,7 +35,15 @@ export default function App() {
 
   async function handleOpenCsv() {
     if (window.mfLogAnalyzer?.openCsv) {
-      await openCsv();
+      setCsvLoadError(null);
+      setIsCsvLoading(true);
+      try {
+        await openCsv();
+      } catch (error) {
+        setCsvLoadError(`Could not open CSV: ${messageFromError(error)}`);
+      } finally {
+        setIsCsvLoading(false);
+      }
       return;
     }
 
@@ -41,10 +55,18 @@ export default function App() {
     event.currentTarget.value = "";
     if (!file) return;
 
-    await openCsv({
-      filePath: file.name,
-      text: await file.text()
-    });
+    setCsvLoadError(null);
+    setIsCsvLoading(true);
+    try {
+      await openCsv({
+        filePath: file.name,
+        text: await file.text()
+      });
+    } catch (error) {
+      setCsvLoadError(`Could not open CSV: ${messageFromError(error)}`);
+    } finally {
+      setIsCsvLoading(false);
+    }
   }
 
   return (
@@ -77,11 +99,21 @@ export default function App() {
             aria-label="CSV file picker"
             onChange={(event) => void handleCsvFileChange(event)}
           />
-          <button type="button" onClick={() => void handleOpenCsv()}>
+          <button type="button" aria-busy={isCsvLoading} disabled={isCsvLoading} onClick={() => void handleOpenCsv()}>
             Open CSV
           </button>
         </div>
       </header>
+      {csvLoadError ? (
+        <section className="session-message session-message-error" role="alert">
+          {csvLoadError}
+        </section>
+      ) : null}
+      {isCsvLoading ? (
+        <section className="session-message" role="status">
+          Loading CSV...
+        </section>
+      ) : null}
       <Layout />
     </main>
   );

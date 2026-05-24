@@ -63,5 +63,6 @@ The renderer no longer depends on the preload bridge for basic CSV import. Elect
 ## Prevention
 
 - Any optional desktop API should have either a visible unavailable state or a local web fallback.
+- Treat rejected desktop API promises like missing APIs: catch them in the UI and show a `role="alert"` message instead of relying on console errors.
 - Do not consider Electron integration covered if tests only mock the preload happy path.
 - Add at least one browser/no-preload test for top-level import/export actions.

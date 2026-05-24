@@ -87,6 +87,22 @@ input {
   line-height: 1;
 }
 
+.session-message {
+  margin: 12px 18px 0;
+  padding: 10px 12px;
+  border: 1px solid #c8d2d8;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #36434c;
+  font-size: 14px;
+}
+
+.session-message-error {
+  border-color: #e6ada6;
+  background: #fff5f3;
+  color: #8d241b;
+}
+
 .empty-state {
   margin: 24px;
   padding: 24px;

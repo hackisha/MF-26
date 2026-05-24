@@ -48,4 +48,21 @@ describe("App CSV open fallback", () => {
     expect(await screen.findByText("Loaded fallback.csv")).not.toBeNull();
     expect(useSessionStore.getState().session?.log.fileName).toBe("fallback.csv");
   });
+
+  it("shows an error when the desktop CSV open flow fails", async () => {
+    window.mfLogAnalyzer = {
+      openCsv: vi.fn(async () => {
+        throw new Error("CSV parse failed");
+      }),
+      saveHtmlReport: vi.fn(async () => null),
+      popout: vi.fn(async () => true)
+    };
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open CSV" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("CSV parse failed");
+    expect(useSessionStore.getState().session).toBeNull();
+  });
 });
