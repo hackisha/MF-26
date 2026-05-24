@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ComponentProps, ReactNode } from "react";
 import { defaultProfiles } from "../../src/domain/defaultProfiles";
 import type { AnalysisSession, VehicleProfile } from "../../src/domain/types";
@@ -215,10 +217,17 @@ describe("BehaviorView", () => {
     render(<BehaviorView />);
 
     await waitFor(() => {
-      expect(gltfLoadCalls).toContain("/models/car.glb");
+      expect(gltfLoadCalls).toContain(`${import.meta.env.BASE_URL}models/car.glb`);
     });
 
     consoleError.mockRestore();
+  });
+
+  it("uses the Vite base URL for the model so packaged file renderers load the real GLB", () => {
+    const source = readFileSync(join(process.cwd(), "src", "ui", "BehaviorView.tsx"), "utf8");
+
+    expect(source).toContain("import.meta.env.BASE_URL");
+    expect(source).not.toContain('const vehicleModelUrl = "/models/car.glb"');
   });
 
   it("explains when gyro and ADU cue values are unavailable", () => {

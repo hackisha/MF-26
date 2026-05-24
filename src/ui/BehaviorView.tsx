@@ -7,7 +7,7 @@ import { useSessionStore } from "../state/sessionStore";
 import type { AnalysisSession, NumericLogRow } from "../domain/types";
 
 const Plot = createPlotlyComponent(Plotly);
-const vehicleModelUrl = "/models/car.glb";
+const vehicleModelUrl = `${import.meta.env.BASE_URL}models/car.glb`;
 
 type CloneableObject3D = object & {
   clone: (recursive?: boolean) => CloneableObject3D;

@@ -26,6 +26,7 @@ The manually assembled portable Electron build opened a window but showed no app
 - Electron starts and creates a BrowserWindow.
 - The loaded URL is `file:///.../resources/app/dist/index.html`.
 - The generated HTML references `/assets/...`, which resolves to `file:///assets/...` instead of the local `dist/assets/...` folder.
+- Public assets referenced as `/models/car.glb` resolve outside the packaged `dist` folder, so the app falls back to an in-code placeholder model.
 
 ## What Didn't Work
 
@@ -47,6 +48,14 @@ Verify packaged output by inspecting the built `dist/index.html`:
 <script type="module" crossorigin src="./assets/index-...js"></script>
 ```
 
+For public assets referenced from code, derive the URL from Vite's base instead of hard-coding a root path:
+
+```ts
+const vehicleModelUrl = `${import.meta.env.BASE_URL}models/car.glb`;
+```
+
+With `base: "./"`, the packaged renderer requests `file:///.../resources/app/dist/models/car.glb` instead of `file:///models/car.glb`.
+
 For manual exe verification, start the app with a remote debugging port and inspect `document.body.innerText` through CDP. The app is not verified unless expected UI text such as `MF Log Analyzer` and `Open CSV` appears.
 
 ## Why This Works
@@ -55,4 +64,4 @@ Electron file-based renderers do not have a web server root. Relative asset URLs
 
 ## Prevention
 
-When building Electron from Vite output without a local server, keep `base: "./"` covered by a regression test. For portable packaging, verify both the loaded URL and a real DOM marker after launching the exe.
+When building Electron from Vite output without a local server, keep `base: "./"` covered by a regression test. For portable packaging, verify both the loaded URL and a real DOM marker after launching the exe. For Three.js or other public assets, also verify the actual packaged asset request through CDP Network events and a nonblank canvas/pixel check.

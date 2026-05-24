@@ -26,15 +26,19 @@ When planning pop-out views, explicitly include the state-sharing mechanism in t
 - How selected time, event, segment, lap, and overlay preset synchronize after the window opens.
 - Which state is snapshotted once and which state is broadcast continuously.
 - What happens when no log is loaded.
+- How the spawned window is made visible, focused, and offset from the source window so the user can tell it opened.
 
 For MF Log Analyzer, the plan now uses two mechanisms:
 
 - Electron IPC stores a session snapshot before opening a pop-out window.
 - `BroadcastChannel` syncs lightweight selection state such as current time, selected event, and selected overlay.
+- Pop-out windows use the requesting BrowserWindow for placement, open slightly offset, and call `show()`/`focus()` after the route loads.
 
 ## Why This Matters
 
 Without this check, a plan can appear to satisfy "open view in new window" while producing a detached, empty, or stale analysis window. That breaks the core workflow for comparing a map, G-G diagram, and time-series graph side by side.
+
+There is also a usability failure mode where the new BrowserWindow technically exists but appears behind the source window or exactly on top of it. Users experience that as "nothing happened," so visibility and focus belong in the acceptance criteria.
 
 ## When to Apply
 

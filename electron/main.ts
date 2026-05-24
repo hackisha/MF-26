@@ -17,6 +17,8 @@ const isDev = isDevRuntime({
 });
 let latestSessionSnapshot: unknown = null;
 
+type WindowKind = "main" | "popout";
+
 function rendererUrl(route = "/") {
   return rendererUrlForRoute({ devOrigin, isDev, rendererEntryUrl, route });
 }
@@ -37,13 +39,28 @@ function validateRoute(route: unknown) {
   return route;
 }
 
-function createWindow(route = "/") {
+function popoutBounds(owner: BrowserWindow | null | undefined) {
+  const ownerBounds = owner?.getBounds();
+  if (!ownerBounds) return { width: 1180, height: 760 };
+
+  return {
+    x: ownerBounds.x + 48,
+    y: ownerBounds.y + 48,
+    width: Math.max(900, Math.min(1180, ownerBounds.width - 96)),
+    height: Math.max(620, Math.min(760, ownerBounds.height - 96))
+  };
+}
+
+function createWindow(route = "/", options: { kind?: WindowKind; owner?: BrowserWindow | null } = {}) {
+  const kind = options.kind ?? "main";
+  const isPopout = kind === "popout";
+  const bounds = isPopout ? popoutBounds(options.owner) : { width: 1440, height: 920 };
   const win = new BrowserWindow({
-    width: 1440,
-    height: 920,
-    minWidth: 1100,
-    minHeight: 720,
-    title: "MF Log Analyzer",
+    ...bounds,
+    minWidth: isPopout ? 900 : 1100,
+    minHeight: isPopout ? 620 : 720,
+    title: isPopout ? "MF Log Analyzer - Pop out" : "MF Log Analyzer",
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -60,7 +77,11 @@ function createWindow(route = "/") {
     }
   });
 
-  void win.loadURL(rendererUrl(route));
+  void win.loadURL(rendererUrl(route)).finally(() => {
+    if (win.isDestroyed()) return;
+    win.show();
+    win.focus();
+  });
   return win;
 }
 
@@ -144,8 +165,9 @@ ipcMain.handle("file:saveHtmlReport", async (_event, html: string) => {
   return result.filePath;
 });
 
-ipcMain.handle("view:popout", async (_event, route: unknown) => {
-  createWindow(validateRoute(route));
+ipcMain.handle("view:popout", async (event, route: unknown) => {
+  const owner = BrowserWindow.fromWebContents(event.sender);
+  createWindow(validateRoute(route), { kind: "popout", owner });
   return true;
 });
 
