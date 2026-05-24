@@ -7,8 +7,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "dev:desktop": "node scripts/run-vite-desktop.mjs",
     "electron:build": "tsc -p tsconfig.node.json",
-    "electron:dev": "npm run electron:build && concurrently \"npm run dev\" \"tsc -p tsconfig.node.json --watch\" \"wait-on http://127.0.0.1:5173 dist-electron/main.js dist-electron/preload.js && electron .\"",
+    "electron:dev": "npm run electron:build && concurrently \"npm run dev:desktop\" \"tsc -p tsconfig.node.json --watch\" \"wait-on http://127.0.0.1:5173 dist-electron/main.js dist-electron/preload.js && electron .\"",
     "build": "tsc -b && vite build && tsc -p tsconfig.node.json",
     "test": "vitest run",
     "test:watch": "vitest",
