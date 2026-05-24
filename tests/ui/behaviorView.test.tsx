@@ -109,7 +109,9 @@ describe("BehaviorView", () => {
     expect(layout.yaxis.scaleanchor).toBe("x");
     expect(layout.xaxis.zeroline).toBe(true);
     expect(layout.yaxis.zeroline).toBe(true);
-    expect(screen.getByText("2")).not.toBeNull();
+    const stats = screen.getByLabelText("Behavior statistics");
+    expect(stats.textContent).toContain("samples used");
+    expect(stats.textContent).toContain("2");
     expect(screen.getByText("1.10 g")).not.toBeNull();
     expect(screen.getByText("0.70 g")).not.toBeNull();
   });
@@ -144,5 +146,24 @@ describe("BehaviorView", () => {
     expect(screen.getByText("Finite gx_dps, gy_dps, and gz_dps samples are needed for the rate-driven vehicle model.")).not.toBeNull();
     expect(screen.getByText("latest yaw rate")).not.toBeNull();
     expect(screen.getByText("n/a")).not.toBeNull();
+  });
+
+  it("uses the latest finite yaw rate even when roll and pitch are unavailable", () => {
+    const session = createSession();
+    session.log.rows = session.log.rows.map((row, index) => ({
+      ...row,
+      values: {
+        ...row.values,
+        gx_dps: null,
+        gy_dps: Number.NaN,
+        gz_dps: index === session.log.rows.length - 1 ? 44 : row.values.gz_dps
+      }
+    }));
+    resetStore(session);
+
+    render(<BehaviorView />);
+
+    expect(screen.getByText("44.0 deg/s")).not.toBeNull();
+    expect(screen.getByText("No gyro tendency")).not.toBeNull();
   });
 });

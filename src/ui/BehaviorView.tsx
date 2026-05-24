@@ -90,16 +90,25 @@ function latestGyroSnapshot(rows: NumericLogRow[]): GyroSnapshot | null {
   return null;
 }
 
+function latestFiniteChannel(rows: NumericLogRow[], channelId: string): number | null {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const value = finiteNumber(rows[index].values[channelId]);
+    if (value !== null) return value;
+  }
+
+  return null;
+}
+
 function maxAbs(values: number[]): number | null {
   if (values.length === 0) return null;
   return values.reduce((max, value) => Math.max(max, Math.abs(value)), 0);
 }
 
-function behaviorStats(points: GgPoint[], gyro: GyroSnapshot | null): BehaviorStats {
+function behaviorStats(points: GgPoint[], latestYawRate: number | null): BehaviorStats {
   return {
     peakLateralG: maxAbs(points.map((point) => point.ay)),
     peakLongitudinalG: maxAbs(points.map((point) => point.ax)),
-    latestYawRate: gyro?.gz ?? null,
+    latestYawRate,
     samplesUsed: points.length
   };
 }
@@ -216,7 +225,8 @@ function VehicleTendencyModel({ gyro }: { gyro: GyroSnapshot }) {
 function LoadedBehaviorView({ session }: { session: AnalysisSession }) {
   const points = useMemo(() => correctedGgPoints(session.log.rows), [session.log.rows]);
   const gyro = useMemo(() => latestGyroSnapshot(session.log.rows), [session.log.rows]);
-  const stats = useMemo(() => behaviorStats(points, gyro), [gyro, points]);
+  const latestYawRate = useMemo(() => latestFiniteChannel(session.log.rows, "gz_dps"), [session.log.rows]);
+  const stats = useMemo(() => behaviorStats(points, latestYawRate), [latestYawRate, points]);
   const traces = useMemo(() => ggTrace(points), [points]);
   const layout = useMemo(() => ggLayout(), []);
 
