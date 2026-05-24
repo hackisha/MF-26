@@ -6,6 +6,8 @@ import type { NumericLogRow, OverlayPreset, SensorChannel, VehicleProfile } from
 import { ChannelPicker } from "./ChannelPicker";
 
 const Plot = createPlotlyComponent(Plotly);
+const AXIS_SPACING = 0.055;
+const MAX_AXIS_PADDING = 0.24;
 
 type PlotPoint = number | null;
 
@@ -49,6 +51,11 @@ type PlotLayout = {
   xaxis: { title: { text: string }; zeroline: false; domain?: [number, number] };
   yaxis: PlotAxis;
   [axisKey: `yaxis${number}`]: PlotAxis;
+};
+
+type AxisPadding = {
+  left: number;
+  right: number;
 };
 
 function finiteOrNull(value: number): PlotPoint {
@@ -115,24 +122,33 @@ function axisTitle(channel: SensorChannel): string {
 }
 
 function clampAxisPosition(position: number): number {
-  return Math.min(1, Math.max(0, Number(position.toFixed(2))));
+  return Math.min(1, Math.max(0, Number(position.toFixed(3))));
+}
+
+function axisPadding(traceCount: number): AxisPadding {
+  const extraLeftAxes = Math.floor((traceCount - 1) / 2);
+  const extraRightAxes = Math.ceil((traceCount - 1) / 2);
+
+  return {
+    left: Math.min(MAX_AXIS_PADDING, extraLeftAxes * AXIS_SPACING),
+    right: Math.min(MAX_AXIS_PADDING, extraRightAxes * AXIS_SPACING)
+  };
 }
 
 function axisPosition(index: number, traceCount: number): number | undefined {
   if (index === 0) return undefined;
 
-  const extraLeftAxes = Math.floor(traceCount / 2);
-  const extraRightAxes = Math.ceil((traceCount - 1) / 2);
-  const leftPadding = Math.min(0.2, extraLeftAxes * 0.05);
-  const rightPadding = Math.min(0.2, extraRightAxes * 0.05);
+  const padding = axisPadding(traceCount);
+  const domainStart = padding.left;
+  const domainEnd = 1 - padding.right;
 
   if (index % 2 === 1) {
     const rightOrdinal = Math.floor((index - 1) / 2);
-    return clampAxisPosition(1 - rightPadding + rightOrdinal * 0.05);
+    return clampAxisPosition(domainEnd + rightOrdinal * AXIS_SPACING);
   }
 
   const leftOrdinal = Math.floor(index / 2) - 1;
-  return clampAxisPosition(leftPadding - leftOrdinal * 0.05);
+  return clampAxisPosition(domainStart - (leftOrdinal + 1) * AXIS_SPACING);
 }
 
 function axisSide(index: number): "left" | "right" {
@@ -142,11 +158,8 @@ function axisSide(index: number): "left" | "right" {
 function xAxisDomain(traceCount: number, overlay: OverlayPreset): [number, number] | undefined {
   if (overlay.mode !== "separateAxes" || traceCount < 3) return undefined;
 
-  const extraLeftAxes = Math.floor(traceCount / 2);
-  const extraRightAxes = Math.ceil((traceCount - 1) / 2);
-  const leftPadding = Math.min(0.2, extraLeftAxes * 0.05);
-  const rightPadding = Math.min(0.2, extraRightAxes * 0.05);
-  return [leftPadding, 1 - rightPadding];
+  const padding = axisPadding(traceCount);
+  return [padding.left, 1 - padding.right];
 }
 
 function tracesForChannels(overlay: OverlayPreset, rows: NumericLogRow[], channels: PlottableChannel[]): Trace[] {
@@ -168,9 +181,15 @@ function tracesForChannels(overlay: OverlayPreset, rows: NumericLogRow[], channe
 
 function layoutForChannels(overlay: OverlayPreset, channels: PlottableChannel[]): PlotLayout {
   const domain = xAxisDomain(channels.length, overlay);
+  const padding = axisPadding(channels.length);
   const layout: PlotLayout = {
     autosize: true,
-    margin: { t: 16, r: overlay.mode === "separateAxes" ? 72 : 24, b: 48, l: overlay.mode === "separateAxes" ? 72 : 56 },
+    margin: {
+      t: 16,
+      r: overlay.mode === "separateAxes" ? 64 + padding.right * 520 : 24,
+      b: 48,
+      l: overlay.mode === "separateAxes" ? 64 + padding.left * 520 : 56
+    },
     paper_bgcolor: "#ffffff",
     plot_bgcolor: "#ffffff",
     hovermode: "x unified",
@@ -203,32 +222,14 @@ function layoutForChannels(overlay: OverlayPreset, channels: PlottableChannel[])
   return layout;
 }
 
-export function TimeSeriesView() {
-  const session = useSessionStore((state) => state.session);
-  const profiles = useSessionStore((state) => state.profiles);
-  const selectedOverlay = useSessionStore((state) => state.selectedOverlay);
-  const setSelectedOverlay = useSessionStore((state) => state.setSelectedOverlay);
+type LoadedTimeSeriesViewProps = {
+  session: NonNullable<ReturnType<typeof useSessionStore.getState>["session"]>;
+  profile: VehicleProfile;
+  overlay: OverlayPreset | null;
+  setSelectedOverlay: (overlay: OverlayPreset | null) => void;
+};
 
-  if (!session) {
-    return (
-      <section className="empty-state">
-        <h2>No log loaded</h2>
-        <p>Open a CSV log to plot configured sensor overlays.</p>
-      </section>
-    );
-  }
-
-  const profile = activeProfile(profiles, session.profileId);
-  if (!profile) {
-    return (
-      <section className="empty-state">
-        <h2>No profile available</h2>
-        <p>The current session does not have an available vehicle profile.</p>
-      </section>
-    );
-  }
-
-  const overlay = resolveOverlay(profile, selectedOverlay);
+function LoadedTimeSeriesView({ session, profile, overlay, setSelectedOverlay }: LoadedTimeSeriesViewProps) {
   const channels = useMemo(
     () => (overlay ? plottableChannels(profile, overlay, session.log.rows) : []),
     [overlay, profile, session.log.rows]
@@ -270,4 +271,33 @@ export function TimeSeriesView() {
       )}
     </section>
   );
+}
+
+export function TimeSeriesView() {
+  const session = useSessionStore((state) => state.session);
+  const profiles = useSessionStore((state) => state.profiles);
+  const selectedOverlay = useSessionStore((state) => state.selectedOverlay);
+  const setSelectedOverlay = useSessionStore((state) => state.setSelectedOverlay);
+
+  if (!session) {
+    return (
+      <section className="empty-state">
+        <h2>No log loaded</h2>
+        <p>Open a CSV log to plot configured sensor overlays.</p>
+      </section>
+    );
+  }
+
+  const profile = activeProfile(profiles, session.profileId);
+  if (!profile) {
+    return (
+      <section className="empty-state">
+        <h2>No profile available</h2>
+        <p>The current session does not have an available vehicle profile.</p>
+      </section>
+    );
+  }
+
+  const overlay = resolveOverlay(profile, selectedOverlay);
+  return <LoadedTimeSeriesView session={session} profile={profile} overlay={overlay} setSelectedOverlay={setSelectedOverlay} />;
 }

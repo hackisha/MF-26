@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { defaultProfiles } from "../../src/domain/defaultProfiles";
 import type { AnalysisSession, VehicleProfile } from "../../src/domain/types";
@@ -9,13 +9,6 @@ import { TimeSeriesView } from "../../src/ui/TimeSeriesView";
 const plotCalls: Array<ComponentProps<"div"> & { data?: unknown; layout?: unknown; config?: unknown }> = [];
 
 vi.mock("plotly.js-dist-min", () => ({ default: {} }));
-
-vi.mock("react-plotly.js", () => ({
-  default: (props: ComponentProps<"div"> & { data?: unknown; layout?: unknown; config?: unknown }) => {
-    plotCalls.push(props);
-    return <div data-testid="plotly-graph" />;
-  }
-}));
 
 vi.mock("react-plotly.js/factory", () => ({
   default: () => (props: ComponentProps<"div"> & { data?: unknown; layout?: unknown; config?: unknown }) => {
@@ -88,7 +81,9 @@ describe("TimeSeriesView", () => {
     render(<TimeSeriesView />);
 
     const traces = plotCalls.at(-1)?.data as Array<{ yaxis: string }>;
-    const layout = plotCalls.at(-1)?.layout as Record<string, { title?: { text: string }; side?: string; overlaying?: string }>;
+    const layout = plotCalls.at(-1)?.layout as Record<string, { title?: { text: string }; side?: string; overlaying?: string; position?: number }> & {
+      xaxis: { domain?: [number, number] };
+    };
 
     expect(traces.map((trace) => trace.yaxis)).toEqual(["y", "y2", "y3"]);
     expect(layout.yaxis.title?.text).toBe("Engine Oil Temp In (degC)");
@@ -96,6 +91,9 @@ describe("TimeSeriesView", () => {
     expect(layout.yaxis3.title?.text).toBe("Coolant Temperature (degC)");
     expect(layout.yaxis2.overlaying).toBe("y");
     expect(layout.yaxis3.overlaying).toBe("y");
+    expect(layout.xaxis.domain).toBeDefined();
+    expect(layout.yaxis2.position).toBe(layout.xaxis.domain?.[1]);
+    expect(layout.yaxis3.position).toBeLessThan(layout.xaxis.domain?.[0] ?? 0);
   });
 
   it("normalizes normalized overlays to a 0-100 scale", () => {
@@ -148,5 +146,18 @@ describe("TimeSeriesView", () => {
 
     expect(screen.getByText("No plottable channels")).not.toBeNull();
     expect(screen.getByText("The selected overlay has configured channels, but none contain finite values in this log.")).not.toBeNull();
+  });
+
+  it("can move from an empty mounted view to a loaded graph without changing hook order", () => {
+    resetStore(null);
+    render(<TimeSeriesView />);
+
+    expect(screen.getByText("Open a CSV log to plot configured sensor overlays.")).not.toBeNull();
+
+    act(() => {
+      resetStore(createSession());
+    });
+
+    expect(screen.getByTestId("plotly-graph")).not.toBeNull();
   });
 });
