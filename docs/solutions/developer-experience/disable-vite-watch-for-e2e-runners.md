@@ -24,7 +24,7 @@ Playwright smoke tests can pass while the Vite dev server keeps watching the wor
 
 ## Guidance
 
-For one-shot E2E runs, start Vite with an explicit test-only environment flag and map that flag to `server.watch: null` in `vite.config.ts`.
+For one-shot E2E runs or Windows desktop smoke launches, start Vite with an explicit environment flag and map that flag to `server.watch: null` in `vite.config.ts`.
 
 ```ts
 server: {
@@ -62,6 +62,8 @@ E2E verification should produce a clear pass or fail signal. File watching is us
 ## Examples
 
 In MF Log Analyzer, `npm.cmd run test:e2e` now uses `scripts/run-e2e.mjs`, which starts Vite with `VITE_DISABLE_WATCH=1`, sets `PLAYWRIGHT_SKIP_WEB_SERVER=1` for the nested Playwright process, and kills the Vite process tree after Playwright exits.
+
+The desktop development launcher also uses `scripts/run-vite-desktop.mjs` so `npm.cmd run electron:dev` does not depend on Vite file watching in OneDrive or non-ASCII Windows paths. This avoids a crash where Vite reports `vite.config.ts changed, restarting server...` and then exits before Electron can load `http://127.0.0.1:5173/`.
 
 ## Related
 
