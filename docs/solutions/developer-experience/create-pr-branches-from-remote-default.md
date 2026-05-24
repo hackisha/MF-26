@@ -42,6 +42,14 @@ git push -u origin HEAD
 
 When copying files into the main-based branch, preserve existing repository directories unless the change intentionally removes them.
 
+Before pushing follow-up commits to an existing PR branch, check that the PR is still open:
+
+```bash
+gh pr view --json number,state,merged,headRefName,baseRefName
+```
+
+If the PR is already merged or closed, create a new branch from the latest remote default branch and move only the intended follow-up files onto it. Pushing to the old head branch after merge will not update the closed PR.
+
 ## Why This Matters
 
 An unrelated-history branch can pass local tests and still be impossible to review or merge on GitHub. Rebuilding the PR branch from `origin/main` keeps the diff reviewable, preserves existing repository contents, and avoids a confusing 422 failure during PR creation.
