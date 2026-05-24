@@ -45,12 +45,14 @@ function createWindow(route = "/") {
     minHeight: 720,
     title: "MF Log Analyzer",
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false
     }
   });
 
+  win.setAutoHideMenuBar(false);
+  win.setMenuBarVisibility(true);
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("will-navigate", (event, url) => {
     if (!isAllowedNavigation(url)) {
