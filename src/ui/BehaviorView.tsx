@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import createPlotlyComponent from "react-plotly.js/factory";
-import Plotly from "plotly.js-dist-min";
+import Plotly from "./plotlyCore";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { useSessionStore } from "../state/sessionStore";
 import type { AnalysisSession, NumericLogRow } from "../domain/types";

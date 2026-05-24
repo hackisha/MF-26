@@ -8,7 +8,9 @@ import { MapLapView } from "../../src/ui/MapLapView";
 
 const plotCalls: Array<ComponentProps<"div"> & { data?: unknown; layout?: unknown; config?: unknown }> = [];
 
-vi.mock("plotly.js-dist-min", () => ({ default: {} }));
+vi.mock("plotly.js/lib/core", () => ({ default: { register: vi.fn() } }));
+vi.mock("plotly.js/lib/scatter", () => ({ default: {} }));
+vi.mock("plotly.js/lib/scattergl", () => ({ default: {} }));
 
 vi.mock("react-plotly.js/factory", () => ({
   default: () => (props: ComponentProps<"div"> & { data?: unknown; layout?: unknown; config?: unknown }) => {

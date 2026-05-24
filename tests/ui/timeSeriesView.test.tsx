@@ -8,7 +8,9 @@ import { TimeSeriesView } from "../../src/ui/TimeSeriesView";
 
 const plotCalls: Array<ComponentProps<"div"> & { data?: unknown; layout?: unknown; config?: unknown }> = [];
 
-vi.mock("plotly.js-dist-min", () => ({ default: {} }));
+vi.mock("plotly.js/lib/core", () => ({ default: { register: vi.fn() } }));
+vi.mock("plotly.js/lib/scatter", () => ({ default: {} }));
+vi.mock("plotly.js/lib/scattergl", () => ({ default: {} }));
 
 vi.mock("react-plotly.js/factory", () => ({
   default: () => (props: ComponentProps<"div"> & { data?: unknown; layout?: unknown; config?: unknown }) => {
@@ -123,6 +125,22 @@ describe("TimeSeriesView", () => {
     expect(layout.yaxis2.position).toBe(layout.xaxis.domain?.[1]);
     expect(layout.yaxis3.position).toBeLessThan(layout.xaxis.domain?.[0] ?? 0);
     expect(layout.shapes?.[0]).toMatchObject({ type: "line", x0: 1, x1: 1, yref: "paper" });
+  });
+
+  it("forces Plotly to redraw the playback cursor when the shared time changes", () => {
+    useSessionStore.getState().setCurrentTimeSec(0);
+    render(<TimeSeriesView />);
+
+    act(() => {
+      useSessionStore.getState().setCurrentTimeSec(1.5);
+    });
+
+    const latestPlot = plotCalls.at(-1) as
+      | (ComponentProps<"div"> & { layout?: { shapes?: Array<{ x0: number; x1: number }> }; revision?: number })
+      | undefined;
+
+    expect(latestPlot?.revision).toBe(1.5);
+    expect(latestPlot?.layout?.shapes?.[0]).toMatchObject({ x0: 1.5, x1: 1.5 });
   });
 
   it("normalizes normalized overlays to a 0-100 scale", () => {

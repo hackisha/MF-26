@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
 import createPlotlyComponent from "react-plotly.js/factory";
-import Plotly from "plotly.js-dist-min";
+import Plotly from "./plotlyCore";
 import { useSessionStore } from "../state/sessionStore";
 import type { AnalysisSession, DetectedEvent, NumericLogRow, Segment } from "../domain/types";
 import type { CircleMarker, Map as LeafletMap } from "leaflet";

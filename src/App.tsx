@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { fileNameFromPath, hydrateSessionSnapshot, startSessionSelectionSync, useSessionStore } from "./state/sessionStore";
 import { Layout } from "./ui/Layout";
+import { PlaybackTicker } from "./ui/PlaybackControls";
 
 function messageFromError(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown CSV load error.";
@@ -120,6 +121,7 @@ export default function App() {
           Loading CSV...
         </section>
       ) : null}
+      <PlaybackTicker />
       <Layout />
     </main>
   );

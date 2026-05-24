@@ -37,6 +37,7 @@ Treat full-log chart data as low-frequency state and the playback cursor as high
 
 - Downsample large Plotly traces to a bounded point count.
 - Use `scattergl` for large point clouds and paths.
+- Register a custom Plotly core with only the trace types the app uses instead of importing the full `plotly.js-dist-min` bundle.
 - Preserve first and last samples so chart extents remain trustworthy.
 - Keep current playback markers sourced from the full log, not the downsampled trace.
 - Memoize stable path/sample traces separately from the current marker trace.
@@ -53,6 +54,14 @@ const traces = useMemo(
 );
 ```
 
+```ts
+import Plotly from "plotly.js/lib/core";
+import scatter from "plotly.js/lib/scatter";
+import scattergl from "plotly.js/lib/scattergl";
+
+Plotly.register([scatter, scattergl]);
+```
+
 ## Why This Works
 
 The loaded log changes rarely, but playback time changes constantly. Bounding trace size keeps Plotly work predictable, and separating stable traces from cursor markers prevents a one-point cursor movement from reallocating thousands of path or scatter points.
@@ -63,6 +72,7 @@ The loaded log changes rarely, but playback time changes constantly. Bounding tr
 - Add synthetic large-log UI tests that assert plotted trace length stays below a fixed limit.
 - Use full-resolution data for statistics, nearest-row lookup, and current markers; use downsampled data for visual background traces.
 - Prefer `scattergl` once a Plotly trace crosses the bounded point threshold.
+- When custom-building Plotly through Vite, define `global` as `globalThis` so browser-incompatible CommonJS dependencies do not crash lazy-loaded chart views.
 
 ## Related Issues
 

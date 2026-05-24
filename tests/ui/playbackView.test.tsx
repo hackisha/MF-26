@@ -1,9 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import type { ComponentProps } from "react";
+import App from "../../src/App";
 import { defaultProfiles } from "../../src/domain/defaultProfiles";
 import type { AnalysisSession } from "../../src/domain/types";
 import { useSessionStore } from "../../src/state/sessionStore";
+import { PlaybackTicker } from "../../src/ui/PlaybackControls";
 import { PlaybackView } from "../../src/ui/PlaybackView";
+
+vi.mock("plotly.js/lib/core", () => ({ default: { register: vi.fn() } }));
+vi.mock("plotly.js/lib/scatter", () => ({ default: {} }));
+vi.mock("plotly.js/lib/scattergl", () => ({ default: {} }));
+vi.mock("react-plotly.js/factory", () => ({
+  default: () => (_props: ComponentProps<"div">) => <div data-testid="plotly-graph" />
+}));
 
 function createSession(): AnalysisSession {
   return {
@@ -34,7 +44,9 @@ function resetStore(session: AnalysisSession | null = createSession()) {
     session,
     currentTimeSec: session?.log.rows[0]?.timestampSec ?? null,
     selectedEventId: null,
-    selectedOverlay: defaultProfiles[0].overlays[0] ?? null
+    selectedOverlay: defaultProfiles[0].overlays[0] ?? null,
+    isPlaybackPlaying: false,
+    playbackSpeed: 1
   });
 }
 
@@ -88,7 +100,12 @@ describe("PlaybackView", () => {
 
   it("plays the log at the selected speed and stops at the end", () => {
     vi.useFakeTimers();
-    render(<PlaybackView />);
+    render(
+      <>
+        <PlaybackTicker />
+        <PlaybackView />
+      </>
+    );
 
     fireEvent.change(screen.getByLabelText("Playback speed"), { target: { value: "2" } });
     fireEvent.click(screen.getByRole("button", { name: "Play CSV log" }));
@@ -103,5 +120,21 @@ describe("PlaybackView", () => {
     });
     expect(useSessionStore.getState().currentTimeSec).toBe(2);
     expect(screen.getByRole("button", { name: "Play CSV log" })).not.toBeNull();
+  });
+
+  it("continues playing after the CSV Playback tab unmounts", async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("tab", { name: "CSV Playback" }));
+    const playButton = await screen.findByRole("button", { name: "Play CSV log" });
+    vi.useFakeTimers();
+    fireEvent.click(playButton);
+    fireEvent.click(screen.getByRole("tab", { name: "Time-Series Graph" }));
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(useSessionStore.getState().currentTimeSec).toBeCloseTo(0.5, 2);
   });
 });

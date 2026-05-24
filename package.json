@@ -21,7 +21,7 @@
     "electron": "^35.0.0",
     "leaflet": "^1.9.4",
     "papaparse": "^5.5.0",
-    "plotly.js-dist-min": "^2.35.0",
+    "plotly.js": "^3.5.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-plotly.js": "^2.6.0",

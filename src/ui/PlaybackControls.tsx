@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, type ChangeEvent } from "react";
 import type { AnalysisSession, NumericLogRow, SensorChannel, VehicleProfile } from "../domain/types";
 import { useSessionStore } from "../state/sessionStore";
 
@@ -77,6 +77,34 @@ export function timeBounds(session: AnalysisSession | null): { startSec: number 
   };
 }
 
+export function PlaybackTicker() {
+  const session = useSessionStore((state) => state.session);
+  const isPlaybackPlaying = useSessionStore((state) => state.isPlaybackPlaying);
+  const playbackSpeed = useSessionStore((state) => state.playbackSpeed);
+  const setCurrentTimeSec = useSessionStore((state) => state.setCurrentTimeSec);
+  const setPlaybackPlaying = useSessionStore((state) => state.setPlaybackPlaying);
+  const { startSec, endSec } = timeBounds(session);
+
+  useEffect(() => {
+    setPlaybackPlaying(false);
+  }, [session, setPlaybackPlaying]);
+
+  useEffect(() => {
+    if (!isPlaybackPlaying || !finiteValue(startSec) || !finiteValue(endSec) || endSec <= startSec) return;
+
+    const intervalId = window.setInterval(() => {
+      const baseTimeSec = useSessionStore.getState().currentTimeSec ?? startSec;
+      const nextTimeSec = Math.min(endSec, baseTimeSec + playbackSpeed * (tickMs / 1000));
+      setCurrentTimeSec(nextTimeSec);
+      if (nextTimeSec >= endSec) setPlaybackPlaying(false);
+    }, tickMs);
+
+    return () => window.clearInterval(intervalId);
+  }, [endSec, isPlaybackPlaying, playbackSpeed, setCurrentTimeSec, setPlaybackPlaying, startSec]);
+
+  return null;
+}
+
 export function PlaybackControls({
   title = "CSV Playback",
   description = "Shared time cursor for replaying the loaded log across analysis views.",
@@ -86,9 +114,11 @@ export function PlaybackControls({
 }: PlaybackControlsProps) {
   const session = useSessionStore((state) => state.session);
   const currentTimeSec = useSessionStore((state) => state.currentTimeSec);
+  const isPlaybackPlaying = useSessionStore((state) => state.isPlaybackPlaying);
+  const playbackSpeed = useSessionStore((state) => state.playbackSpeed);
   const setCurrentTimeSec = useSessionStore((state) => state.setCurrentTimeSec);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [speed, setSpeed] = useState(1);
+  const setPlaybackPlaying = useSessionStore((state) => state.setPlaybackPlaying);
+  const setPlaybackSpeed = useSessionStore((state) => state.setPlaybackSpeed);
   const rows = session?.log.rows ?? [];
   const { startSec, endSec } = timeBounds(session);
   const effectiveTimeSec = currentTimeSec ?? startSec ?? 0;
@@ -96,23 +126,6 @@ export function PlaybackControls({
   const currentRow = currentIndex >= 0 ? rows[currentIndex] : null;
   const durationSec = finiteValue(startSec) && finiteValue(endSec) ? endSec - startSec : null;
   const panelClassName = ["playback-panel", "playback-controls-panel", className].filter(Boolean).join(" ");
-
-  useEffect(() => {
-    setIsPlaying(false);
-  }, [session]);
-
-  useEffect(() => {
-    if (!isPlaying || !finiteValue(startSec) || !finiteValue(endSec) || endSec <= startSec) return;
-
-    const intervalId = window.setInterval(() => {
-      const baseTimeSec = useSessionStore.getState().currentTimeSec ?? startSec;
-      const nextTimeSec = Math.min(endSec, baseTimeSec + speed * (tickMs / 1000));
-      setCurrentTimeSec(nextTimeSec);
-      if (nextTimeSec >= endSec) setIsPlaying(false);
-    }, tickMs);
-
-    return () => window.clearInterval(intervalId);
-  }, [endSec, isPlaying, setCurrentTimeSec, speed, startSec]);
 
   function seekToIndex(index: number) {
     const row = rows[clampIndex(index, rows)];
@@ -126,23 +139,23 @@ export function PlaybackControls({
 
   function handleSpeedChange(event: ChangeEvent<HTMLSelectElement>) {
     const nextSpeed = Number(event.currentTarget.value);
-    if (Number.isFinite(nextSpeed)) setSpeed(nextSpeed);
+    if (Number.isFinite(nextSpeed)) setPlaybackSpeed(nextSpeed);
   }
 
   function togglePlayback() {
-    if (isPlaying) {
-      setIsPlaying(false);
+    if (isPlaybackPlaying) {
+      setPlaybackPlaying(false);
       return;
     }
 
     if (finiteValue(startSec) && finiteValue(endSec) && effectiveTimeSec >= endSec) {
       setCurrentTimeSec(startSec);
     }
-    setIsPlaying(true);
+    setPlaybackPlaying(true);
   }
 
   function stopPlayback() {
-    setIsPlaying(false);
+    setPlaybackPlaying(false);
     if (finiteValue(startSec)) setCurrentTimeSec(startSec);
   }
 
@@ -164,7 +177,7 @@ export function PlaybackControls({
             <Metric label="Current Time" value={formatSeconds(effectiveTimeSec)} />
             <Metric label="Sample" value={currentIndex >= 0 ? `${currentIndex + 1} / ${rows.length}` : "n/a"} />
             <Metric label="Duration" value={formatSeconds(durationSec)} />
-            <Metric label="Speed" value={`${speed}x`} />
+            <Metric label="Speed" value={`${playbackSpeed}x`} />
           </div>
 
           <div className="playback-timeline">
@@ -188,8 +201,8 @@ export function PlaybackControls({
             <button type="button" aria-label="Previous sample" disabled={currentIndex <= 0} onClick={() => seekToIndex(currentIndex - 1)}>
               Back
             </button>
-            <button type="button" aria-label={isPlaying ? "Pause CSV log" : "Play CSV log"} onClick={togglePlayback}>
-              {isPlaying ? "Pause" : "Play"}
+            <button type="button" aria-label={isPlaybackPlaying ? "Pause CSV log" : "Play CSV log"} onClick={togglePlayback}>
+              {isPlaybackPlaying ? "Pause" : "Play"}
             </button>
             <button type="button" aria-label="Stop CSV log" onClick={stopPlayback}>
               Stop
@@ -204,7 +217,7 @@ export function PlaybackControls({
             </button>
             <label className="playback-speed-field">
               <span>Speed</span>
-              <select aria-label="Playback speed" value={speed} onChange={handleSpeedChange}>
+              <select aria-label="Playback speed" value={playbackSpeed} onChange={handleSpeedChange}>
                 {playbackSpeeds.map((playbackSpeed) => (
                   <option key={playbackSpeed} value={playbackSpeed}>
                     {playbackSpeed}x

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import createPlotlyComponent from "react-plotly.js/factory";
-import Plotly from "plotly.js-dist-min";
+import Plotly from "./plotlyCore";
 import { useSessionStore } from "../state/sessionStore";
 import type { NumericLogRow, OverlayPreset, SensorChannel, VehicleProfile } from "../domain/types";
 import { ChannelPicker } from "./ChannelPicker";
@@ -363,6 +363,7 @@ function LoadedTimeSeriesView({ session, profile, overlay, setSelectedOverlay }:
           <Plot
             data={traces}
             layout={layout ?? undefined}
+            revision={currentTimeSec ?? 0}
             config={{ displaylogo: false, responsive: true }}
             useResizeHandler
             className="time-series-plot"

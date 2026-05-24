@@ -12,7 +12,9 @@ const plotCalls: Array<ComponentProps<"div"> & { data?: unknown; layout?: unknow
 const gltfLoadCalls = vi.hoisted((): string[] => []);
 const renderCanvasChildren = vi.hoisted(() => ({ current: false }));
 
-vi.mock("plotly.js-dist-min", () => ({ default: {} }));
+vi.mock("plotly.js/lib/core", () => ({ default: { register: vi.fn() } }));
+vi.mock("plotly.js/lib/scatter", () => ({ default: {} }));
+vi.mock("plotly.js/lib/scattergl", () => ({ default: {} }));
 
 vi.mock("react-plotly.js/factory", () => ({
   default: () => (props: ComponentProps<"div"> & { data?: unknown; layout?: unknown; config?: unknown }) => {

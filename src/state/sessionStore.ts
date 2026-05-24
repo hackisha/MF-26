@@ -52,12 +52,16 @@ type SessionState = {
   sourceCsv: SourceCsv | null;
   session: AnalysisSession | null;
   currentTimeSec: number | null;
+  isPlaybackPlaying: boolean;
+  playbackSpeed: number;
   selectedEventId: string | null;
   selectedOverlay: OverlayPreset | null;
   setSelectedProfileId: (profileId: string) => void;
   openCsv: (sourceCsv?: CsvOpenResult) => Promise<void>;
   addManualSegment: (name: string, startSec: number, endSec: number) => void;
   setCurrentTimeSec: (currentTimeSec: number | null) => void;
+  setPlaybackPlaying: (isPlaybackPlaying: boolean) => void;
+  setPlaybackSpeed: (playbackSpeed: number) => void;
   setSelectedEventId: (selectedEventId: string | null) => void;
   setSelectedOverlay: (overlay: OverlayPreset | null) => void;
   updateProfile: (profile: VehicleProfile) => void;
@@ -172,6 +176,8 @@ export const useSessionStore = create<SessionState>((set, get) => {
     sourceCsv: null,
     session: null,
     currentTimeSec: null,
+    isPlaybackPlaying: false,
+    playbackSpeed: 1,
     selectedEventId: null,
     selectedOverlay: overlayForProfile(initialProfile),
     setSelectedProfileId: (profileId) => {
@@ -184,6 +190,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
         selectedProfileId: profile.id,
         session: nextSession,
         currentTimeSec: nextCurrentTimeSec,
+        isPlaybackPlaying: false,
         selectedEventId: sanitizeSelectedEventId(nextSession, selectedEventId),
         selectedOverlay: overlayForProfile(profile, selectedOverlay?.id)
       });
@@ -201,6 +208,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
         sourceCsv: result,
         session,
         currentTimeSec: firstTimestampSec(session),
+        isPlaybackPlaying: false,
         selectedEventId: null,
         selectedOverlay: overlayForProfile(profile, get().selectedOverlay?.id)
       });
@@ -221,6 +229,12 @@ export const useSessionStore = create<SessionState>((set, get) => {
     setCurrentTimeSec: (currentTimeSec) => {
       set({ currentTimeSec });
       publishSelectionSync();
+    },
+    setPlaybackPlaying: (isPlaybackPlaying) => {
+      set({ isPlaybackPlaying });
+    },
+    setPlaybackSpeed: (playbackSpeed) => {
+      set({ playbackSpeed });
     },
     setSelectedEventId: (selectedEventId) => {
       set({ selectedEventId });

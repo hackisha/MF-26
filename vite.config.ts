@@ -6,6 +6,9 @@ export default defineConfig({
   root: process.cwd(),
   base: "./",
   plugins: [react()],
+  define: {
+    global: "globalThis"
+  },
   resolve: {
     preserveSymlinks: true
   },

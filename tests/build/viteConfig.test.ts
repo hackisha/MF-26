@@ -8,4 +8,10 @@ describe("Vite packaging config", () => {
 
     expect(viteConfig).toMatch(/base:\s*["']\.\/["']/);
   });
+
+  it("defines Node-style global for browser Plotly dependencies", () => {
+    const viteConfig = readFileSync(join(process.cwd(), "vite.config.ts"), "utf8");
+
+    expect(viteConfig).toContain('global: "globalThis"');
+  });
 });
