@@ -3,7 +3,7 @@ import type { AnalysisSession, NumericLogRow, SensorChannel, VehicleProfile } fr
 import { useSessionStore } from "../state/sessionStore";
 
 const playbackSpeeds = [0.25, 0.5, 1, 2, 4, 8];
-const tickMs = 100;
+const tickMs = 250;
 
 export type ChannelReadout = {
   channel: SensorChannel;

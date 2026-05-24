@@ -137,6 +137,35 @@ describe("MapLapView", () => {
     expect(screen.getByLabelText("Map lap statistics").textContent).toContain("90.0 km/h");
   });
 
+  it("limits large GPS path traces while keeping the current marker on the full log sample", () => {
+    const session = createSession();
+    const rowCount = 10_050;
+    session.log.rows = Array.from({ length: rowCount }, (_, index) => ({
+      index,
+      timestampSec: index,
+      values: {
+        Latitude: 37 + index / 100_000,
+        Longitude: 127 + index / 100_000,
+        GPS_Speed_KPH: index % 120,
+        VSS_kmh: index % 110
+      }
+    }));
+    resetStore(session);
+    useSessionStore.getState().setCurrentTimeSec(rowCount - 2);
+
+    render(<MapLapView />);
+
+    const traces = plotCalls.at(-1)?.data as Array<{ x: number[]; y: number[]; type: string; name: string }>;
+    expect(traces[0].x.length).toBeLessThan(rowCount);
+    expect(traces[0].x.length).toBeLessThanOrEqual(7000);
+    expect(traces[0].x[0]).toBe(127);
+    expect(traces[0].x.at(-1)).toBeCloseTo(127 + (rowCount - 1) / 100_000);
+    expect(traces[0].type).toBe("scattergl");
+    expect(traces[1].name).toBe("Current playback position");
+    expect(traces[1].x[0]).toBeCloseTo(127 + (rowCount - 2) / 100_000);
+    expect(traces[1].y[0]).toBeCloseTo(37 + (rowCount - 2) / 100_000);
+  });
+
   it("toggles from the offline plot to an online OpenStreetMap layer", () => {
     render(<MapLapView />);
 

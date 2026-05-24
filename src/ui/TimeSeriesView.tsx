@@ -8,13 +8,15 @@ import { ChannelPicker } from "./ChannelPicker";
 const Plot = createPlotlyComponent(Plotly);
 const AXIS_SPACING = 0.055;
 const MAX_AXIS_PADDING = 0.24;
+const MAX_TIME_SERIES_PLOT_POINTS = 6000;
 
 type PlotPoint = number | null;
+type TraceType = "scatter" | "scattergl";
 
 type Trace = {
   x: PlotPoint[];
   y: PlotPoint[];
-  type: "scatter";
+  type: TraceType;
   mode: "lines";
   name: string;
   line: {
@@ -49,6 +51,11 @@ type PlotShape = {
   xref: "x";
   yref: "paper";
   line: { color: string; width: number; dash: "dot" };
+};
+
+type DownsampledSeries = {
+  x: PlotPoint[];
+  y: PlotPoint[];
 };
 
 type PlotLayout = {
@@ -93,6 +100,60 @@ function normalizeValues(values: PlotPoint[]): PlotPoint[] {
 
   const range = max - min;
   return values.map((value) => (value === null ? null : ((value - min) / range) * 100));
+}
+
+function downsampleSeries(
+  xValues: PlotPoint[],
+  yValues: PlotPoint[],
+  maxPoints = MAX_TIME_SERIES_PLOT_POINTS
+): DownsampledSeries {
+  if (xValues.length <= maxPoints || maxPoints < 3) return { x: xValues, y: yValues };
+
+  const sampledIndexes: number[] = [0];
+  const bucketCount = Math.max(1, Math.floor((maxPoints - 2) / 2));
+  const bucketSize = Math.ceil((xValues.length - 2) / bucketCount);
+
+  for (let start = 1; start < xValues.length - 1; start += bucketSize) {
+    const end = Math.min(xValues.length - 1, start + bucketSize);
+    let minIndex = -1;
+    let maxIndex = -1;
+    let minValue = Number.POSITIVE_INFINITY;
+    let maxValue = Number.NEGATIVE_INFINITY;
+
+    for (let index = start; index < end; index += 1) {
+      const value = yValues[index];
+      if (!finiteNumber(value)) continue;
+      if (value < minValue) {
+        minValue = value;
+        minIndex = index;
+      }
+      if (value > maxValue) {
+        maxValue = value;
+        maxIndex = index;
+      }
+    }
+
+    if (minIndex === -1 || maxIndex === -1) {
+      sampledIndexes.push(start);
+      continue;
+    }
+
+    const orderedIndexes = minIndex <= maxIndex ? [minIndex, maxIndex] : [maxIndex, minIndex];
+    for (const index of orderedIndexes) {
+      if (sampledIndexes.at(-1) !== index) sampledIndexes.push(index);
+    }
+  }
+
+  if (sampledIndexes.at(-1) !== xValues.length - 1) sampledIndexes.push(xValues.length - 1);
+
+  return {
+    x: sampledIndexes.map((index) => xValues[index]),
+    y: sampledIndexes.map((index) => yValues[index])
+  };
+}
+
+function traceTypeForPointCount(pointCount: number): TraceType {
+  return pointCount > MAX_TIME_SERIES_PLOT_POINTS ? "scattergl" : "scatter";
 }
 
 function activeProfile(profiles: VehicleProfile[], profileId: string): VehicleProfile | null {
@@ -180,19 +241,24 @@ function xAxisDomain(traceCount: number, overlay: OverlayPreset): [number, numbe
 
 function tracesForChannels(overlay: OverlayPreset, rows: NumericLogRow[], channels: PlottableChannel[]): Trace[] {
   const xValues = rows.map((row) => finiteOrNull(row.timestampSec));
-  return channels.map(({ channel, values }, index) => ({
-    x: xValues,
-    y: overlay.mode === "normalized" ? normalizeValues(values) : values,
-    type: "scatter",
-    mode: "lines",
-    name: traceName(channel),
-    line: {
-      color: channel.color,
-      width: 2
-    },
-    connectgaps: false,
-    yaxis: traceAxisId(index, overlay)
-  }));
+  return channels.map(({ channel, values }, index) => {
+    const yValues = overlay.mode === "normalized" ? normalizeValues(values) : values;
+    const sampledSeries = downsampleSeries(xValues, yValues);
+
+    return {
+      x: sampledSeries.x,
+      y: sampledSeries.y,
+      type: traceTypeForPointCount(xValues.length),
+      mode: "lines",
+      name: traceName(channel),
+      line: {
+        color: channel.color,
+        width: 2
+      },
+      connectgaps: false,
+      yaxis: traceAxisId(index, overlay)
+    };
+  });
 }
 
 function playbackCursorShape(currentTimeSec: number): PlotShape {

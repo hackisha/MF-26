@@ -77,6 +77,32 @@ describe("TimeSeriesView", () => {
     expect(traces[2].y).toEqual([70, null, 90]);
   });
 
+  it("limits plotted samples for large logs while preserving endpoints", () => {
+    const session = createSession();
+    const rowCount = 12_050;
+    session.log.rows = Array.from({ length: rowCount }, (_, index) => ({
+      index,
+      timestampSec: index * 0.01,
+      values: {
+        EOT_IN: 80 + Math.sin(index / 12) * 8,
+        EOT_OUT: 75 + Math.cos(index / 11) * 7,
+        CLT_C: 70 + Math.sin(index / 18) * 5,
+        TPS_percent: index % 100,
+        ay_corrected_g: Math.sin(index / 20)
+      }
+    }));
+    resetStore(session);
+
+    render(<TimeSeriesView />);
+
+    const traces = plotCalls.at(-1)?.data as Array<{ x: number[]; type: string }>;
+    expect(traces[0].x.length).toBeLessThan(rowCount);
+    expect(traces[0].x.length).toBeLessThanOrEqual(6000);
+    expect(traces[0].x[0]).toBe(0);
+    expect(traces[0].x.at(-1)).toBeCloseTo((rowCount - 1) * 0.01);
+    expect(traces[0].type).toBe("scattergl");
+  });
+
   it("assigns separate y axes and layout definitions for separateAxes overlays", () => {
     useSessionStore.getState().setCurrentTimeSec(1);
     render(<TimeSeriesView />);

@@ -153,6 +153,37 @@ describe("BehaviorView", () => {
     expect(screen.getByText("0.70 g")).not.toBeNull();
   });
 
+  it("limits large G-G sample traces while preserving the current playback marker", () => {
+    const session = createSession();
+    const rowCount = 12_050;
+    session.log.rows = Array.from({ length: rowCount }, (_, index) => ({
+      index,
+      timestampSec: index * 0.02,
+      values: {
+        ax_corrected_g: Math.sin(index / 20) * 1.6,
+        ay_corrected_g: Math.cos(index / 18) * 1.4,
+        gx_dps: index % 120,
+        gy_dps: index % 90,
+        gz_dps: index % 160
+      }
+    }));
+    resetStore(session);
+    useSessionStore.getState().setCurrentTimeSec((rowCount - 2) * 0.02);
+
+    render(<BehaviorView />);
+
+    const traces = plotCalls.at(-1)?.data as Array<{ x: number[]; y: number[]; type: string; name: string }>;
+    const sampleTrace = traces.find((trace) => trace.name === "All corrected G-G samples");
+    const currentTrace = traces.find((trace) => trace.name === "Current playback sample");
+
+    expect(sampleTrace?.x.length).toBeLessThan(rowCount);
+    expect(sampleTrace?.x.length).toBeLessThanOrEqual(6000);
+    expect(sampleTrace?.x[0]).toBe(0);
+    expect(sampleTrace?.type).toBe("scattergl");
+    expect(currentTrace?.x[0]).toBeCloseTo(Math.sin((rowCount - 2) / 20) * 1.6);
+    expect(currentTrace?.y[0]).toBeCloseTo(Math.cos((rowCount - 2) / 18) * 1.4);
+  });
+
   it("shows a no-usable-G empty state when corrected acceleration is unavailable", () => {
     const session = createSession();
     session.log.rows = session.log.rows.map((row) => ({

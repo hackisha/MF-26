@@ -8,6 +8,7 @@ import type { AnalysisSession, NumericLogRow } from "../domain/types";
 
 const Plot = createPlotlyComponent(Plotly);
 const vehicleModelUrl = `${import.meta.env.BASE_URL}models/car.glb`;
+const MAX_GG_PLOT_POINTS = 6000;
 
 type CloneableObject3D = object & {
   clone: (recursive?: boolean) => CloneableObject3D;
@@ -32,10 +33,12 @@ type BehaviorStats = {
   samplesUsed: number;
 };
 
+type GgTraceType = "scatter" | "scattergl";
+
 type GgTrace = {
   x: number[];
   y: number[];
-  type: "scatter";
+  type: GgTraceType;
   mode: "markers" | "lines";
   name: string;
   marker?: {
@@ -106,6 +109,20 @@ function ggPointForRow(row: NumericLogRow): GgPoint | null {
   return ax !== null && ay !== null ? { ax, ay } : null;
 }
 
+function downsampleGgPoints(points: GgPoint[], maxPoints = MAX_GG_PLOT_POINTS): GgPoint[] {
+  if (points.length <= maxPoints || maxPoints < 3) return points;
+
+  const sampledPoints = [points[0]];
+  const stride = Math.ceil((points.length - 2) / (maxPoints - 2));
+
+  for (let index = 1; index < points.length - 1; index += stride) {
+    sampledPoints.push(points[index]);
+  }
+
+  sampledPoints.push(points[points.length - 1]);
+  return sampledPoints;
+}
+
 function nearestRowIndex(rows: NumericLogRow[], timeSec: number): number {
   if (rows.length === 0) return -1;
   if (timeSec <= rows[0].timestampSec) return 0;
@@ -167,11 +184,10 @@ function maxAbs(values: number[]): number | null {
   return values.reduce((max, value) => Math.max(max, Math.abs(value)), 0);
 }
 
-function behaviorStats(points: GgPoint[], latestYawRate: number | null): BehaviorStats {
+function behaviorStats(points: GgPoint[]): Omit<BehaviorStats, "latestYawRate"> {
   return {
     peakLateralG: maxAbs(points.map((point) => point.ay)),
     peakLongitudinalG: maxAbs(points.map((point) => point.ax)),
-    latestYawRate,
     samplesUsed: points.length
   };
 }
@@ -211,26 +227,20 @@ function currentGgTrace(point: GgPoint): GgTrace {
   };
 }
 
-function ggTrace(points: GgPoint[], currentPoint: GgPoint | null): GgTrace[] {
-  const traces: GgTrace[] = [
-    {
-      x: points.map((point) => point.ax),
-      y: points.map((point) => point.ay),
-      type: "scatter",
-      mode: "markers",
-      name: "All corrected G-G samples",
-      marker: {
-        color: "#0f766e",
-        size: 5,
-        opacity: 0.24,
-        line: { color: "#ffffff", width: 0 }
-      }
-    },
-    limitCircleTrace(ggLimitRadiusG)
-  ];
-
-  if (currentPoint) traces.push(currentGgTrace(currentPoint));
-  return traces;
+function ggSamplesTrace(points: GgPoint[], traceType: GgTraceType): GgTrace {
+  return {
+    x: points.map((point) => point.ax),
+    y: points.map((point) => point.ay),
+    type: traceType,
+    mode: "markers",
+    name: "All corrected G-G samples",
+    marker: {
+      color: "#0f766e",
+      size: 5,
+      opacity: 0.24,
+      line: { color: "#ffffff", width: 0 }
+    }
+  };
 }
 
 function ggAxisLimit(points: GgPoint[]): number {
@@ -391,12 +401,20 @@ function VehicleTendencyModel({ snapshot }: { snapshot: MotionCueSnapshot }) {
 function LoadedBehaviorView({ session }: { session: AnalysisSession }) {
   const currentTimeSec = useSessionStore((state) => state.currentTimeSec);
   const points = useMemo(() => correctedGgPoints(session.log.rows), [session.log.rows]);
+  const plottedPoints = useMemo(() => downsampleGgPoints(points), [points]);
   const currentRow = useMemo(() => rowAtTime(session.log.rows, currentTimeSec), [currentTimeSec, session.log.rows]);
   const currentGgPoint = useMemo(() => (currentRow ? ggPointForRow(currentRow) : null), [currentRow]);
   const motionCue = useMemo(() => motionCueAtTime(session.log.rows, currentTimeSec), [currentTimeSec, session.log.rows]);
   const currentYawRate = useMemo(() => finiteNumber(currentRow?.values.gz_dps), [currentRow]);
-  const stats = useMemo(() => behaviorStats(points, currentYawRate), [currentYawRate, points]);
-  const traces = useMemo(() => ggTrace(points, currentGgPoint), [currentGgPoint, points]);
+  const staticStats = useMemo(() => behaviorStats(points), [points]);
+  const stats: BehaviorStats = useMemo(() => ({ ...staticStats, latestYawRate: currentYawRate }), [currentYawRate, staticStats]);
+  const sampleTraceType: GgTraceType = plottedPoints.length < points.length ? "scattergl" : "scatter";
+  const sampleTrace = useMemo(() => ggSamplesTrace(plottedPoints, sampleTraceType), [plottedPoints, sampleTraceType]);
+  const limitTrace = useMemo(() => limitCircleTrace(ggLimitRadiusG), []);
+  const traces = useMemo(
+    () => (currentGgPoint ? [sampleTrace, limitTrace, currentGgTrace(currentGgPoint)] : [sampleTrace, limitTrace]),
+    [currentGgPoint, limitTrace, sampleTrace]
+  );
   const layout = useMemo(() => ggLayout(ggAxisLimit(points)), [points]);
 
   return (

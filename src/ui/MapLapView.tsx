@@ -8,6 +8,7 @@ import type { CircleMarker, Map as LeafletMap } from "leaflet";
 import { SeverityBadge } from "./SeverityBadge";
 
 const Plot = createPlotlyComponent(Plotly);
+const MAX_MAP_PLOT_POINTS = 7000;
 
 type CoordinatePoint = {
   longitude: number;
@@ -16,11 +17,13 @@ type CoordinatePoint = {
   speedKph: number | null;
 };
 
+type MapTraceType = "scatter" | "scattergl";
+
 type MapTrace = {
   x: number[];
   y: number[];
   text: string[];
-  type: "scatter";
+  type: MapTraceType;
   mode: "lines+markers" | "markers";
   name: string;
   line?: { color: string; width: number };
@@ -86,6 +89,20 @@ function coordinatePoints(rows: NumericLogRow[]): CoordinatePoint[] {
     .filter((point): point is CoordinatePoint => point !== null);
 }
 
+function downsampleCoordinatePoints(points: CoordinatePoint[], maxPoints = MAX_MAP_PLOT_POINTS): CoordinatePoint[] {
+  if (points.length <= maxPoints || maxPoints < 3) return points;
+
+  const sampledPoints = [points[0]];
+  const stride = Math.ceil((points.length - 2) / (maxPoints - 2));
+
+  for (let index = 1; index < points.length - 1; index += stride) {
+    sampledPoints.push(points[index]);
+  }
+
+  sampledPoints.push(points[points.length - 1]);
+  return sampledPoints;
+}
+
 function nearestCoordinatePoint(points: CoordinatePoint[], timeSec: number | null): CoordinatePoint | null {
   const targetTimeSec = finiteNumber(timeSec);
   if (targetTimeSec === null || points.length === 0) return null;
@@ -119,48 +136,44 @@ function formatSpeed(value: number | null): string {
   return value === null ? "n/a" : `${value.toFixed(1)} km/h`;
 }
 
-function mapTrace(points: CoordinatePoint[], currentPoint: CoordinatePoint | null): MapTrace[] {
-  const traces: MapTrace[] = [
-    {
-      x: points.map((point) => point.longitude),
-      y: points.map((point) => point.latitude),
-      text: points.map((point) => `t=${formatSeconds(point.timestampSec)}, speed=${formatSpeed(point.speedKph)}`),
-      type: "scatter",
-      mode: "lines+markers",
-      name: "GPS path",
-      line: { color: "#64748b", width: 1.5 },
-      marker: {
-        color: points.map((point) => point.speedKph ?? 0),
-        colorscale: "Viridis",
-        size: 7,
-        opacity: 0.82,
-        colorbar: { title: { text: "Speed (km/h)" } },
-        line: { color: "#ffffff", width: 0.6 }
-      },
-      hovertemplate: "Lon %{x:.6f}<br>Lat %{y:.6f}<br>%{text}<extra></extra>"
-    }
-  ];
+function mapPathTrace(points: CoordinatePoint[], pathTraceType: MapTraceType): MapTrace {
+  return {
+    x: points.map((point) => point.longitude),
+    y: points.map((point) => point.latitude),
+    text: points.map((point) => `t=${formatSeconds(point.timestampSec)}, speed=${formatSpeed(point.speedKph)}`),
+    type: pathTraceType,
+    mode: "lines+markers",
+    name: "GPS path",
+    line: { color: "#64748b", width: 1.5 },
+    marker: {
+      color: points.map((point) => point.speedKph ?? 0),
+      colorscale: "Viridis",
+      size: 7,
+      opacity: 0.82,
+      colorbar: { title: { text: "Speed (km/h)" } },
+      line: { color: "#ffffff", width: 0.6 }
+    },
+    hovertemplate: "Lon %{x:.6f}<br>Lat %{y:.6f}<br>%{text}<extra></extra>"
+  };
+}
 
-  if (currentPoint) {
-    traces.push({
-      x: [currentPoint.longitude],
-      y: [currentPoint.latitude],
-      text: [`t=${formatSeconds(currentPoint.timestampSec)}, speed=${formatSpeed(currentPoint.speedKph)}`],
-      type: "scatter",
-      mode: "markers",
-      name: "Current playback position",
-      marker: {
-        color: "#be123c",
-        size: 15,
-        opacity: 0.96,
-        symbol: "diamond",
-        line: { color: "#ffffff", width: 2 }
-      },
-      hovertemplate: "Current<br>Lon %{x:.6f}<br>Lat %{y:.6f}<br>%{text}<extra></extra>"
-    });
-  }
-
-  return traces;
+function currentCoordinateTrace(currentPoint: CoordinatePoint): MapTrace {
+  return {
+    x: [currentPoint.longitude],
+    y: [currentPoint.latitude],
+    text: [`t=${formatSeconds(currentPoint.timestampSec)}, speed=${formatSpeed(currentPoint.speedKph)}`],
+    type: "scatter",
+    mode: "markers",
+    name: "Current playback position",
+    marker: {
+      color: "#be123c",
+      size: 15,
+      opacity: 0.96,
+      symbol: "diamond",
+      line: { color: "#ffffff", width: 2 }
+    },
+    hovertemplate: "Current<br>Lon %{x:.6f}<br>Lat %{y:.6f}<br>%{text}<extra></extra>"
+  };
 }
 
 function mapLayout(): MapLayout {
@@ -310,10 +323,13 @@ function LoadedMapLapView({ session }: { session: AnalysisSession }) {
   const [error, setError] = useState<string | null>(null);
 
   const points = useMemo(() => coordinatePoints(session.log.rows), [session.log.rows]);
+  const plottedPoints = useMemo(() => downsampleCoordinatePoints(points), [points]);
   const currentPoint = useMemo(() => nearestCoordinatePoint(points, currentTimeSec), [currentTimeSec, points]);
-  const traces = useMemo(() => mapTrace(points, currentPoint), [currentPoint, points]);
+  const pathTraceType: MapTraceType = plottedPoints.length < points.length ? "scattergl" : "scatter";
+  const pathTrace = useMemo(() => mapPathTrace(plottedPoints, pathTraceType), [pathTraceType, plottedPoints]);
+  const traces = useMemo(() => (currentPoint ? [pathTrace, currentCoordinateTrace(currentPoint)] : [pathTrace]), [currentPoint, pathTrace]);
   const layout = useMemo(() => mapLayout(), []);
-  const plottedMaxSpeed = useMemo(() => maxSpeed(points), [points]);
+  const plottedMaxSpeed = useMemo(() => maxSpeed(plottedPoints), [plottedPoints]);
   const onlineMapEnabled = mapMode === "online";
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -385,7 +401,7 @@ function LoadedMapLapView({ session }: { session: AnalysisSession }) {
               <p>This offline fallback needs finite Longitude and Latitude samples.</p>
             </div>
           ) : onlineMapEnabled ? (
-            <OnlineLeafletMap points={points} currentPoint={currentPoint} />
+            <OnlineLeafletMap points={plottedPoints} currentPoint={currentPoint} />
           ) : (
             <Plot
               data={traces}
