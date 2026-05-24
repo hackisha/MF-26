@@ -102,31 +102,35 @@ describe("MapLapView", () => {
 
     expect(screen.getByText("Offline coordinate fallback")).not.toBeNull();
     expect(screen.getByTestId("map-lap-plot")).not.toBeNull();
-    expect(traces[0].x).toEqual([127.1, 127.2]);
-    expect(traces[0].y).toEqual([37.1, 37.2]);
-    expect(traces[0].marker.color).toEqual([40, 55]);
-    expect(traces[0].text).toEqual(["t=0.00s, speed=40.0 km/h", "t=1.00s, speed=55.0 km/h"]);
+    expect(traces[0].x).toEqual([127.1, 127.2, 0]);
+    expect(traces[0].y).toEqual([37.1, 37.2, 0]);
+    expect(traces[0].marker.color).toEqual([40, 55, 90]);
+    expect(traces[0].text).toEqual([
+      "t=0.00s, speed=40.0 km/h",
+      "t=1.00s, speed=55.0 km/h",
+      "t=2.00s, speed=90.0 km/h"
+    ]);
     expect(traces[0].mode).toBe("lines+markers");
     expect(traces[0].type).toBe("scatter");
     expect(layout.yaxis.scaleanchor).toBe("x");
     expect(layout.yaxis.scaleratio).toBe(1);
     expect(layout.xaxis.title.text).toBe("Longitude");
-    expect(screen.getByLabelText("Map lap statistics").textContent).toContain("2");
-    expect(screen.getByLabelText("Map lap statistics").textContent).toContain("55.0 km/h");
+    expect(screen.getByLabelText("Map lap statistics").textContent).toContain("3");
+    expect(screen.getByLabelText("Map lap statistics").textContent).toContain("90.0 km/h");
   });
 
-  it("shows a no-coordinate empty state when no finite non-zero coordinate pairs are available", () => {
+  it("shows a no-coordinate empty state when no finite coordinate pairs are available", () => {
     const session = createSession();
     session.log.rows = session.log.rows.map((row) => ({
       ...row,
-      values: { ...row.values, Latitude: row.index === 0 ? 0 : null, Longitude: row.index === 0 ? 0 : Number.NaN }
+      values: { ...row.values, Latitude: row.index === 0 ? null : Number.NaN, Longitude: row.index === 0 ? Number.NaN : null }
     }));
     resetStore(session);
 
     render(<MapLapView />);
 
     expect(screen.getByText("No finite coordinate pairs")).not.toBeNull();
-    expect(screen.getByText("This offline fallback needs finite non-zero Longitude and Latitude samples.")).not.toBeNull();
+    expect(screen.getByText("This offline fallback needs finite Longitude and Latitude samples.")).not.toBeNull();
     expect(screen.queryByTestId("map-lap-plot")).toBeNull();
   });
 
@@ -144,6 +148,11 @@ describe("MapLapView", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Add segment" }));
     expect(screen.getByText("Enter a segment name and finite start/end seconds.")).not.toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Segment name"), { target: { value: "Launch window" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add segment" }));
+    expect(screen.getByText("Enter a segment name and finite start/end seconds.")).not.toBeNull();
+    expect(useSessionStore.getState().session?.segments.some((segment) => segment.name === "Launch window")).toBe(false);
 
     fireEvent.change(screen.getByLabelText("Segment name"), { target: { value: "Pit entry" } });
     fireEvent.change(screen.getByLabelText("Start seconds"), { target: { value: "8" } });

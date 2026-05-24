@@ -70,7 +70,6 @@ function coordinatePoints(rows: NumericLogRow[]): CoordinatePoint[] {
       const longitude = finiteNumber(row.values.Longitude);
       const latitude = finiteNumber(row.values.Latitude);
       if (longitude === null || latitude === null) return null;
-      if (longitude === 0 && latitude === 0) return null;
 
       return {
         longitude,
@@ -170,10 +169,12 @@ function LoadedMapLapView({ session }: { session: AnalysisSession }) {
     event.preventDefault();
 
     const trimmedName = name.trim();
-    const parsedStartSec = Number(startSec);
-    const parsedEndSec = Number(endSec);
+    const trimmedStartSec = startSec.trim();
+    const trimmedEndSec = endSec.trim();
+    const parsedStartSec = Number(trimmedStartSec);
+    const parsedEndSec = Number(trimmedEndSec);
 
-    if (!trimmedName || !Number.isFinite(parsedStartSec) || !Number.isFinite(parsedEndSec)) {
+    if (!trimmedName || !trimmedStartSec || !trimmedEndSec || !Number.isFinite(parsedStartSec) || !Number.isFinite(parsedEndSec)) {
       setError("Enter a segment name and finite start/end seconds.");
       return;
     }
@@ -211,12 +212,12 @@ function LoadedMapLapView({ session }: { session: AnalysisSession }) {
         <section className="map-lap-panel" aria-label="Offline GPS path">
           <div className="map-lap-panel-heading">
             <h2>GPS path</h2>
-            <p>Finite non-zero coordinate pairs only.</p>
+            <p>Finite coordinate pairs only.</p>
           </div>
           {points.length === 0 ? (
             <div className="inline-empty">
               <h3>No finite coordinate pairs</h3>
-              <p>This offline fallback needs finite non-zero Longitude and Latitude samples.</p>
+              <p>This offline fallback needs finite Longitude and Latitude samples.</p>
             </div>
           ) : (
             <Plot
