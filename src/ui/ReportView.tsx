@@ -28,7 +28,8 @@ export function ReportView() {
       profile: activeProfile,
       events: session.events,
       diagnostics: session.diagnostics,
-      summary
+      summary,
+      segments: session.segments
     });
   }, [activeProfile, session]);
 

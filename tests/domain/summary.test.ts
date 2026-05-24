@@ -43,7 +43,7 @@ function testProfile(overrides: Partial<VehicleProfile> = {}): VehicleProfile {
     channels: {},
     rules: [],
     overlays: [],
-    reportSections: [],
+    reportSections: ["summary", "diagnostics", "events"],
     ...overrides
   };
 }
@@ -193,6 +193,32 @@ describe("buildReportHtml", () => {
     expect(html).toContain("2025 Vehicle");
     expect(html).toContain("High RPM Oil Pressure Drop");
     expect(html).toContain("Low battery voltage");
+    expect(html).toContain("<h2>Overlay Presets</h2>");
+    expect(html).toContain("<h2>Vehicle Behavior</h2>");
+    expect(html).toContain("<h2>Segments</h2>");
+  });
+
+  it("renders only sections enabled by the active profile", () => {
+    const log = loadAppliedLog();
+    const events = detectEvents(log, profile2025);
+    const diagnostics = runDiagnostics(log, profile2025);
+    const summary = summarizeLog(log, events);
+
+    const html = buildReportHtml({
+      log,
+      profile: {
+        ...profile2025,
+        reportSections: ["summary"]
+      },
+      events,
+      diagnostics,
+      summary
+    });
+
+    expect(html).toContain("<h2>Summary</h2>");
+    expect(html).not.toContain("<h2>Diagnostics</h2>");
+    expect(html).not.toContain("<h2>Events</h2>");
+    expect(html).not.toContain("<h2>Overlay Presets</h2>");
   });
 
   it("escapes file, profile, event, and diagnostic text", () => {
