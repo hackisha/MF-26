@@ -4,9 +4,9 @@ import { SummaryView } from "./SummaryView";
 import { Tabs, tabButtonId, tabPanelId, type TabId } from "./Tabs";
 
 const TimeSeriesView = lazy(() => import("./TimeSeriesView").then((module) => ({ default: module.TimeSeriesView })));
+const BehaviorView = lazy(() => import("./BehaviorView").then((module) => ({ default: module.BehaviorView })));
 
-const placeholders: Record<Exclude<TabId, "summary" | "diagnostics" | "time-series">, string> = {
-  behavior: "Vehicle behavior view is next.",
+const placeholders: Record<Exclude<TabId, "summary" | "diagnostics" | "time-series" | "behavior">, string> = {
   "map-lap": "Map / Lap view is next.",
   report: "Report view is next.",
   settings: "Settings view is next."
@@ -31,7 +31,12 @@ export function Layout() {
             <TimeSeriesView />
           </Suspense>
         )}
-        {activeTab !== "summary" && activeTab !== "diagnostics" && activeTab !== "time-series" && (
+        {activeTab === "behavior" && (
+          <Suspense fallback={<section className="empty-state">Loading behavior view...</section>}>
+            <BehaviorView />
+          </Suspense>
+        )}
+        {activeTab !== "summary" && activeTab !== "diagnostics" && activeTab !== "time-series" && activeTab !== "behavior" && (
           <section className="empty-state">{placeholders[activeTab]}</section>
         )}
       </section>
