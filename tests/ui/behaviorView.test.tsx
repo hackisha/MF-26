@@ -93,13 +93,20 @@ describe("BehaviorView", () => {
   it("uses corrected acceleration channels, filters non-finite G-G points, and draws a limit circle", () => {
     render(<BehaviorView />);
 
-    const traces = plotCalls.at(-1)?.data as Array<{ x: number[]; y: number[]; mode: string; type: string; name: string }>;
+    const traces = plotCalls.at(-1)?.data as Array<{
+      x: number[];
+      y: number[];
+      mode: string;
+      type: string;
+      name: string;
+      marker?: { opacity: number; size: number };
+    }>;
     const layout = plotCalls.at(-1)?.layout as {
       showlegend: boolean;
       xaxis: { title: { text: string }; zeroline: boolean; range: [number, number] };
       yaxis: { title: { text: string }; scaleanchor: string; zeroline: boolean; range: [number, number] };
     };
-    const sampleTrace = traces.find((trace) => trace.name === "Corrected G-G samples");
+    const sampleTrace = traces.find((trace) => trace.name === "All corrected G-G samples");
     const limitTrace = traces.find((trace) => trace.name === "2.0 g limit circle");
 
     expect(screen.getByTestId("behavior-plot")).not.toBeNull();
@@ -107,6 +114,8 @@ describe("BehaviorView", () => {
     expect(sampleTrace?.y).toEqual([-0.8, 1.1]);
     expect(sampleTrace?.mode).toBe("markers");
     expect(sampleTrace?.type).toBe("scatter");
+    expect(sampleTrace?.marker?.opacity).toBeLessThan(0.35);
+    expect(sampleTrace?.marker?.size).toBeLessThan(7);
     expect(limitTrace?.mode).toBe("lines");
     expect(Math.max(...(limitTrace?.x ?? []))).toBeCloseTo(2);
     expect(Math.min(...(limitTrace?.x ?? []))).toBeCloseTo(-2);

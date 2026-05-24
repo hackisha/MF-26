@@ -212,12 +212,12 @@ function ggTrace(points: GgPoint[], currentPoint: GgPoint | null): GgTrace[] {
       y: points.map((point) => point.ay),
       type: "scatter",
       mode: "markers",
-      name: "Corrected G-G samples",
+      name: "All corrected G-G samples",
       marker: {
         color: "#0f766e",
-        size: 7,
-        opacity: 0.72,
-        line: { color: "#ffffff", width: 0.5 }
+        size: 5,
+        opacity: 0.24,
+        line: { color: "#ffffff", width: 0 }
       }
     },
     limitCircleTrace(ggLimitRadiusG)
