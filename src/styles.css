@@ -603,19 +603,21 @@ input {
 
 .behavior-plot {
   width: 100%;
-  min-height: min(58vh, 560px);
+  height: min(58vh, 560px);
 }
 
 .behavior-model-shell {
   display: grid;
-  grid-template-rows: minmax(300px, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 12px;
-  min-height: min(58vh, 560px);
+  height: min(58vh, 560px);
+  min-height: 0;
 }
 
 .behavior-canvas {
   width: 100%;
-  min-height: 300px;
+  height: 100%;
+  min-height: 0;
   border: 1px solid #edf1f4;
   border-radius: 8px;
   background: #f8fafb;
@@ -771,7 +773,7 @@ input {
 
 .map-lap-plot {
   width: 100%;
-  min-height: min(58vh, 560px);
+  height: min(58vh, 560px);
 }
 
 .online-map-shell {
@@ -781,7 +783,7 @@ input {
 
 .leaflet-map {
   width: 100%;
-  min-height: min(58vh, 560px);
+  height: min(58vh, 560px);
   overflow: hidden;
   border: 1px solid #edf1f4;
   border-radius: 8px;
@@ -1062,7 +1064,8 @@ input {
 .workspace-panel-body .map-lap-plot,
 .workspace-panel-body .leaflet-map,
 .workspace-panel-body .behavior-model-shell {
-  min-height: 340px;
+  height: 340px;
+  min-height: 0;
 }
 
 .workspace-panel-body .map-lap-segments-panel {
