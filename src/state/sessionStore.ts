@@ -296,7 +296,6 @@ export function startSessionSelectionSync(): () => void {
   channel.addEventListener("message", (event: MessageEvent<SelectionSyncMessage>) => {
     if (event.data?.type !== "session-selection") return;
     applySelectionSync(event.data);
-    void publishSessionSnapshot();
   });
 
   return () => {

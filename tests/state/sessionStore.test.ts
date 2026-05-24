@@ -215,6 +215,8 @@ describe("session store", () => {
 
   it("hydrates selection changes from another window without rebroadcasting them", () => {
     vi.stubGlobal("BroadcastChannel", MockBroadcastChannel);
+    const setSessionSnapshot = vi.fn(async () => undefined);
+    installDesktopApi({ setSessionSnapshot });
     useSessionStore.setState({
       sourceCsv: { filePath: "C:\\logs\\session.csv", text: csv },
       session: createLoadedSession()
@@ -234,12 +236,15 @@ describe("session store", () => {
     expect(state.selectedEventId).toBe("event-1");
     expect(state.selectedOverlay?.id).toBe(defaultProfiles[0].overlays[1]?.id);
     expect(channel?.postMessage).not.toHaveBeenCalled();
+    expect(setSessionSnapshot).not.toHaveBeenCalled();
 
     cleanup();
   });
 
   it("sanitizes stale event and overlay ids received from another window", () => {
     vi.stubGlobal("BroadcastChannel", MockBroadcastChannel);
+    const setSessionSnapshot = vi.fn(async () => undefined);
+    installDesktopApi({ setSessionSnapshot });
     useSessionStore.setState({
       sourceCsv: { filePath: "C:\\logs\\session.csv", text: csv },
       session: createLoadedSession()
@@ -256,6 +261,7 @@ describe("session store", () => {
     const state = useSessionStore.getState();
     expect(state.selectedEventId).toBeNull();
     expect(state.selectedOverlay?.id).toBe(defaultProfiles[0].overlays[0]?.id);
+    expect(setSessionSnapshot).not.toHaveBeenCalled();
 
     cleanup();
   });
