@@ -157,6 +157,58 @@ describe("SettingsView", () => {
     expect(screen.getByText("Profile id must remain 2025-vehicle.")).not.toBeNull();
   });
 
+  it("rejects valid JSON that does not preserve the vehicle profile shape", () => {
+    render(<SettingsView />);
+
+    fireEvent.change(screen.getByLabelText("Active profile JSON"), {
+      target: { value: JSON.stringify({ id: defaultProfiles[0].id, name: "Broken", revision: "broken" }, null, 2) }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply JSON" }));
+
+    expect(screen.getByText("Profile channels must be a non-empty object.")).not.toBeNull();
+    expect(useSessionStore.getState().profiles[0].name).toBe(defaultProfiles[0].name);
+  });
+
+  it("rejects malformed calibration JSON before it can rebuild the session with NaN values", () => {
+    const editedProfile = cloneProfile(defaultProfiles[0]);
+    editedProfile.channels.RPM = {
+      ...editedProfile.channels.RPM,
+      calibration: { type: "scaleOffset", scale: Number.NaN, offset: 0 }
+    };
+    const malformedProfileJson = JSON.stringify(editedProfile, (_key, value) => (Number.isNaN(value) ? "not-a-number" : value), 2);
+    render(<SettingsView />);
+
+    fireEvent.change(screen.getByLabelText("Active profile JSON"), { target: { value: malformedProfileJson } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply JSON" }));
+
+    expect(screen.getByText("Channel RPM scaleOffset calibration needs a finite scale.")).not.toBeNull();
+    expect(useSessionStore.getState().session?.log.rows[0].values.RPM).toBe(1000);
+  });
+
+  it("rejects malformed overlay JSON before it can break the time-series view", () => {
+    const editedProfile = cloneProfile(defaultProfiles[0]);
+    editedProfile.overlays = [{ id: "broken", name: "Broken" } as never];
+    render(<SettingsView />);
+
+    fireEvent.change(screen.getByLabelText("Active profile JSON"), { target: { value: JSON.stringify(editedProfile, null, 2) } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply JSON" }));
+
+    expect(screen.getByText("Overlay broken channelIds must be an array of strings.")).not.toBeNull();
+    expect(useSessionStore.getState().profiles[0].overlays[0].channelIds.length).toBeGreaterThan(0);
+  });
+
+  it("rejects malformed rule JSON before it can break event detection", () => {
+    const editedProfile = cloneProfile(defaultProfiles[0]);
+    editedProfile.rules = [{ ...editedProfile.rules[0], id: "broken-rule", all: "not-array" as never }];
+    render(<SettingsView />);
+
+    fireEvent.change(screen.getByLabelText("Active profile JSON"), { target: { value: JSON.stringify(editedProfile, null, 2) } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply JSON" }));
+
+    expect(screen.getByText("Rule broken-rule all must be an array.")).not.toBeNull();
+    expect(useSessionStore.getState().profiles[0].rules[0].all).toEqual(defaultProfiles[0].rules[0].all);
+  });
+
   it("applies valid JSON with a new revision and reports that the loaded session was rebuilt", () => {
     const editedProfile = cloneProfile(defaultProfiles[0]);
     editedProfile.channels.RPM = {
