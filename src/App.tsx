@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, type ChangeEvent } from "react";
 import { fileNameFromPath, hydrateSessionSnapshot, startSessionSelectionSync, useSessionStore } from "./state/sessionStore";
 import { Layout } from "./ui/Layout";
 
@@ -8,6 +8,7 @@ export default function App() {
   const session = useSessionStore((state) => state.session);
   const setSelectedProfileId = useSessionStore((state) => state.setSelectedProfileId);
   const openCsv = useSessionStore((state) => state.openCsv);
+  const csvInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cleanup: () => void = () => undefined;
@@ -25,6 +26,26 @@ export default function App() {
       cleanup();
     };
   }, []);
+
+  async function handleOpenCsv() {
+    if (window.mfLogAnalyzer?.openCsv) {
+      await openCsv();
+      return;
+    }
+
+    csvInputRef.current?.click();
+  }
+
+  async function handleCsvFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+
+    await openCsv({
+      filePath: file.name,
+      text: await file.text()
+    });
+  }
 
   return (
     <main className="app-shell">
@@ -48,7 +69,15 @@ export default function App() {
               ))}
             </select>
           </label>
-          <button type="button" onClick={() => void openCsv()}>
+          <input
+            ref={csvInputRef}
+            className="sr-only"
+            type="file"
+            accept=".csv,text/csv"
+            aria-label="CSV file picker"
+            onChange={(event) => void handleCsvFileChange(event)}
+          />
+          <button type="button" onClick={() => void handleOpenCsv()}>
             Open CSV
           </button>
         </div>

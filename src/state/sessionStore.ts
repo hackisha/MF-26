@@ -54,7 +54,7 @@ type SessionState = {
   selectedEventId: string | null;
   selectedOverlay: OverlayPreset | null;
   setSelectedProfileId: (profileId: string) => void;
-  openCsv: () => Promise<void>;
+  openCsv: (sourceCsv?: CsvOpenResult) => Promise<void>;
   addManualSegment: (name: string, startSec: number, endSec: number) => void;
   setCurrentTimeSec: (currentTimeSec: number | null) => void;
   setSelectedEventId: (selectedEventId: string | null) => void;
@@ -174,8 +174,8 @@ export const useSessionStore = create<SessionState>((set, get) => {
       });
       void publishSessionSnapshot();
     },
-    openCsv: async () => {
-      const result = await window.mfLogAnalyzer?.openCsv();
+    openCsv: async (sourceCsv) => {
+      const result = sourceCsv ?? (await window.mfLogAnalyzer?.openCsv());
       if (!result) return;
 
       const { profiles, selectedProfileId } = get();
