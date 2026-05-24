@@ -4,6 +4,7 @@ import path from "node:path";
 
 export default defineConfig({
   root: process.cwd(),
+  base: "./",
   plugins: [react()],
   resolve: {
     preserveSymlinks: true

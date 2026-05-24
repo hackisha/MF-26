@@ -30,6 +30,7 @@ type MfLogAnalyzerApi = {
   popout: (route: string) => Promise<boolean>;
   setSessionSnapshot?: (snapshot: SessionSnapshot) => Promise<void> | void;
   getSessionSnapshot?: () => Promise<SessionSnapshot | null> | SessionSnapshot | null;
+  onOpenCsvMenu?: (handler: () => void) => () => void;
 };
 
 declare global {

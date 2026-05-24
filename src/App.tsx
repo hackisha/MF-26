@@ -33,6 +33,12 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    return window.mfLogAnalyzer?.onOpenCsvMenu?.(() => {
+      void handleOpenCsv();
+    });
+  });
+
   async function handleOpenCsv() {
     if (window.mfLogAnalyzer?.openCsv) {
       setCsvLoadError(null);

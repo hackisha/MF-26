@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../src/App";
 import { defaultProfiles } from "../../src/domain/defaultProfiles";
@@ -64,5 +64,30 @@ describe("App CSV open fallback", () => {
 
     expect((await screen.findByRole("alert")).textContent).toContain("CSV parse failed");
     expect(useSessionStore.getState().session).toBeNull();
+  });
+
+  it("loads a CSV when the desktop File menu open command fires", async () => {
+    let menuHandler: (() => void) | null = null;
+    window.mfLogAnalyzer = {
+      openCsv: vi.fn(async () => ({
+        filePath: "C:\\logs\\menu-open.csv",
+        text: csv
+      })),
+      saveHtmlReport: vi.fn(async () => null),
+      popout: vi.fn(async () => true),
+      onOpenCsvMenu: vi.fn((handler) => {
+        menuHandler = handler;
+        return vi.fn();
+      })
+    };
+
+    render(<App />);
+
+    await act(async () => {
+      menuHandler?.();
+    });
+
+    expect(await screen.findByText("Loaded menu-open.csv")).not.toBeNull();
+    expect(window.mfLogAnalyzer.openCsv).toHaveBeenCalledTimes(1);
   });
 });
