@@ -18,7 +18,7 @@ type MfLogAnalyzerTestWindow = Window & {
 
 test("loads a CSV and exposes the app shell views", async ({ page }) => {
   await page.addInitScript((csvText) => {
-    const testWindow = window as MfLogAnalyzerTestWindow;
+    const testWindow = window as unknown as MfLogAnalyzerTestWindow;
     testWindow.__mfPopoutRoutes = [];
     testWindow.mfLogAnalyzer = {
       openCsv: async () => ({
@@ -63,7 +63,7 @@ test("loads a CSV and exposes the app shell views", async ({ page }) => {
   const popoutButton = page.getByRole("button", { name: "Open this view in a new window" });
   await expect(popoutButton).toBeEnabled();
   await popoutButton.click();
-  await expect.poll(() => page.evaluate(() => (window as MfLogAnalyzerTestWindow).__mfPopoutRoutes)).toEqual(["/"]);
+  await expect.poll(() => page.evaluate(() => (window as unknown as MfLogAnalyzerTestWindow).__mfPopoutRoutes)).toEqual(["/"]);
 
   for (const tabName of expectedTabs) {
     const tab = page.getByRole("tab", { name: tabName });

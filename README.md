@@ -28,11 +28,13 @@ npm.cmd run build
 npm.cmd run test:e2e
 ```
 
+`npm.cmd run test:e2e` starts a Vite server through `scripts/run-e2e.mjs` with file watching disabled, then tears it down after Playwright exits. You can pass a specific spec after `--`, or set `PLAYWRIGHT_PORT` if the default port is already occupied.
+
 If Playwright browser binaries are unavailable but Google Chrome is installed at `C:\Program Files\Google\Chrome\Application\chrome.exe`, run:
 
 ```powershell
 $env:PLAYWRIGHT_USE_SYSTEM_CHROME = "1"
-npm.cmd run test:e2e
+npm.cmd run test:e2e -- tests/e2e/app-smoke.spec.ts
 ```
 
 In some Windows environments, Node/Playwright can fail under OneDrive or non-ASCII paths. A practical workaround is to map the worktree to an ASCII drive path before running E2E:
