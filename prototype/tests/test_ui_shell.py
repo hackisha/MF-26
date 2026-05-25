@@ -1,10 +1,13 @@
 import os
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_QPA_FONTDIR", r"C:\Windows\Fonts")
 
 from PySide6 import QtCore, QtWidgets
+import shiboken6
 
+from mflog_proto.persistence.project_state import ProjectState, WindowState
 from mflog_proto.ui.main_window import DEFAULT_ANALYSIS_ITEMS, MainWindow, _root_asset_path
 from mflog_proto.ui.minimal_analysis_windows import (
     BenchmarkSummaryWindow,
@@ -141,6 +144,90 @@ def test_main_window_playback_position_moves_time_series_cursor(qtbot):
 
     assert isinstance(time_series, TimeSeriesWindow)
     assert time_series.cursor_line.value() == 10.0
+
+
+def test_main_window_captures_workspace_project_state(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.channel_mappings = {"RPM": "RPM"}
+    window.derived_channel_settings = {"AX_CORRECTED_G": {"formula": "ax_g / 8"}}
+    window.selected_channels = ["RPM", "AX_CORRECTED_G"]
+    window.add_analysis_window("G-G Diagram")
+    window.add_analysis_window("Current Values Table")
+    window.set_playback_seconds(3.47)
+    window.preset_tabs.moveTab(1, 0)
+    window.preset_tabs.setCurrentIndex(1)
+
+    state = window.capture_project_state(csv_path="example.csv", active_profile="mf_2026")
+
+    assert state.csv_path.name == "example.csv"
+    assert state.active_profile == "mf_2026"
+    assert state.channel_mappings == {"RPM": "RPM"}
+    assert state.derived_channel_settings == {"AX_CORRECTED_G": {"formula": "ax_g / 8"}}
+    assert state.selected_channels == ("RPM", "AX_CORRECTED_G")
+    assert state.playback_seconds == 3.5
+    assert state.active_tab_index == 1
+    assert state.preset_tab_order[0] == "GPS / LapTime"
+    assert [item.title for item in state.open_windows] == [
+        "Time-Series Graph",
+        "G-G Diagram",
+        "Current Values Table",
+    ]
+
+
+def test_main_window_restores_workspace_project_state(qtbot):
+    source = MainWindow()
+    qtbot.addWidget(source)
+    source.active_profile = "mf_2026"
+    source.add_analysis_window("G-G Diagram")
+    source.add_analysis_window("Benchmark Summary")
+    source.set_playback_position(12)
+    state = source.capture_project_state(csv_path="example.csv")
+
+    restored = MainWindow()
+    qtbot.addWidget(restored)
+    restored.restore_project_state(state)
+
+    titles = [sub.windowTitle() for sub in restored.workspace.subWindowList()]
+    assert titles == ["Time-Series Graph", "G-G Diagram", "Benchmark Summary"]
+    assert restored.active_profile == "mf_2026"
+    assert restored.playback_state.current_sample == 12
+    assert restored.timeline_status.text() == "시간 1.200 s | 샘플 12"
+
+
+def test_main_window_queues_project_restore_until_csv_load_completes(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    state = ProjectState(
+        csv_path=Path("example.csv"),
+        open_windows=(WindowState("G-G Diagram", x=1, y=2, width=300, height=240),),
+        playback_seconds=0.2,
+    )
+
+    window.queue_project_restore_after_data_load(state)
+
+    assert [sub.windowTitle() for sub in window.workspace.subWindowList()] == [
+        "Time-Series Graph"
+    ]
+    assert window.complete_data_load_for_pending_project(Path("other.csv")) is False
+    assert window.complete_data_load_for_pending_project(Path("example.csv")) is True
+    assert [sub.windowTitle() for sub in window.workspace.subWindowList()] == ["G-G Diagram"]
+    assert window.playback_state.current_sample == 2
+
+
+def test_main_window_restore_deletes_previous_mdi_widgets(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    old_widget = window.workspace.subWindowList()[0].widget()
+    state = ProjectState(
+        open_windows=(WindowState("Benchmark Summary", x=0, y=0, width=300, height=240),)
+    )
+
+    window.restore_project_state(state)
+    QtWidgets.QApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+    QtWidgets.QApplication.processEvents()
+
+    assert not shiboken6.isValid(old_widget)
 
 
 def _menu_titles(window: QtWidgets.QMainWindow) -> list[str]:

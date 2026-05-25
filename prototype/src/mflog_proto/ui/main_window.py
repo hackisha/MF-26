@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from mflog_proto.benchmark.metrics import collect_environment
+from mflog_proto.persistence.project_state import ProjectState, WindowState
 from mflog_proto.playback import CursorEvent, CursorKind, PlaybackState
 from mflog_proto.ui.minimal_analysis_windows import (
     BenchmarkSummaryWindow,
@@ -52,6 +53,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.resize(1400, 900)
 
         self._all_analysis_items = list(DEFAULT_ANALYSIS_ITEMS)
+        self.active_profile = "prototype"
+        self.channel_mappings: dict[str, str] = {}
+        self.derived_channel_settings: dict[str, dict[str, object]] = {}
+        self.selected_channels: list[str] = []
+        self.pending_project_state: ProjectState | None = None
+        self.loaded_csv_path: Path | None = None
         self.playback_state = PlaybackState([index / 10 for index in range(101)])
         self._unsubscribe_playback_status = self.playback_state.subscribe(
             self._handle_playback_event
@@ -87,6 +94,103 @@ class MainWindow(QtWidgets.QMainWindow):
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
         self._unsubscribe_playback_status()
         super().closeEvent(event)
+
+    def capture_project_state(
+        self,
+        *,
+        csv_path: str | Path | None = None,
+        active_profile: str | None = None,
+    ) -> ProjectState:
+        profile = self.active_profile if active_profile is None else active_profile
+        self.active_profile = profile
+        return ProjectState(
+            csv_path=None if csv_path is None else Path(csv_path),
+            active_profile=profile,
+            channel_mappings=dict(self.channel_mappings),
+            derived_channel_settings=dict(self.derived_channel_settings),
+            open_windows=tuple(self._capture_window_state()),
+            selected_channels=tuple(self.selected_channels),
+            playback_seconds=self.playback_state.current_seconds,
+            preset_tab_order=tuple(
+                self.preset_tabs.tabText(index) for index in range(self.preset_tabs.count())
+            ),
+            active_tab_index=self.preset_tabs.currentIndex(),
+        )
+
+    def queue_project_restore_after_data_load(self, state: ProjectState) -> None:
+        self.pending_project_state = state
+
+    def complete_data_load_for_pending_project(self, csv_path: str | Path) -> bool:
+        self.loaded_csv_path = Path(csv_path)
+        if self.pending_project_state is None:
+            return False
+        expected = self.pending_project_state.csv_path
+        if expected is not None and Path(expected) != self.loaded_csv_path:
+            return False
+
+        state = self.pending_project_state
+        self.pending_project_state = None
+        self.restore_project_state(state)
+        return True
+
+    def restore_project_state(self, state: ProjectState) -> None:
+        self.active_profile = state.active_profile
+        self.channel_mappings = dict(state.channel_mappings)
+        self.derived_channel_settings = dict(state.derived_channel_settings)
+        self.selected_channels = list(state.selected_channels)
+        self._restore_preset_tabs(state)
+        self._clear_workspace()
+
+        for window_state in state.open_windows:
+            sub_window = self.add_analysis_window(window_state.title)
+            sub_window.move(window_state.x, window_state.y)
+            sub_window.resize(window_state.width, window_state.height)
+
+        self.set_playback_seconds(state.playback_seconds)
+
+    def _capture_window_state(self) -> list[WindowState]:
+        windows: list[WindowState] = []
+        for sub_window in self.workspace.subWindowList():
+            position = sub_window.pos()
+            size = sub_window.size()
+            windows.append(
+                WindowState(
+                    title=sub_window.windowTitle(),
+                    x=position.x(),
+                    y=position.y(),
+                    width=size.width(),
+                    height=size.height(),
+                )
+            )
+        return windows
+
+    def _restore_preset_tabs(self, state: ProjectState) -> None:
+        if not state.preset_tab_order:
+            return
+        while self.preset_tabs.count():
+            self.preset_tabs.removeTab(0)
+        seen = set(state.preset_tab_order)
+        for tab_title in state.preset_tab_order:
+            self.preset_tabs.addTab(tab_title)
+        for tab_title in DEFAULT_PRESET_TABS:
+            if tab_title not in seen:
+                self.preset_tabs.addTab(tab_title)
+        if self.preset_tabs.count():
+            self.preset_tabs.setCurrentIndex(
+                min(max(state.active_tab_index, 0), self.preset_tabs.count() - 1)
+            )
+
+    def _clear_workspace(self) -> None:
+        for sub_window in list(self.workspace.subWindowList()):
+            widget = sub_window.widget()
+            if widget is not None:
+                _dispose_widget(widget)
+                widget.hide()
+                widget.setParent(None)
+                widget.deleteLater()
+            self.workspace.removeSubWindow(sub_window)
+            sub_window.hide()
+            sub_window.deleteLater()
 
     def add_analysis_window(self, title: str) -> QtWidgets.QMdiSubWindow:
         if title == "Time-Series Graph":
@@ -335,3 +439,9 @@ def _root_asset_path(name: str) -> Path:
         if candidate.exists():
             return candidate
     return source_repo_root / name
+
+
+def _dispose_widget(widget: QtWidgets.QWidget) -> None:
+    dispose = getattr(widget, "dispose", None)
+    if callable(dispose):
+        dispose()
