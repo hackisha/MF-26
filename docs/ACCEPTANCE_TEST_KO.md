@@ -23,7 +23,7 @@ Windows에서 `QT_QPA_PLATFORM=minimal` 설정은 의도된 값입니다. 일반
 
 - 전체 테스트가 통과합니다.
 - `python.exe` 응용 프로그램 오류창이 뜨지 않습니다.
-- 최신 검증 기준으로는 `105 passed`가 정상입니다.
+- 최신 검증 기준으로는 `107 passed`가 정상입니다.
 
 ## 2. 300k x 200 합성 CSV 생성
 
@@ -134,7 +134,29 @@ prototype\.generated\acceptance\target_300k_200.html
 - 자동 저장 실패 경고가 표시되어도 현재 CSV 세션과 재생 기능은 유지됩니다.
 - `3D Vehicle Model` 창이 프로젝트 루트의 `car.glb`를 읽습니다.
 
-## 7. 판정
+## 7. Windows EXE 빌드 스모크
+
+```powershell
+cd .\prototype
+.\.venv\Scripts\python -m PyInstaller --noconfirm --clean .\packaging\mflog_analyzer.spec
+```
+
+기대 산출물:
+
+```text
+prototype\dist\MF-LOG-ANALYZER-v2\MF-LOG-ANALYZER-v2.exe
+```
+
+전달용 압축 파일이 필요하면 다음 명령으로 생성합니다.
+
+```powershell
+Compress-Archive -Path .\dist\MF-LOG-ANALYZER-v2 -DestinationPath .\dist\MF-LOG-ANALYZER-v2.zip -Force
+```
+
+생성된 exe를 실행해 앱 창이 열리고, `3D Vehicle Model`과 `Documents` 창에서
+번들된 `car.glb`, `데이터분석기 콘티.pdf`를 확인합니다.
+
+## 8. 판정
 
 현재 프로토타입 기준 판정:
 

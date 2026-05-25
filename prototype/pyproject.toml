@@ -19,6 +19,7 @@ mflog-proto-ui = "mflog_proto.app:main"
 
 [project.optional-dependencies]
 dev = [
+  "pyinstaller>=6.20",
   "pytest>=9.0",
   "pytest-qt>=4.5",
 ]

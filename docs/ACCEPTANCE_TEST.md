@@ -19,7 +19,7 @@ crashes.
 ```
 
 Expected result: all tests pass without a `python.exe` native error dialog.
-The current expected count is `105 passed`.
+The current expected count is `107 passed`.
 
 ## 2. Generate Target CSV
 
@@ -98,3 +98,25 @@ Check that:
   seeks to that time.
 - Autosave warnings do not block the current CSV session or playback controls.
 - `3D Vehicle Model` loads the root `car.glb` fixture.
+
+## 6. Windows EXE Build Smoke
+
+```powershell
+cd .\prototype
+.\.venv\Scripts\python -m PyInstaller --noconfirm --clean .\packaging\mflog_analyzer.spec
+```
+
+Expected output:
+
+```text
+prototype\dist\MF-LOG-ANALYZER-v2\MF-LOG-ANALYZER-v2.exe
+```
+
+Optional handoff archive:
+
+```powershell
+Compress-Archive -Path .\dist\MF-LOG-ANALYZER-v2 -DestinationPath .\dist\MF-LOG-ANALYZER-v2.zip -Force
+```
+
+Launch the exe and check that the main window opens, `3D Vehicle Model` can load
+the bundled `car.glb`, and `Documents` lists the bundled storyboard PDF.

@@ -38,3 +38,28 @@ Pytest defaults to Qt's `minimal` platform on Windows because pyqtgraph can cras
 intermittently during `offscreen` teardown. Use `offscreen` only for explicit
 screenshot smoke scripts, and keep `QT_QPA_FONTDIR=C:\Windows\Fonts` so Qt can
 find Korean fonts.
+
+## Windows EXE Build
+
+After installing the dev extras, build the onedir Windows executable with:
+
+```powershell
+cd prototype
+.\.venv\Scripts\python -m PyInstaller --noconfirm --clean .\packaging\mflog_analyzer.spec
+```
+
+The runnable app is created at:
+
+```text
+prototype\dist\MF-LOG-ANALYZER-v2\MF-LOG-ANALYZER-v2.exe
+```
+
+To make a portable archive for handoff:
+
+```powershell
+Compress-Archive -Path .\dist\MF-LOG-ANALYZER-v2 -DestinationPath .\dist\MF-LOG-ANALYZER-v2.zip -Force
+```
+
+The PyInstaller spec bundles the root `car.glb` and `데이터분석기 콘티.pdf`
+fixtures so the packaged prototype can open the 3D vehicle and document list
+without depending on the source checkout.

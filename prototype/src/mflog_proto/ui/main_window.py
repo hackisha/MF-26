@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+import sys
 from typing import Callable
 
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -1183,27 +1184,55 @@ def _object_name(text: str, *, suffix: str) -> str:
 
 
 def _root_asset_path(name: str) -> Path:
-    source_repo_root = Path(__file__).resolve().parents[4]
-    candidates = (
-        Path.cwd() / name,
-        Path.cwd().parent / name,
-        source_repo_root / name,
-    )
-    for candidate in candidates:
+    for root in _asset_roots():
+        candidate = root / name
         if candidate.exists():
             return candidate
-    return source_repo_root / name
+    return _asset_roots()[-1] / name
 
 
 def _project_document_paths() -> tuple[Path, ...]:
-    root = Path(__file__).resolve().parents[4]
     candidates: list[Path] = []
-    for pattern in ("*.pdf", "*.glb", "*.md", "*.docx", "*.xlsx"):
-        candidates.extend(root.glob(pattern))
-    docs_dir = root / "docs"
-    if docs_dir.exists():
-        candidates.extend(docs_dir.glob("*.md"))
+    seen: set[Path] = set()
+    for root in _asset_roots():
+        for pattern in ("*.pdf", "*.glb", "*.md", "*.docx", "*.xlsx"):
+            for path in root.glob(pattern):
+                resolved = path.resolve()
+                if resolved not in seen:
+                    candidates.append(path)
+                    seen.add(resolved)
+        docs_dir = root / "docs"
+        if docs_dir.exists():
+            for path in docs_dir.glob("*.md"):
+                resolved = path.resolve()
+                if resolved not in seen:
+                    candidates.append(path)
+                    seen.add(resolved)
     return tuple(sorted(candidates, key=lambda path: path.name.lower()))
+
+
+def _asset_roots() -> tuple[Path, ...]:
+    roots: list[Path] = []
+    bundle_root = getattr(sys, "_MEIPASS", None)
+    if bundle_root:
+        roots.append(Path(str(bundle_root)))
+    if getattr(sys, "frozen", False):
+        roots.append(Path(sys.executable).resolve().parent)
+    roots.extend(
+        (
+            Path.cwd(),
+            Path.cwd().parent,
+            Path(__file__).resolve().parents[4],
+        )
+    )
+    unique_roots: list[Path] = []
+    seen: set[Path] = set()
+    for root in roots:
+        resolved = root.resolve()
+        if resolved not in seen:
+            unique_roots.append(root)
+            seen.add(resolved)
+    return tuple(unique_roots)
 
 
 def _dispose_widget(widget: QtWidgets.QWidget) -> None:

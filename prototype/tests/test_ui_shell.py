@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 
 from PySide6 import QtCore, QtWidgets
 import pytest
@@ -355,6 +356,15 @@ def test_root_asset_path_finds_car_glb_from_prototype_cwd(monkeypatch):
 
     assert path.name == "car.glb"
     assert path.exists()
+
+
+def test_root_asset_path_finds_bundled_assets_when_frozen(monkeypatch):
+    monkeypatch.setattr(sys, "_MEIPASS", str(PROTOTYPE_ROOT.parent), raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+
+    path = _root_asset_path("car.glb")
+
+    assert path == PROTOTYPE_ROOT.parent / "car.glb"
 
 
 def test_playback_status_updates_shared_bottom_timeline_from_clamped_state(qtbot):
