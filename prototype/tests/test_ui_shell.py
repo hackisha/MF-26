@@ -6,6 +6,7 @@ os.environ.setdefault("QT_QPA_FONTDIR", r"C:\Windows\Fonts")
 from PySide6 import QtCore, QtWidgets
 
 from mflog_proto.ui.main_window import DEFAULT_ANALYSIS_ITEMS, MainWindow
+from mflog_proto.ui.time_series_window import TimeSeriesWindow
 
 
 def test_main_window_builds_required_shell_regions(qtbot):
@@ -59,13 +60,52 @@ def test_add_analysis_window_from_sidebar(qtbot):
     assert "G-G Diagram" in titles
 
 
-def test_playback_status_updates_shared_bottom_timeline(qtbot):
+def test_time_series_analysis_window_uses_real_pyqtgraph_widget(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
 
-    window.set_playback_position(sample_index=42, seconds=1.234)
+    first_subwindow = window.workspace.subWindowList()[0]
 
-    assert window.timeline_status.text() == "시간 1.234 s | 샘플 42"
+    assert first_subwindow.windowTitle() == "Time-Series Graph"
+    assert isinstance(first_subwindow.widget(), TimeSeriesWindow)
+
+
+def test_playback_status_updates_shared_bottom_timeline_from_clamped_state(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.set_playback_position(sample_index=42)
+
+    assert window.timeline_status.text() == "시간 4.200 s | 샘플 42"
+
+
+def test_bottom_timeline_subscribes_to_shared_playback_state(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.playback_state.set_seconds(9.96)
+
+    assert window.timeline_status.text() == "시간 10.000 s | 샘플 100"
+
+
+def test_main_window_can_set_playback_by_seconds_without_sample_argument(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.set_playback_seconds(9.96)
+
+    assert window.timeline_status.text() == "시간 10.000 s | 샘플 100"
+
+
+def test_main_window_playback_position_moves_time_series_cursor(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    time_series = window.workspace.subWindowList()[0].widget()
+
+    window.set_playback_position(sample_index=999)
+
+    assert isinstance(time_series, TimeSeriesWindow)
+    assert time_series.cursor_line.value() == 10.0
 
 
 def _menu_titles(window: QtWidgets.QMainWindow) -> list[str]:

@@ -1,0 +1,195 @@
+"""pyqtgraph time-series analysis window."""
+
+from __future__ import annotations
+
+from bisect import bisect_left
+from collections.abc import Mapping, Sequence
+from typing import Callable
+
+import pyqtgraph as pg
+from PySide6 import QtCore, QtGui, QtWidgets
+
+from mflog_proto.playback import CursorEvent, CursorKind, PlaybackState
+
+
+SeriesMap = Mapping[str, tuple[Sequence[float], Sequence[float | None]]]
+
+
+class TimeSeriesWindow(QtWidgets.QWidget):
+    def __init__(self, playback_state: PlaybackState, parent: QtWidgets.QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("timeSeriesWindow")
+        self._playback_state = playback_state
+        self._curves: dict[str, pg.PlotDataItem] = {}
+        self._series_points: dict[str, tuple[list[float], list[float]]] = {}
+        self._unsubscribe: Callable[[], None] | None = playback_state.subscribe(
+            self._handle_cursor_event
+        )
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        self.plot = pg.PlotWidget(background="#1f2428")
+        self.plot.setObjectName("timeSeriesPlot")
+        self.plot.showGrid(x=True, y=True, alpha=0.25)
+        self.plot.addLegend(offset=(8, 8))
+        self.plot.scene().sigMouseMoved.connect(self._handle_mouse_moved)
+        self.cursor_line = pg.InfiniteLine(
+            pos=playback_state.current_seconds,
+            angle=90,
+            movable=False,
+            pen=pg.mkPen("#f4c95d", width=2),
+        )
+        self.plot.addItem(self.cursor_line)
+
+        self.hover_label = QtWidgets.QLabel("Hover | -")
+        self.hover_label.setObjectName("hoverLabel")
+
+        layout.addWidget(self.plot, 1)
+        layout.addWidget(self.hover_label)
+
+    @property
+    def channel_count(self) -> int:
+        return len(self._curves)
+
+    def set_series(self, series: SeriesMap) -> None:
+        prepared_series: list[tuple[str, list[float], list[float]]] = []
+        for channel_id, (x_values, y_values) in series.items():
+            numeric_x, numeric_y = _drop_none_pairs(x_values, y_values)
+            _require_sorted_x_values(channel_id, numeric_x)
+            prepared_series.append((channel_id, numeric_x, numeric_y))
+
+        for curve in self._curves.values():
+            self.plot.removeItem(curve)
+        self._curves.clear()
+        self._series_points.clear()
+
+        for index, (channel_id, numeric_x, numeric_y) in enumerate(prepared_series):
+            self._series_points[channel_id] = (numeric_x, numeric_y)
+            curve = self.plot.plot(
+                numeric_x,
+                numeric_y,
+                pen=pg.mkPen(_palette_color(index), width=1.5),
+                name=channel_id,
+            )
+            self._curves[channel_id] = curve
+
+    def publish_hover(
+        self,
+        *,
+        sample_index: int,
+        channel_id: str | None = None,
+        value: float | None = None,
+    ) -> None:
+        self._playback_state.publish_hover(
+            sample_index=sample_index,
+            channel_id=channel_id,
+            value=value,
+        )
+
+    def _handle_cursor_event(self, event: CursorEvent) -> None:
+        if event.kind is CursorKind.PLAYBACK:
+            self.cursor_line.setValue(event.seconds)
+            return
+
+        label = "Hover"
+        if event.channel_id is not None:
+            label += f" | {event.channel_id}"
+        label += f" | {event.seconds:.3f} s"
+        if event.value is not None:
+            label += f" | {event.value:.3f}"
+        self.hover_label.setText(label)
+
+    def _handle_mouse_moved(self, scene_pos: object) -> None:
+        if isinstance(scene_pos, tuple | list):
+            if not scene_pos:
+                return
+            scene_pos = scene_pos[0]
+        if not isinstance(scene_pos, QtCore.QPointF):
+            return
+        if not self.plot.sceneBoundingRect().contains(scene_pos):
+            return
+
+        view_point = self.plot.plotItem.vb.mapSceneToView(scene_pos)
+        nearest_point = self._nearest_point_to(scene_pos, view_point.x())
+        if nearest_point is None:
+            return
+
+        channel_id, seconds, value = nearest_point
+        self._playback_state.publish_hover(
+            sample_index=self._playback_state.sample_at_seconds(seconds),
+            channel_id=channel_id,
+            value=value,
+        )
+
+    def _nearest_point_to(
+        self,
+        scene_pos: QtCore.QPointF,
+        seconds: float,
+    ) -> tuple[str, float, float] | None:
+        best_point: tuple[str, float, float] | None = None
+        best_distance_squared: float | None = None
+
+        for channel_id, (x_values, y_values) in self._series_points.items():
+            for point_index in _candidate_indices(x_values, seconds):
+                point_scene = self.plot.plotItem.vb.mapViewToScene(
+                    QtCore.QPointF(x_values[point_index], y_values[point_index])
+                )
+                dx = point_scene.x() - scene_pos.x()
+                dy = point_scene.y() - scene_pos.y()
+                distance_squared = dx * dx + dy * dy
+                if best_distance_squared is None or distance_squared < best_distance_squared:
+                    best_distance_squared = distance_squared
+                    best_point = (
+                        channel_id,
+                        x_values[point_index],
+                        y_values[point_index],
+                    )
+
+        return best_point
+
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
+        self.dispose()
+        super().closeEvent(event)
+
+    def dispose(self) -> None:
+        if self._unsubscribe is not None:
+            self._unsubscribe()
+            self._unsubscribe = None
+
+
+def _drop_none_pairs(
+    x_values: Sequence[float],
+    y_values: Sequence[float | None],
+) -> tuple[list[float], list[float]]:
+    x_output: list[float] = []
+    y_output: list[float] = []
+    for x_value, y_value in zip(x_values, y_values, strict=True):
+        if y_value is None:
+            continue
+        x_output.append(float(x_value))
+        y_output.append(float(y_value))
+    return x_output, y_output
+
+
+def _require_sorted_x_values(channel_id: str, x_values: Sequence[float]) -> None:
+    if any(left > right for left, right in zip(x_values, x_values[1:])):
+        raise ValueError(f"x values for {channel_id} must be sorted in ascending time order")
+
+
+def _candidate_indices(x_values: Sequence[float], seconds: float) -> tuple[int, ...]:
+    if not x_values:
+        return ()
+
+    insertion_index = bisect_left(x_values, seconds)
+    if insertion_index <= 0:
+        return (0,)
+    if insertion_index >= len(x_values):
+        return (len(x_values) - 1,)
+    return (insertion_index - 1, insertion_index)
+
+
+def _palette_color(index: int) -> str:
+    colors = ("#f4c95d", "#5dade2", "#58d68d", "#ec7063", "#af7ac5", "#f5b041")
+    return colors[index % len(colors)]

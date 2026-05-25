@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from mflog_proto.playback import CursorEvent, CursorKind, PlaybackState
+from mflog_proto.ui.time_series_window import TimeSeriesWindow
+
 
 DEFAULT_PRESET_TABS: tuple[str, ...] = (
     "차량 거동",
@@ -39,6 +42,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.resize(1400, 900)
 
         self._all_analysis_items = list(DEFAULT_ANALYSIS_ITEMS)
+        self.playback_state = PlaybackState([index / 10 for index in range(101)])
+        self._unsubscribe_playback_status = self.playback_state.subscribe(
+            self._handle_playback_event
+        )
 
         self._build_menu_bar()
         self._build_central_workspace()
@@ -49,10 +56,52 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.add_analysis_window("Time-Series Graph")
 
-    def set_playback_position(self, sample_index: int, seconds: float) -> None:
-        self.timeline_status.setText(f"시간 {seconds:.3f} s | 샘플 {sample_index}")
+    def set_playback_position(self, sample_index: int) -> None:
+        self.playback_state.set_sample(sample_index)
+        self._update_timeline_status()
+
+    def set_playback_seconds(self, seconds: float) -> None:
+        self.playback_state.set_seconds(seconds)
+        self._update_timeline_status()
+
+    def _handle_playback_event(self, event: CursorEvent) -> None:
+        if event.kind is CursorKind.PLAYBACK:
+            self._update_timeline_status()
+
+    def _update_timeline_status(self) -> None:
+        self.timeline_status.setText(
+            f"시간 {self.playback_state.current_seconds:.3f} s | "
+            f"샘플 {self.playback_state.current_sample}"
+        )
+
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
+        self._unsubscribe_playback_status()
+        super().closeEvent(event)
 
     def add_analysis_window(self, title: str) -> QtWidgets.QMdiSubWindow:
+        if title == "Time-Series Graph":
+            widget = self._build_time_series_window()
+        else:
+            widget = self._build_placeholder_window(title)
+
+        sub_window = self.workspace.addSubWindow(widget)
+        sub_window.setWindowTitle(title)
+        sub_window.resize(460, 260)
+        sub_window.show()
+        return sub_window
+
+    def _build_time_series_window(self) -> TimeSeriesWindow:
+        widget = TimeSeriesWindow(self.playback_state)
+        x_values = [index / 10 for index in range(101)]
+        widget.set_series(
+            {
+                "RPM": (x_values, [2200.0 + index * 35.0 for index in range(101)]),
+                "TPS_percent": (x_values, [20.0 + (index % 25) * 2.0 for index in range(101)]),
+            }
+        )
+        return widget
+
+    def _build_placeholder_window(self, title: str) -> QtWidgets.QFrame:
         widget = QtWidgets.QFrame()
         widget.setObjectName("analysisWindowFrame")
         layout = QtWidgets.QVBoxLayout(widget)
@@ -65,12 +114,7 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(title_label)
         layout.addWidget(status_label)
         layout.addStretch(1)
-
-        sub_window = self.workspace.addSubWindow(widget)
-        sub_window.setWindowTitle(title)
-        sub_window.resize(460, 260)
-        sub_window.show()
-        return sub_window
+        return widget
 
     def _build_menu_bar(self) -> None:
         menus = {
