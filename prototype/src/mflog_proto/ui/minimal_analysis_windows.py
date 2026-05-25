@@ -7,10 +7,14 @@ import json
 import math
 from pathlib import Path
 import struct
-from typing import Sequence
+import tempfile
+from typing import Protocol, Sequence
+import urllib.error
+import urllib.request
 
+import numpy as np
 import pyqtgraph as pg
-from PySide6 import QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from mflog_proto.benchmark.metrics import EnvironmentInfo
 from mflog_proto.playback import CursorEvent, CursorKind, PlaybackState
@@ -37,6 +41,90 @@ class GlbModelInfo:
         return self.scene_min is not None and self.scene_max is not None
 
 
+@dataclass(frozen=True)
+class MapTileImage:
+    image: QtGui.QImage
+    west: float
+    east: float
+    south: float
+    north: float
+
+
+class MapTileProvider(Protocol):
+    def tile_for_bounds(
+        self,
+        *,
+        latitudes: Sequence[float],
+        longitudes: Sequence[float],
+    ) -> MapTileImage | None:
+        """Return a map tile image covering or near the requested GPS bounds."""
+
+
+class OpenStreetMapTileProvider:
+    def __init__(self, cache_dir: Path | None = None, timeout_seconds: float = 1.5) -> None:
+        self._cache_dir = cache_dir if cache_dir is not None else _default_tile_cache_dir()
+        self._timeout_seconds = timeout_seconds
+
+    def tile_for_bounds(
+        self,
+        *,
+        latitudes: Sequence[float],
+        longitudes: Sequence[float],
+    ) -> MapTileImage | None:
+        if not latitudes or not longitudes:
+            return None
+
+        south = max(min(latitudes), -85.05112878)
+        north = min(max(latitudes), 85.05112878)
+        west = max(min(longitudes), -180.0)
+        east = min(max(longitudes), 180.0)
+        center_latitude = (south + north) / 2
+        center_longitude = (west + east) / 2
+        zoom = _zoom_for_span(abs(north - south), abs(east - west))
+        tile_x, tile_y = _tile_for_lat_lon(center_latitude, center_longitude, zoom)
+        image = self._load_tile(zoom, tile_x, tile_y)
+        if image is None:
+            return None
+
+        tile_west, tile_east, tile_south, tile_north = _tile_bounds(tile_x, tile_y, zoom)
+        return MapTileImage(
+            image=image,
+            west=tile_west,
+            east=tile_east,
+            south=tile_south,
+            north=tile_north,
+        )
+
+    def _load_tile(self, zoom: int, tile_x: int, tile_y: int) -> QtGui.QImage | None:
+        cache_path = self._cache_dir / str(zoom) / str(tile_x) / f"{tile_y}.png"
+        if cache_path.exists():
+            cached = QtGui.QImage(str(cache_path))
+            if not cached.isNull():
+                return cached
+
+        url = f"https://tile.openstreetmap.org/{zoom}/{tile_x}/{tile_y}.png"
+        request = urllib.request.Request(
+            url,
+            headers={"User-Agent": "MF-LOG-ANALYZER-v2/0.1"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self._timeout_seconds) as response:
+                payload = response.read()
+        except (OSError, TimeoutError, urllib.error.URLError):
+            return None
+
+        image = QtGui.QImage()
+        if not image.loadFromData(payload):
+            return None
+
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            image.save(str(cache_path), "PNG")
+        except OSError:
+            pass
+        return image
+
+
 class GGDiagramWindow(QtWidgets.QWidget):
     def __init__(self, playback_state: PlaybackState, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
@@ -56,7 +144,7 @@ class GGDiagramWindow(QtWidgets.QWidget):
         self.limit_circle_radius = 1.0
         self.limit_circle_item = pg.PlotDataItem(
             *_circle_points(self.limit_circle_radius),
-            pen=pg.mkPen("#8fa3ad", width=1.5),
+            pen=pg.mkPen("#f4c95d", width=2.25),
         )
         self.cloud_item = pg.ScatterPlotItem(
             pen=pg.mkPen("#5dade2", width=1),
@@ -68,6 +156,9 @@ class GGDiagramWindow(QtWidgets.QWidget):
             brush=pg.mkBrush("#f4c95d"),
             size=11,
         )
+        self.cloud_item.setZValue(5)
+        self.limit_circle_item.setZValue(10)
+        self.current_item.setZValue(20)
         self.plot.addItem(self.limit_circle_item)
         self.plot.addItem(self.cloud_item)
         self.plot.addItem(self.current_item)
@@ -131,12 +222,23 @@ class GGDiagramWindow(QtWidgets.QWidget):
 
 
 class GPSMapWindow(QtWidgets.QWidget):
-    def __init__(self, playback_state: PlaybackState, parent: QtWidgets.QWidget | None = None) -> None:
+    def __init__(
+        self,
+        playback_state: PlaybackState,
+        parent: QtWidgets.QWidget | None = None,
+        *,
+        tile_provider: MapTileProvider | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("gpsMapWindow")
         self._playback_state = playback_state
+        self._tile_provider = tile_provider if tile_provider is not None else OpenStreetMapTileProvider()
         self._positions: list[tuple[float, float] | None] = []
         self._current_position: tuple[float, float] | None = None
+        self._route_background_point_count = 0
+        self._map_background_enabled = False
+        self._map_tile_loaded = False
+        self._map_background_status = "off"
         self._unsubscribe = playback_state.subscribe(self._handle_cursor_event)
 
         layout = QtWidgets.QVBoxLayout(self)
@@ -146,17 +248,31 @@ class GPSMapWindow(QtWidgets.QWidget):
         self.plot.showGrid(x=True, y=True, alpha=0.25)
         self.plot.setLabel("bottom", "Longitude")
         self.plot.setLabel("left", "Latitude")
+        self.map_tile_item = pg.ImageItem(axisOrder="row-major")
+        self.route_background_item = pg.PlotDataItem(
+            pen=pg.mkPen(QtGui.QColor(93, 173, 226, 90), width=5)
+        )
         self.track_item = pg.PlotDataItem(pen=pg.mkPen("#5dade2", width=1.5))
         self.current_item = pg.ScatterPlotItem(
             pen=pg.mkPen("#f4c95d", width=2),
             brush=pg.mkBrush("#f4c95d"),
             size=11,
         )
+        self.map_tile_item.setZValue(-10)
+        self.map_tile_item.setVisible(False)
+        self.route_background_item.setZValue(0)
+        self.track_item.setZValue(5)
+        self.current_item.setZValue(10)
+        self.plot.addItem(self.map_tile_item)
+        self.plot.addItem(self.route_background_item)
         self.plot.addItem(self.track_item)
         self.plot.addItem(self.current_item)
+        self.map_background_label = QtWidgets.QLabel(self.map_background_text())
+        self.map_background_label.setObjectName("gpsMapBackgroundStatus")
         self.reliability_badge = QtWidgets.QLabel("Reliability: info")
         self.reliability_badge.setObjectName("reliabilityBadge")
         layout.addWidget(self.plot, 1)
+        layout.addWidget(self.map_background_label)
         layout.addWidget(self.reliability_badge)
 
     @property
@@ -164,8 +280,39 @@ class GPSMapWindow(QtWidgets.QWidget):
         return sum(position is not None for position in self._positions)
 
     @property
+    def route_background_point_count(self) -> int:
+        return self._route_background_point_count
+
+    @property
     def current_position(self) -> tuple[float, float] | None:
         return self._current_position
+
+    @property
+    def map_background_enabled(self) -> bool:
+        return self._map_background_enabled
+
+    @property
+    def map_tile_loaded(self) -> bool:
+        return self._map_tile_loaded
+
+    def set_map_background_enabled(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if enabled == self._map_background_enabled:
+            self.map_background_label.setText(self.map_background_text())
+            return
+
+        self._map_background_enabled = enabled
+        if self._map_background_enabled:
+            self.plot.setBackground("#182127")
+            self._refresh_map_background()
+        else:
+            self.plot.setBackground("#1f2428")
+            self._clear_map_background("off")
+
+    def map_background_text(self) -> str:
+        if not self._map_background_enabled:
+            return "Map background: off"
+        return f"Map background: on ({self._map_background_status})"
 
     def reliability_text(self) -> str:
         return self.reliability_badge.text()
@@ -188,7 +335,10 @@ class GPSMapWindow(QtWidgets.QWidget):
             plot_latitudes.append(position[0])
             plot_longitudes.append(position[1])
 
+        self._route_background_point_count = len(plot_longitudes)
+        self.route_background_item.setData(plot_longitudes, plot_latitudes)
         self.track_item.setData(plot_longitudes, plot_latitudes)
+        self._refresh_map_background()
         self._update_current_position(self._playback_state.current_sample)
 
     def dispose(self) -> None:
@@ -214,6 +364,49 @@ class GPSMapWindow(QtWidgets.QWidget):
         else:
             latitude, longitude = self._current_position
             self.current_item.setData([{"pos": (longitude, latitude)}])
+
+    def _refresh_map_background(self) -> None:
+        if not self._map_background_enabled:
+            return
+
+        positions = [position for position in self._positions if position is not None]
+        if not positions:
+            self._clear_map_background("waiting for GPS")
+            return
+
+        latitudes = [position[0] for position in positions]
+        longitudes = [position[1] for position in positions]
+        try:
+            tile = self._tile_provider.tile_for_bounds(
+                latitudes=latitudes,
+                longitudes=longitudes,
+            )
+        except (OSError, RuntimeError, ValueError):
+            tile = None
+
+        if tile is None:
+            self._clear_map_background("tile unavailable")
+            return
+
+        self.map_tile_item.setImage(_qimage_to_rgba_array(tile.image), autoLevels=False)
+        self.map_tile_item.setRect(
+            QtCore.QRectF(
+                tile.west,
+                tile.south,
+                tile.east - tile.west,
+                tile.north - tile.south,
+            )
+        )
+        self.map_tile_item.setVisible(True)
+        self._map_tile_loaded = True
+        self._map_background_status = "tile loaded"
+        self.map_background_label.setText(self.map_background_text())
+
+    def _clear_map_background(self, status: str) -> None:
+        self.map_tile_item.setVisible(False)
+        self._map_tile_loaded = False
+        self._map_background_status = status
+        self.map_background_label.setText(self.map_background_text())
 
 
 class CurrentValuesWindow(QtWidgets.QWidget):
@@ -593,6 +786,68 @@ def load_glb_info(path: Path) -> GlbModelInfo:
 
 def _format_kib(byte_length: int) -> str:
     return f"{byte_length / 1024:.1f} KB"
+
+
+def _default_tile_cache_dir() -> Path:
+    qt_cache_dir = QtCore.QStandardPaths.writableLocation(
+        QtCore.QStandardPaths.StandardLocation.CacheLocation
+    )
+    if qt_cache_dir:
+        return Path(qt_cache_dir) / "osm-tiles"
+    return Path(tempfile.gettempdir()) / "mflog-analyzer" / "osm-tiles"
+
+
+def _zoom_for_span(latitude_span: float, longitude_span: float) -> int:
+    span = max(latitude_span, longitude_span)
+    if span <= 0.01:
+        return 15
+    if span <= 0.05:
+        return 14
+    if span <= 0.1:
+        return 13
+    if span <= 0.5:
+        return 11
+    if span <= 1.0:
+        return 10
+    if span <= 5.0:
+        return 8
+    return 6
+
+
+def _tile_for_lat_lon(latitude: float, longitude: float, zoom: int) -> tuple[int, int]:
+    clamped_latitude = min(max(latitude, -85.05112878), 85.05112878)
+    clamped_longitude = min(max(longitude, -180.0), 180.0)
+    lat_rad = math.radians(clamped_latitude)
+    tile_count = 1 << zoom
+    tile_x = int((clamped_longitude + 180.0) / 360.0 * tile_count)
+    tile_y = int(
+        (1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * tile_count
+    )
+    return (
+        min(max(tile_x, 0), tile_count - 1),
+        min(max(tile_y, 0), tile_count - 1),
+    )
+
+
+def _tile_bounds(tile_x: int, tile_y: int, zoom: int) -> tuple[float, float, float, float]:
+    tile_count = 1 << zoom
+    west = tile_x / tile_count * 360.0 - 180.0
+    east = (tile_x + 1) / tile_count * 360.0 - 180.0
+    north = math.degrees(math.atan(math.sinh(math.pi * (1.0 - 2.0 * tile_y / tile_count))))
+    south = math.degrees(
+        math.atan(math.sinh(math.pi * (1.0 - 2.0 * (tile_y + 1) / tile_count)))
+    )
+    return west, east, south, north
+
+
+def _qimage_to_rgba_array(image: QtGui.QImage) -> np.ndarray:
+    rgba = image.convertToFormat(QtGui.QImage.Format.Format_RGBA8888)
+    width = rgba.width()
+    height = rgba.height()
+    buffer = rgba.bits().tobytes()
+    bytes_per_line = rgba.bytesPerLine()
+    rows = np.frombuffer(buffer, dtype=np.uint8).reshape(height, bytes_per_line)
+    return rows[:, : width * 4].reshape(height, width, 4).copy()
 
 
 def _event_fields(event: object) -> tuple[str, str, int, str]:

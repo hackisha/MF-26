@@ -6,13 +6,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import sys
-from typing import Callable
+from typing import Callable, Sequence
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from mflog_proto.benchmark.metrics import collect_environment
 from mflog_proto.data.column_store import ColumnStore
 from mflog_proto.data.csv_loader import CsvLoadOptions, load_csv
+from mflog_proto.data.derived import compute_basic_derived_channels
 from mflog_proto.persistence.project_state import (
     ProjectState,
     WindowState,
@@ -27,6 +28,7 @@ from mflog_proto.ui.minimal_analysis_windows import (
     DocumentsWindow,
     GGDiagramWindow,
     GPSMapWindow,
+    MapTileProvider,
     VehicleModelWindow,
     load_glb_info,
 )
@@ -41,6 +43,13 @@ class PlaybackMarker:
     sensor: str
     value: float
     condition: str
+
+
+@dataclass(frozen=True)
+class VisualizationSettings:
+    gps_map_background_enabled: bool = False
+    graph_line_color: str | None = None
+    graph_line_width: float = 1.0
 
 
 DEFAULT_PRESET_TABS: tuple[str, ...] = (
@@ -71,7 +80,7 @@ DEFAULT_ANALYSIS_ITEMS: tuple[str, ...] = (
 class MainWindow(QtWidgets.QMainWindow):
     """Korean-first shell that mirrors the SRS and root UI storyboard."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, map_tile_provider: MapTileProvider | None = None) -> None:
         super().__init__()
         self.setObjectName("mainWindow")
         self.setWindowTitle("MF-LOG-ANALYZER v2 Prototype")
@@ -85,6 +94,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.selected_channels: list[str] = []
         self.pending_project_state: ProjectState | None = None
         self.loaded_csv_path: Path | None = None
+        self.visualization_settings = VisualizationSettings()
+        self._map_tile_provider = map_tile_provider
         self.playback_state = PlaybackState([0.0])
         self.sensor_series = _blank_sensor_series(self.playback_state.sample_count)
         self.playback_events: tuple[PlaybackMarker, ...] = ()
@@ -307,7 +318,11 @@ class MainWindow(QtWidgets.QMainWindow):
         return sub_window
 
     def _build_time_series_window(self) -> TimeSeriesWindow:
-        widget = TimeSeriesWindow(self.playback_state)
+        widget = TimeSeriesWindow(
+            self.playback_state,
+            line_color=self.visualization_settings.graph_line_color,
+            line_width=self.visualization_settings.graph_line_width,
+        )
         x_values = [
             self.playback_state.seconds_at(index)
             for index in range(self.playback_state.sample_count)
@@ -329,7 +344,10 @@ class MainWindow(QtWidgets.QMainWindow):
         return widget
 
     def _build_gps_map_window(self) -> GPSMapWindow:
-        widget = GPSMapWindow(self.playback_state)
+        widget = GPSMapWindow(self.playback_state, tile_provider=self._map_tile_provider)
+        widget.set_map_background_enabled(
+            self.visualization_settings.gps_map_background_enabled
+        )
         widget.set_track(
             latitude=self.sensor_series["latitude"],
             longitude=self.sensor_series["longitude"],
@@ -468,8 +486,55 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addRow("선택 창", QtWidgets.QLabel("Time-Series Graph"))
         layout.addRow("그래프 모드", QtWidgets.QLabel("Overlay"))
         layout.addRow("단위", QtWidgets.QLabel("프로필 기본값"))
+        self.gps_map_background_checkbox = QtWidgets.QCheckBox("실제 지도 배경")
+        self.gps_map_background_checkbox.setObjectName("gpsMapBackgroundCheckbox")
+        self.gps_map_background_checkbox.setChecked(
+            self.visualization_settings.gps_map_background_enabled
+        )
+        self.gps_map_background_checkbox.toggled.connect(
+            self._update_visualization_settings_from_controls
+        )
+        self.graph_line_color_combo = QtWidgets.QComboBox()
+        self.graph_line_color_combo.setObjectName("graphLineColorCombo")
+        self.graph_line_color_combo.addItems(("Default", "Yellow", "Blue", "Green", "Red"))
+        self.graph_line_color_combo.currentTextChanged.connect(
+            self._update_visualization_settings_from_controls
+        )
+        self.graph_line_width_spin = QtWidgets.QDoubleSpinBox()
+        self.graph_line_width_spin.setObjectName("graphLineWidthSpin")
+        self.graph_line_width_spin.setRange(0.5, 5.0)
+        self.graph_line_width_spin.setSingleStep(0.25)
+        self.graph_line_width_spin.setDecimals(2)
+        self.graph_line_width_spin.setValue(self.visualization_settings.graph_line_width)
+        self.graph_line_width_spin.valueChanged.connect(
+            self._update_visualization_settings_from_controls
+        )
+        layout.addRow("GPS", self.gps_map_background_checkbox)
+        layout.addRow("선 색상", self.graph_line_color_combo)
+        layout.addRow("선 굵기", self.graph_line_width_spin)
         self.properties_panel.setWidget(content)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.properties_panel)
+
+    def _update_visualization_settings_from_controls(self, *_args: object) -> None:
+        self.visualization_settings = VisualizationSettings(
+            gps_map_background_enabled=self.gps_map_background_checkbox.isChecked(),
+            graph_line_color=_graph_line_color(self.graph_line_color_combo.currentText()),
+            graph_line_width=float(self.graph_line_width_spin.value()),
+        )
+        self._apply_visualization_settings_to_open_windows()
+
+    def _apply_visualization_settings_to_open_windows(self) -> None:
+        for sub_window in self.workspace.subWindowList():
+            widget = sub_window.widget()
+            if isinstance(widget, TimeSeriesWindow):
+                widget.set_graph_style(
+                    line_color=self.visualization_settings.graph_line_color,
+                    line_width=self.visualization_settings.graph_line_width,
+                )
+            elif isinstance(widget, GPSMapWindow):
+                widget.set_map_background_enabled(
+                    self.visualization_settings.gps_map_background_enabled
+                )
 
     def _build_playback_dock(self) -> None:
         self.playback_dock = QtWidgets.QDockWidget("CSV Playback", self)
@@ -1034,6 +1099,7 @@ def _blank_sensor_series(sample_count: int) -> dict[str, list[float]]:
 
 
 def _sensor_series_from_store(store: ColumnStore, sample_count: int) -> dict[str, list[float]]:
+    derived = compute_basic_derived_channels(store)
     gps_speed = _numeric_series(
         store,
         sample_count,
@@ -1042,8 +1108,26 @@ def _sensor_series_from_store(store: ColumnStore, sample_count: int) -> dict[str
         "VSS",
         "GPS speed",
     )
-    ax = _numeric_series(store, sample_count, "AX_RAW_G", "ax_g", "ax", "AX_CORRECTED_G")
-    ay = _numeric_series(store, sample_count, "AY_RAW_G", "ay_g", "ay", "AY_CORRECTED_G")
+    ax = _derived_or_numeric_series(
+        derived,
+        "AX_CORRECTED_G",
+        store,
+        sample_count,
+        "AX_CORRECTED_G",
+        "AX_RAW_G",
+        "ax_g",
+        "ax",
+    )
+    ay = _derived_or_numeric_series(
+        derived,
+        "AY_CORRECTED_G",
+        store,
+        sample_count,
+        "AY_CORRECTED_G",
+        "AY_RAW_G",
+        "ay_g",
+        "ay",
+    )
     return {
         "RPM": _numeric_series(store, sample_count, "RPM"),
         "GPS speed": gps_speed,
@@ -1062,6 +1146,25 @@ def _sensor_series_from_store(store: ColumnStore, sample_count: int) -> dict[str
         "latitude": _numeric_series(store, sample_count, "Latitude", "latitude"),
         "longitude": _numeric_series(store, sample_count, "Longitude", "longitude"),
     }
+
+
+def _derived_or_numeric_series(
+    derived: dict[str, list[float | None]],
+    channel_id: str,
+    store: ColumnStore,
+    sample_count: int,
+    *candidates: str,
+) -> list[float]:
+    if channel_id in derived:
+        return _float_series(derived[channel_id], sample_count)
+    return _numeric_series(store, sample_count, *candidates)
+
+
+def _float_series(values: Sequence[float | None], sample_count: int) -> list[float]:
+    output = [0.0 if value is None else float(value) for value in values[:sample_count]]
+    if len(output) < sample_count:
+        output.extend(0.0 for _index in range(sample_count - len(output)))
+    return output
 
 
 def _numeric_series(
@@ -1250,6 +1353,15 @@ def _event_color(severity: str) -> QtGui.QColor:
     if severity == "warning":
         return QtGui.QColor("#f4c95d")
     return QtGui.QColor("#5dade2")
+
+
+def _graph_line_color(name: str) -> str | None:
+    return {
+        "Yellow": "#f4c95d",
+        "Blue": "#5dade2",
+        "Green": "#58d68d",
+        "Red": "#ec7063",
+    }.get(name)
 
 
 def _object_name(text: str, *, suffix: str) -> str:

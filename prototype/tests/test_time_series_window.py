@@ -25,6 +25,21 @@ def test_time_series_window_renders_channels_and_tracks_playback_cursor(qtbot):
     assert window.cursor_line.value() == 0.2
 
 
+def test_time_series_window_applies_configurable_line_style(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1])
+    window = TimeSeriesWindow(playback_state=playback)
+    qtbot.addWidget(window)
+
+    window.set_graph_style(line_color="#ec7063", line_width=0.75)
+    window.set_series({"RPM": ([0.0, 0.1], [1000.0, 2000.0])})
+
+    assert window.curve_style("RPM") == ("#ec7063", 0.75)
+
+    window.set_graph_style(line_color="#5dade2", line_width=2.25)
+
+    assert window.curve_style("RPM") == ("#5dade2", 2.25)
+
+
 def test_time_series_window_updates_hover_status_from_mouse_sample(qtbot):
     playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
     window = TimeSeriesWindow(playback_state=playback)

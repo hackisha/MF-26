@@ -19,7 +19,7 @@ crashes.
 ```
 
 Expected result: all tests pass without a `python.exe` native error dialog.
-The current expected count is `114 passed`.
+The current expected count is `118 passed`.
 
 ## 2. Generate Target CSV
 
@@ -96,6 +96,13 @@ Check that:
 - Moving the timeline updates the time-series cursor line, GPS current point,
   G-G current point, sensor cards, and event highlight to the same playback
   time.
+- `Settings` / right properties controls can toggle the GPS real-map background
+  layer. When network/cache access is available, an OpenStreetMap tile is drawn
+  behind the full route; if tiles are unavailable, playback, route, and current
+  point remain usable. The same panel can adjust time-series line color and
+  thickness for existing and newly opened windows.
+- G-G keeps the 1 G limit circle visible after CSV upload and uses corrected
+  ADXL345 acceleration for `ax_g` / `ay_g`.
 - Switching tabs preserves the loaded CSV session and playback position.
 - Graph hover shows sensor name, time, value, and unit tooltip; graph click
   seeks to that time.

@@ -1,7 +1,7 @@
 from pathlib import Path
 import sys
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 import pytest
 import shiboken6
 
@@ -14,12 +14,30 @@ from mflog_proto.ui.minimal_analysis_windows import (
     DocumentsWindow,
     GGDiagramWindow,
     GPSMapWindow,
+    MapTileImage,
     VehicleModelWindow,
 )
 from mflog_proto.ui.time_series_window import TimeSeriesWindow
 
 
 PROTOTYPE_ROOT = Path(__file__).resolve().parents[1]
+
+
+class FakeMapTileProvider:
+    def __init__(self) -> None:
+        self.request_count = 0
+
+    def tile_for_bounds(self, *, latitudes, longitudes):
+        self.request_count += 1
+        image = QtGui.QImage(2, 2, QtGui.QImage.Format.Format_RGBA8888)
+        image.fill(QtGui.QColor("#345678"))
+        return MapTileImage(
+            image=image,
+            west=min(longitudes) - 0.001,
+            east=max(longitudes) + 0.001,
+            south=min(latitudes) - 0.001,
+            north=max(latitudes) + 0.001,
+        )
 
 
 def test_main_window_builds_required_shell_regions(qtbot):
@@ -260,9 +278,9 @@ def test_main_window_loads_csv_file_into_shared_playback_session(tmp_path, qtbot
     csv_path.write_text(
         "Timestamp,Latitude,Longitude,GPS_Speed_KPH,RPM,TPS_percent,VSS_kmh,Gear,"
         "Batt_V,ax_g,ay_g,gx_dps,gy_dps,gz_dps\n"
-        "0.0,37.0,127.0,40,1000,10,41,1,13.1,0.1,0.2,1,2,3\n"
-        "0.1,37.1,127.2,50,2000,20,51,2,12.9,0.3,0.4,4,5,6\n"
-        "0.2,37.2,127.4,60,3000,95,61,3,11.8,1.2,0.6,7,8,120\n",
+        "0.0,37.0,127.0,40,1000,10,41,1,13.1,0.8,1.6,1,2,3\n"
+        "0.1,37.1,127.2,50,2000,20,51,2,12.9,2.4,3.2,4,5,6\n"
+        "0.2,37.2,127.4,60,3000,95,61,3,11.8,9.6,4.8,7,8,120\n",
         encoding="utf-8",
     )
     window = MainWindow()
@@ -291,6 +309,27 @@ def test_main_window_loads_csv_file_into_shared_playback_session(tmp_path, qtbot
     assert window.sensor_card_value_labels["TPS"].styleSheet()
     assert window.sensor_card_value_labels["ax"].styleSheet()
     assert window.sensor_card_value_labels["yaw rate"].styleSheet()
+
+
+def test_main_window_uses_corrected_adxl_acceleration_for_uploaded_csv(tmp_path, qtbot):
+    csv_path = tmp_path / "emu.csv"
+    csv_path.write_text(
+        "Timestamp,Latitude,Longitude,GPS_Speed_KPH,RPM,TPS_percent,VSS_kmh,Gear,"
+        "Batt_V,ax_g,ay_g,gx_dps,gy_dps,gz_dps\n"
+        "0.0,37.0,127.0,40,1000,10,41,1,13.1,8,16,1,2,3\n"
+        "0.1,37.1,127.2,50,2000,20,51,2,12.9,16,-8,4,5,6\n",
+        encoding="utf-8",
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.load_csv_session(csv_path)
+    gg_window = window.add_analysis_window("G-G Diagram").widget()
+    window.timeline_slider.setValue(100)
+
+    assert gg_window.current_point == pytest.approx((2.0, -1.0))
+    assert window.sensor_card_value("ax") == "2.000"
+    assert window.sensor_card_value("ay") == "-1.000"
 
 
 def test_main_window_reports_csv_malformed_row_diagnostics(tmp_path, qtbot):
@@ -341,6 +380,27 @@ def test_time_series_analysis_window_uses_real_pyqtgraph_widget(qtbot):
 
     assert first_subwindow.windowTitle() == "Time-Series Graph"
     assert isinstance(first_subwindow.widget(), TimeSeriesWindow)
+
+
+def test_visual_settings_update_gps_background_and_time_series_style(qtbot):
+    tile_provider = FakeMapTileProvider()
+    window = MainWindow(map_tile_provider=tile_provider)
+    qtbot.addWidget(window)
+    window.load_demo_session()
+    gps_window = window.add_analysis_window("GPS Map").widget()
+    time_series = window.workspace.subWindowList()[0].widget()
+
+    window.gps_map_background_checkbox.setChecked(True)
+    window.graph_line_width_spin.setValue(0.75)
+    window.graph_line_color_combo.setCurrentText("Red")
+
+    assert gps_window.map_background_enabled is True
+    assert gps_window.map_tile_loaded is True
+    assert tile_provider.request_count == 1
+    assert time_series.curve_style("RPM") == ("#ec7063", 0.75)
+
+    new_time_series = window.add_analysis_window("Time-Series Graph").widget()
+    assert new_time_series.curve_style("RPM") == ("#ec7063", 0.75)
 
 
 def test_main_window_routes_minimal_analysis_windows_to_real_widgets(qtbot):

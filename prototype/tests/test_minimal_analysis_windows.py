@@ -13,12 +13,30 @@ from mflog_proto.ui.minimal_analysis_windows import (
     GGDiagramWindow,
     GlbModelInfo,
     GPSMapWindow,
+    MapTileImage,
     VehicleModelWindow,
     load_glb_info,
 )
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+class FakeMapTileProvider:
+    def __init__(self) -> None:
+        self.request_count = 0
+
+    def tile_for_bounds(self, *, latitudes, longitudes):
+        self.request_count += 1
+        image = QtGui.QImage(2, 2, QtGui.QImage.Format.Format_RGBA8888)
+        image.fill(QtGui.QColor("#345678"))
+        return MapTileImage(
+            image=image,
+            west=min(longitudes) - 0.001,
+            east=max(longitudes) + 0.001,
+            south=min(latitudes) - 0.001,
+            north=max(latitudes) + 0.001,
+        )
 
 
 def test_gg_diagram_tracks_playback_point_from_corrected_acceleration(qtbot):
@@ -48,6 +66,7 @@ def test_gg_diagram_draws_one_g_limit_circle(qtbot):
     assert len(x_values) >= 64
     assert x_values[0] == pytest.approx(x_values[-1])
     assert y_values[0] == pytest.approx(y_values[-1])
+    assert window.limit_circle_item.zValue() > window.cloud_item.zValue()
 
 
 def test_gps_map_tracks_current_position_from_playback(qtbot):
@@ -63,6 +82,34 @@ def test_gps_map_tracks_current_position_from_playback(qtbot):
 
     assert window.point_count == 3
     assert window.current_position == pytest.approx((37.0001, 127.0002))
+    assert window.route_background_point_count == 3
+
+
+def test_gps_map_toggles_real_map_background(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1])
+    tile_provider = FakeMapTileProvider()
+    window = GPSMapWindow(playback, tile_provider=tile_provider)
+    qtbot.addWidget(window)
+    window.set_track(
+        latitude=[37.0, 37.0001],
+        longitude=[127.0, 127.0002],
+    )
+
+    assert window.map_background_enabled is False
+    assert window.map_background_text() == "Map background: off"
+    assert window.map_tile_loaded is False
+
+    window.set_map_background_enabled(True)
+
+    assert window.map_background_enabled is True
+    assert "tile loaded" in window.map_background_text()
+    assert window.map_tile_loaded is True
+    assert tile_provider.request_count == 1
+
+    window.set_map_background_enabled(False)
+
+    assert window.map_background_text() == "Map background: off"
+    assert window.map_tile_loaded is False
 
 
 def test_current_values_table_updates_from_playback_state(qtbot):

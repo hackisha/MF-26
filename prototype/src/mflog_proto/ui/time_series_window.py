@@ -16,12 +16,21 @@ SeriesMap = Mapping[str, tuple[Sequence[float], Sequence[float | None]]]
 
 
 class TimeSeriesWindow(QtWidgets.QWidget):
-    def __init__(self, playback_state: PlaybackState, parent: QtWidgets.QWidget | None = None) -> None:
+    def __init__(
+        self,
+        playback_state: PlaybackState,
+        parent: QtWidgets.QWidget | None = None,
+        *,
+        line_color: str | None = None,
+        line_width: float = 1.0,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("timeSeriesWindow")
         self._playback_state = playback_state
         self._curves: dict[str, pg.PlotDataItem] = {}
         self._series_points: dict[str, tuple[list[float], list[float]]] = {}
+        self._line_color = line_color
+        self._line_width = float(line_width)
         self.last_tooltip_text = ""
         self._unsubscribe: Callable[[], None] | None = playback_state.subscribe(
             self._handle_cursor_event
@@ -72,10 +81,21 @@ class TimeSeriesWindow(QtWidgets.QWidget):
             curve = self.plot.plot(
                 numeric_x,
                 numeric_y,
-                pen=pg.mkPen(_palette_color(index), width=1.5),
+                pen=self._pen_for_index(index),
                 name=channel_id,
             )
             self._curves[channel_id] = curve
+
+    def set_graph_style(self, *, line_color: str | None, line_width: float) -> None:
+        self._line_color = line_color
+        self._line_width = float(line_width)
+        for index, curve in enumerate(self._curves.values()):
+            curve.setPen(self._pen_for_index(index))
+
+    def curve_style(self, channel_id: str) -> tuple[str, float]:
+        curve = self._curves[channel_id]
+        pen = curve.opts["pen"]
+        return pen.color().name(), pen.widthF()
 
     def publish_hover(
         self,
@@ -180,6 +200,10 @@ class TimeSeriesWindow(QtWidgets.QWidget):
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
+
+    def _pen_for_index(self, index: int) -> QtGui.QPen:
+        color = self._line_color if self._line_color is not None else _palette_color(index)
+        return pg.mkPen(color, width=self._line_width)
 
 
 def _drop_none_pairs(
