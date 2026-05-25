@@ -25,6 +25,8 @@ prototype/output/
 
 # Keep MATLAB cache/output noise out of git.
 *.asv
+*.m
+*.prj
 resources/
 
 # Local OS/editor files
@@ -32,4 +34,3 @@ resources/
 Thumbs.db
 *.swp
 *.swo
-
