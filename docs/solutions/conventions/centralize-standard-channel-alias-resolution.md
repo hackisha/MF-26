@@ -1,6 +1,7 @@
 ---
 title: "Centralize standard channel alias resolution"
 date: "2026-05-25"
+last_updated: "2026-05-26"
 track: "knowledge"
 category: "conventions"
 problem_type: "best_practice"
@@ -46,6 +47,8 @@ Mapping state drives user review, reliability badges, analysis-window availabili
 ## When to Apply
 
 Apply this whenever adding a standard channel, CSV alias, vehicle-profile alias, derived-channel formula, or report field. Add tests for both the raw CSV alias and the standard channel ID itself.
+
+When real sample logs share a common header, promote the important columns into the central alias table immediately. The 2025 root sample CSVs all expose core fields such as `GPS_Speed_KPH`, `TPS_percent`, `VSS_kmh`, `Batt_V`, `gx_dps`, `gy_dps`, and `gz_dps`; leaving those outside `KNOWN_ALIASES` makes downstream UI and health modules rely on raw names again.
 
 ## Example Tests
 
