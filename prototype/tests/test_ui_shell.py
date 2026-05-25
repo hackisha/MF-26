@@ -5,7 +5,13 @@ os.environ.setdefault("QT_QPA_FONTDIR", r"C:\Windows\Fonts")
 
 from PySide6 import QtCore, QtWidgets
 
-from mflog_proto.ui.main_window import DEFAULT_ANALYSIS_ITEMS, MainWindow
+from mflog_proto.ui.main_window import DEFAULT_ANALYSIS_ITEMS, MainWindow, _root_asset_path
+from mflog_proto.ui.minimal_analysis_windows import (
+    BenchmarkSummaryWindow,
+    CurrentValuesWindow,
+    GGDiagramWindow,
+    VehicleModelWindow,
+)
 from mflog_proto.ui.time_series_window import TimeSeriesWindow
 
 
@@ -68,6 +74,35 @@ def test_time_series_analysis_window_uses_real_pyqtgraph_widget(qtbot):
 
     assert first_subwindow.windowTitle() == "Time-Series Graph"
     assert isinstance(first_subwindow.widget(), TimeSeriesWindow)
+
+
+def test_main_window_routes_minimal_analysis_windows_to_real_widgets(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    created = {
+        title: window.add_analysis_window(title).widget()
+        for title in (
+            "G-G Diagram",
+            "Current Values Table",
+            "Benchmark Summary",
+            "3D Vehicle Model",
+        )
+    }
+
+    assert isinstance(created["G-G Diagram"], GGDiagramWindow)
+    assert isinstance(created["Current Values Table"], CurrentValuesWindow)
+    assert isinstance(created["Benchmark Summary"], BenchmarkSummaryWindow)
+    assert isinstance(created["3D Vehicle Model"], VehicleModelWindow)
+
+
+def test_root_asset_path_finds_car_glb_from_prototype_cwd(monkeypatch):
+    monkeypatch.chdir("prototype")
+
+    path = _root_asset_path("car.glb")
+
+    assert path.name == "car.glb"
+    assert path.exists()
 
 
 def test_playback_status_updates_shared_bottom_timeline_from_clamped_state(qtbot):

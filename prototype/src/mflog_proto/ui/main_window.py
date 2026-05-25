@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from mflog_proto.benchmark.metrics import collect_environment
 from mflog_proto.playback import CursorEvent, CursorKind, PlaybackState
+from mflog_proto.ui.minimal_analysis_windows import (
+    BenchmarkSummaryWindow,
+    CurrentValuesWindow,
+    GGDiagramWindow,
+    VehicleModelWindow,
+    load_glb_info,
+)
 from mflog_proto.ui.time_series_window import TimeSeriesWindow
 
 
@@ -81,6 +91,14 @@ class MainWindow(QtWidgets.QMainWindow):
     def add_analysis_window(self, title: str) -> QtWidgets.QMdiSubWindow:
         if title == "Time-Series Graph":
             widget = self._build_time_series_window()
+        elif title == "G-G Diagram":
+            widget = self._build_gg_diagram_window()
+        elif title == "Current Values Table":
+            widget = self._build_current_values_window()
+        elif title == "Benchmark Summary":
+            widget = BenchmarkSummaryWindow(collect_environment())
+        elif title == "3D Vehicle Model":
+            widget = VehicleModelWindow(load_glb_info(_root_asset_path("car.glb")))
         else:
             widget = self._build_placeholder_window(title)
 
@@ -100,6 +118,25 @@ class MainWindow(QtWidgets.QMainWindow):
             }
         )
         return widget
+
+    def _build_gg_diagram_window(self) -> GGDiagramWindow:
+        widget = GGDiagramWindow(self.playback_state)
+        widget.set_acceleration(
+            ax_corrected=[-0.4 + index * 0.008 for index in range(101)],
+            ay_corrected=[0.25 if index % 2 == 0 else -0.25 for index in range(101)],
+        )
+        return widget
+
+    def _build_current_values_window(self) -> CurrentValuesWindow:
+        return CurrentValuesWindow(
+            self.playback_state,
+            {
+                "RPM": [2200.0 + index * 35.0 for index in range(101)],
+                "TPS_percent": [20.0 + (index % 25) * 2.0 for index in range(101)],
+                "AX_CORRECTED_G": [-0.4 + index * 0.008 for index in range(101)],
+                "AY_CORRECTED_G": [0.25 if index % 2 == 0 else -0.25 for index in range(101)],
+            },
+        )
 
     def _build_placeholder_window(self, title: str) -> QtWidgets.QFrame:
         widget = QtWidgets.QFrame()
@@ -285,3 +322,16 @@ def _object_name(text: str, *, suffix: str) -> str:
         return suffix[:1].lower() + suffix[1:]
     first, *rest = parts
     return first[:1].lower() + first[1:] + "".join(part.title() for part in rest) + suffix
+
+
+def _root_asset_path(name: str) -> Path:
+    source_repo_root = Path(__file__).resolve().parents[4]
+    candidates = (
+        Path.cwd() / name,
+        Path.cwd().parent / name,
+        source_repo_root / name,
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return source_repo_root / name
