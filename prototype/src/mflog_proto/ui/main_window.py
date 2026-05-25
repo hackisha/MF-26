@@ -50,6 +50,115 @@ class VisualizationSettings:
     gps_map_background_enabled: bool = False
     graph_line_color: str | None = None
     graph_line_width: float = 1.0
+    gg_limit_radius: float = 1.0
+
+
+class _AnalysisWindowOverlayControls(QtCore.QObject):
+    def __init__(
+        self,
+        sub_window: QtWidgets.QMdiSubWindow,
+        content: QtWidgets.QWidget,
+    ) -> None:
+        super().__init__(sub_window)
+        self._sub_window = sub_window
+        self._content = content
+        self._frame = QtWidgets.QFrame(content)
+        self._frame.setObjectName("analysisWindowOverlayControls")
+        self._frame.setStyleSheet(
+            """
+            QFrame#analysisWindowOverlayControls {
+                background: rgba(31, 36, 40, 210);
+                border: 1px solid #5f6a72;
+            }
+            QToolButton {
+                color: #f2f5f7;
+                background: transparent;
+                border: none;
+                padding: 2px 6px;
+                font-weight: 700;
+            }
+            QToolButton:hover {
+                background: #3d5566;
+            }
+            """
+        )
+
+        layout = QtWidgets.QHBoxLayout(self._frame)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(2)
+
+        self._minimize_button = self._make_button(
+            object_name="analysisWindowMinimizeButton",
+            text="_",
+            tooltip="최소화",
+        )
+        self._restore_button = self._make_button(
+            object_name="analysisWindowRestoreButton",
+            text="[]",
+            tooltip="복원/최대화",
+        )
+        self._close_button = self._make_button(
+            object_name="analysisWindowCloseButton",
+            text="x",
+            tooltip="닫기",
+        )
+
+        layout.addWidget(self._minimize_button)
+        layout.addWidget(self._restore_button)
+        layout.addWidget(self._close_button)
+
+        self._minimize_button.clicked.connect(sub_window.showMinimized)
+        self._restore_button.clicked.connect(self._toggle_maximized)
+        self._close_button.clicked.connect(sub_window.close)
+        self._frame.hide()
+
+        sub_window.installEventFilter(self)
+        content.installEventFilter(self)
+        self.update_geometry()
+
+    def eventFilter(self, watched: object, event: QtCore.QEvent) -> bool:  # noqa: N802
+        if event.type() in {
+            QtCore.QEvent.Type.Resize,
+            QtCore.QEvent.Type.Show,
+            QtCore.QEvent.Type.WindowStateChange,
+        }:
+            QtCore.QTimer.singleShot(0, self.update_geometry)
+        return super().eventFilter(watched, event)
+
+    def update_geometry(self) -> None:
+        is_maximized = (
+            self._sub_window.isMaximized()
+            or bool(self._sub_window.windowState() & QtCore.Qt.WindowState.WindowMaximized)
+        )
+        self._frame.setVisible(is_maximized)
+        self._restore_button.setText("[]" if is_maximized else "[ ]")
+        self._frame.adjustSize()
+        margin = 8
+        x = max(margin, self._content.width() - self._frame.width() - margin)
+        self._frame.move(x, margin)
+        self._frame.raise_()
+
+    def _toggle_maximized(self) -> None:
+        if self._sub_window.isMaximized():
+            self._sub_window.showNormal()
+        else:
+            self._sub_window.showMaximized()
+        self.update_geometry()
+
+    def _make_button(
+        self,
+        *,
+        object_name: str,
+        text: str,
+        tooltip: str,
+    ) -> QtWidgets.QToolButton:
+        button = QtWidgets.QToolButton(self._frame)
+        button.setObjectName(object_name)
+        button.setText(text)
+        button.setToolTip(tooltip)
+        button.setFixedSize(28, 24)
+        button.setAutoRaise(True)
+        return button
 
 
 DEFAULT_PRESET_TABS: tuple[str, ...] = (
@@ -313,6 +422,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         sub_window = self.workspace.addSubWindow(widget)
         sub_window.setWindowTitle(title)
+        sub_window.setWindowFlag(QtCore.Qt.WindowType.WindowMinMaxButtonsHint, True)
+        sub_window.setWindowFlag(QtCore.Qt.WindowType.WindowCloseButtonHint, True)
+        sub_window._overlay_controls_controller = _AnalysisWindowOverlayControls(  # type: ignore[attr-defined]
+            sub_window,
+            widget,
+        )
         sub_window.resize(460, 260)
         sub_window.show()
         return sub_window
@@ -337,6 +452,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _build_gg_diagram_window(self) -> GGDiagramWindow:
         widget = GGDiagramWindow(self.playback_state)
+        widget.set_limit_circle_radius(self.visualization_settings.gg_limit_radius)
         widget.set_acceleration(
             ax_corrected=self.sensor_series["AX_CORRECTED_G"],
             ay_corrected=self.sensor_series["AY_CORRECTED_G"],
@@ -509,9 +625,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self.graph_line_width_spin.valueChanged.connect(
             self._update_visualization_settings_from_controls
         )
+        self.gg_limit_radius_spin = QtWidgets.QDoubleSpinBox()
+        self.gg_limit_radius_spin.setObjectName("ggLimitRadiusSpin")
+        self.gg_limit_radius_spin.setRange(0.5, 5.0)
+        self.gg_limit_radius_spin.setSingleStep(0.25)
+        self.gg_limit_radius_spin.setDecimals(2)
+        self.gg_limit_radius_spin.setSuffix(" G")
+        self.gg_limit_radius_spin.setValue(self.visualization_settings.gg_limit_radius)
+        self.gg_limit_radius_spin.valueChanged.connect(
+            self._update_visualization_settings_from_controls
+        )
         layout.addRow("GPS", self.gps_map_background_checkbox)
         layout.addRow("선 색상", self.graph_line_color_combo)
         layout.addRow("선 굵기", self.graph_line_width_spin)
+        layout.addRow("G-G 한계원", self.gg_limit_radius_spin)
         self.properties_panel.setWidget(content)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.properties_panel)
 
@@ -520,6 +647,7 @@ class MainWindow(QtWidgets.QMainWindow):
             gps_map_background_enabled=self.gps_map_background_checkbox.isChecked(),
             graph_line_color=_graph_line_color(self.graph_line_color_combo.currentText()),
             graph_line_width=float(self.graph_line_width_spin.value()),
+            gg_limit_radius=float(self.gg_limit_radius_spin.value()),
         )
         self._apply_visualization_settings_to_open_windows()
 
@@ -535,6 +663,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 widget.set_map_background_enabled(
                     self.visualization_settings.gps_map_background_enabled
                 )
+            elif isinstance(widget, GGDiagramWindow):
+                widget.set_limit_circle_radius(self.visualization_settings.gg_limit_radius)
 
     def _build_playback_dock(self) -> None:
         self.playback_dock = QtWidgets.QDockWidget("CSV Playback", self)

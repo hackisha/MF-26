@@ -382,6 +382,42 @@ def test_time_series_analysis_window_uses_real_pyqtgraph_widget(qtbot):
     assert isinstance(first_subwindow.widget(), TimeSeriesWindow)
 
 
+def test_maximized_analysis_window_keeps_local_window_controls_visible(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitExposed(window)
+    sub_window = window.add_analysis_window("G-G Diagram")
+
+    sub_window.showMaximized()
+    QtWidgets.QApplication.processEvents()
+
+    controls = sub_window.widget().findChild(
+        QtWidgets.QFrame,
+        "analysisWindowOverlayControls",
+    )
+    restore_button = sub_window.widget().findChild(
+        QtWidgets.QToolButton,
+        "analysisWindowRestoreButton",
+    )
+    close_button = sub_window.widget().findChild(
+        QtWidgets.QToolButton,
+        "analysisWindowCloseButton",
+    )
+
+    assert controls is not None
+    assert controls.isVisible()
+    assert restore_button is not None
+    assert restore_button.isVisible()
+    assert close_button is not None
+    assert close_button.isVisible()
+
+    qtbot.mouseClick(restore_button, QtCore.Qt.LeftButton)
+    QtWidgets.QApplication.processEvents()
+
+    assert not sub_window.isMaximized()
+
+
 def test_visual_settings_update_gps_background_and_time_series_style(qtbot):
     tile_provider = FakeMapTileProvider()
     window = MainWindow(map_tile_provider=tile_provider)
@@ -393,11 +429,13 @@ def test_visual_settings_update_gps_background_and_time_series_style(qtbot):
     window.gps_map_background_checkbox.setChecked(True)
     window.graph_line_width_spin.setValue(0.75)
     window.graph_line_color_combo.setCurrentText("Red")
+    window.gg_limit_radius_spin.setValue(2.25)
 
     assert gps_window.map_background_enabled is True
     assert gps_window.map_tile_loaded is True
     assert tile_provider.request_count == 1
     assert time_series.curve_style("RPM") == ("#ec7063", 0.75)
+    assert window.add_analysis_window("G-G Diagram").widget().limit_circle_radius == 2.25
 
     new_time_series = window.add_analysis_window("Time-Series Graph").widget()
     assert new_time_series.curve_style("RPM") == ("#ec7063", 0.75)

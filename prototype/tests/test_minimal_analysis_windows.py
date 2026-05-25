@@ -69,6 +69,21 @@ def test_gg_diagram_draws_one_g_limit_circle(qtbot):
     assert window.limit_circle_item.zValue() > window.cloud_item.zValue()
 
 
+def test_gg_diagram_can_update_limit_circle_radius(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1])
+    window = GGDiagramWindow(playback)
+    qtbot.addWidget(window)
+
+    window.set_limit_circle_radius(2.5)
+    x_values, y_values = window.limit_circle_item.getData()
+
+    assert window.limit_circle_radius == 2.5
+    assert max(x_values) == pytest.approx(2.5)
+    assert min(x_values) == pytest.approx(-2.5)
+    assert max(y_values) == pytest.approx(2.5)
+    assert min(y_values) == pytest.approx(-2.5)
+
+
 def test_gps_map_tracks_current_position_from_playback(qtbot):
     playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
     window = GPSMapWindow(playback)
@@ -83,6 +98,25 @@ def test_gps_map_tracks_current_position_from_playback(qtbot):
     assert window.point_count == 3
     assert window.current_position == pytest.approx((37.0001, 127.0002))
     assert window.route_background_point_count == 3
+
+
+def test_gps_map_ignores_zero_and_out_of_range_coordinates(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1, 0.2, 0.3])
+    window = GPSMapWindow(playback)
+    qtbot.addWidget(window)
+
+    window.set_track(
+        latitude=[0.0, 35.292, 91.0, 35.293],
+        longitude=[0.0, 126.574, 126.575, 126.576],
+    )
+
+    assert window.point_count == 2
+    assert window.route_background_point_count == 2
+    assert window.current_position is None
+
+    playback.set_sample(1)
+
+    assert window.current_position == pytest.approx((35.292, 126.574))
 
 
 def test_gps_map_toggles_real_map_background(qtbot):

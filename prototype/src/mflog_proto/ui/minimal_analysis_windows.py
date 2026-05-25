@@ -139,6 +139,7 @@ class GGDiagramWindow(QtWidgets.QWidget):
         self.plot = pg.PlotWidget(background="#1f2428")
         self.plot.setObjectName("ggDiagramPlot")
         self.plot.showGrid(x=True, y=True, alpha=0.25)
+        self.plot.getPlotItem().getViewBox().setAspectLocked(True, ratio=1)
         self.plot.setLabel("bottom", "AX_CORRECTED_G")
         self.plot.setLabel("left", "AY_CORRECTED_G")
         self.limit_circle_radius = 1.0
@@ -177,6 +178,10 @@ class GGDiagramWindow(QtWidgets.QWidget):
 
     def reliability_text(self) -> str:
         return self.reliability_badge.text()
+
+    def set_limit_circle_radius(self, radius: float) -> None:
+        self.limit_circle_radius = max(0.1, float(radius))
+        self.limit_circle_item.setData(*_circle_points(self.limit_circle_radius))
 
     def set_acceleration(
         self,
@@ -326,16 +331,20 @@ class GPSMapWindow(QtWidgets.QWidget):
         self._positions = []
         plot_longitudes: list[float] = []
         plot_latitudes: list[float] = []
+        valid_count = 0
         for latitude_value, longitude_value in zip(latitude, longitude, strict=True):
-            if latitude_value is None or longitude_value is None:
+            if not _is_valid_gps_position(latitude_value, longitude_value):
                 self._positions.append(None)
+                plot_latitudes.append(math.nan)
+                plot_longitudes.append(math.nan)
                 continue
             position = (float(latitude_value), float(longitude_value))
             self._positions.append(position)
             plot_latitudes.append(position[0])
             plot_longitudes.append(position[1])
+            valid_count += 1
 
-        self._route_background_point_count = len(plot_longitudes)
+        self._route_background_point_count = valid_count
         self.route_background_item.setData(plot_longitudes, plot_latitudes)
         self.track_item.setData(plot_longitudes, plot_latitudes)
         self._refresh_map_background()
@@ -786,6 +795,23 @@ def load_glb_info(path: Path) -> GlbModelInfo:
 
 def _format_kib(byte_length: int) -> str:
     return f"{byte_length / 1024:.1f} KB"
+
+
+def _is_valid_gps_position(
+    latitude: float | None,
+    longitude: float | None,
+) -> bool:
+    if latitude is None or longitude is None:
+        return False
+    latitude = float(latitude)
+    longitude = float(longitude)
+    if not math.isfinite(latitude) or not math.isfinite(longitude):
+        return False
+    if not -90.0 <= latitude <= 90.0:
+        return False
+    if not -180.0 <= longitude <= 180.0:
+        return False
+    return not (abs(latitude) < 1e-9 and abs(longitude) < 1e-9)
 
 
 def _default_tile_cache_dir() -> Path:
