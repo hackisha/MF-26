@@ -90,6 +90,37 @@ def test_left_sidebar_keeps_documents_and_data_analysis_menu_items(qtbot):
     assert "Data Analysis" in item_titles
 
 
+def test_right_properties_can_configure_left_sidebar_visibility_width_and_density(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.sidebar_search.setText("GPS")
+    window.sidebar_search_visible_checkbox.setChecked(False)
+    window.sidebar_add_button_visible_checkbox.setChecked(False)
+    window.sidebar_width_spin.setValue(320)
+    window.sidebar_density_combo.setCurrentText("Compact")
+
+    assert window.sidebar_search.isVisible() is False
+    assert window.sidebar_search.text() == ""
+    assert window.analysis_list.count() == len(DEFAULT_ANALYSIS_ITEMS)
+    assert window.add_window_button.isVisible() is False
+    assert window.left_sidebar.minimumWidth() == 320
+    assert window.analysis_list.spacing() == 2
+
+
+def test_right_properties_can_sort_left_sidebar_analysis_items(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.sidebar_sort_combo.setCurrentText("A-Z")
+    item_titles = [
+        window.analysis_list.item(index).text()
+        for index in range(window.analysis_list.count())
+    ]
+
+    assert item_titles == sorted(DEFAULT_ANALYSIS_ITEMS)
+
+
 def test_bottom_playback_dock_exposes_required_csv_controls_and_status(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)

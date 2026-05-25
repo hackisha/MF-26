@@ -19,7 +19,7 @@ crashes.
 ```
 
 Expected result: all tests pass without a `python.exe` native error dialog.
-The current expected count is `121 passed`.
+The current expected count is `123 passed`.
 
 ## 2. Generate Target CSV
 
@@ -83,6 +83,9 @@ Check that:
 
 - The prototype opens.
 - The left analysis list can add windows.
+- The right properties panel can tune the left analysis panel: show/hide search,
+  show/hide the add button, switch default/A-Z ordering, choose compact or
+  comfortable density, and adjust the panel width.
 - With no CSV session, the bottom playback dock is disabled and shows the upload
   guidance.
 - `File > Open CSV` loads a root sample CSV and the dock shows filename, row

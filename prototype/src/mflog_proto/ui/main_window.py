@@ -53,6 +53,15 @@ class VisualizationSettings:
     gg_limit_radius: float = 1.0
 
 
+@dataclass(frozen=True)
+class SidebarSettings:
+    search_visible: bool = True
+    add_button_visible: bool = True
+    sort_mode: str = "Default"
+    density: str = "Comfortable"
+    width_px: int = 260
+
+
 class _AnalysisWindowOverlayControls(QtCore.QObject):
     def __init__(
         self,
@@ -204,6 +213,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pending_project_state: ProjectState | None = None
         self.loaded_csv_path: Path | None = None
         self.visualization_settings = VisualizationSettings()
+        self.sidebar_settings = SidebarSettings()
         self._map_tile_provider = map_tile_provider
         self.playback_state = PlaybackState([0.0])
         self.sensor_series = _blank_sensor_series(self.playback_state.sample_count)
@@ -590,6 +600,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.left_sidebar = sidebar
 
         self._filter_analysis_items("")
+        self._apply_sidebar_settings()
 
     def _build_right_properties_panel(self) -> None:
         self.properties_panel = QtWidgets.QDockWidget("속성", self)
@@ -639,6 +650,49 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addRow("선 색상", self.graph_line_color_combo)
         layout.addRow("선 굵기", self.graph_line_width_spin)
         layout.addRow("G-G 한계원", self.gg_limit_radius_spin)
+
+        self.sidebar_search_visible_checkbox = QtWidgets.QCheckBox("검색창 표시")
+        self.sidebar_search_visible_checkbox.setObjectName("sidebarSearchVisibleCheckbox")
+        self.sidebar_search_visible_checkbox.setChecked(self.sidebar_settings.search_visible)
+        self.sidebar_search_visible_checkbox.toggled.connect(
+            self._update_sidebar_settings_from_controls
+        )
+        self.sidebar_add_button_visible_checkbox = QtWidgets.QCheckBox("추가 버튼 표시")
+        self.sidebar_add_button_visible_checkbox.setObjectName("sidebarAddButtonVisibleCheckbox")
+        self.sidebar_add_button_visible_checkbox.setChecked(
+            self.sidebar_settings.add_button_visible
+        )
+        self.sidebar_add_button_visible_checkbox.toggled.connect(
+            self._update_sidebar_settings_from_controls
+        )
+        self.sidebar_sort_combo = QtWidgets.QComboBox()
+        self.sidebar_sort_combo.setObjectName("sidebarSortCombo")
+        self.sidebar_sort_combo.addItems(("Default", "A-Z"))
+        self.sidebar_sort_combo.setCurrentText(self.sidebar_settings.sort_mode)
+        self.sidebar_sort_combo.currentTextChanged.connect(
+            self._update_sidebar_settings_from_controls
+        )
+        self.sidebar_density_combo = QtWidgets.QComboBox()
+        self.sidebar_density_combo.setObjectName("sidebarDensityCombo")
+        self.sidebar_density_combo.addItems(("Comfortable", "Compact"))
+        self.sidebar_density_combo.setCurrentText(self.sidebar_settings.density)
+        self.sidebar_density_combo.currentTextChanged.connect(
+            self._update_sidebar_settings_from_controls
+        )
+        self.sidebar_width_spin = QtWidgets.QSpinBox()
+        self.sidebar_width_spin.setObjectName("sidebarWidthSpin")
+        self.sidebar_width_spin.setRange(180, 420)
+        self.sidebar_width_spin.setSingleStep(10)
+        self.sidebar_width_spin.setSuffix(" px")
+        self.sidebar_width_spin.setValue(self.sidebar_settings.width_px)
+        self.sidebar_width_spin.valueChanged.connect(
+            self._update_sidebar_settings_from_controls
+        )
+        layout.addRow("좌측 검색", self.sidebar_search_visible_checkbox)
+        layout.addRow("좌측 추가", self.sidebar_add_button_visible_checkbox)
+        layout.addRow("좌측 정렬", self.sidebar_sort_combo)
+        layout.addRow("좌측 밀도", self.sidebar_density_combo)
+        layout.addRow("좌측 폭", self.sidebar_width_spin)
         self.properties_panel.setWidget(content)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.properties_panel)
 
@@ -650,6 +704,38 @@ class MainWindow(QtWidgets.QMainWindow):
             gg_limit_radius=float(self.gg_limit_radius_spin.value()),
         )
         self._apply_visualization_settings_to_open_windows()
+
+    def _update_sidebar_settings_from_controls(self, *_args: object) -> None:
+        self.sidebar_settings = SidebarSettings(
+            search_visible=self.sidebar_search_visible_checkbox.isChecked(),
+            add_button_visible=self.sidebar_add_button_visible_checkbox.isChecked(),
+            sort_mode=self.sidebar_sort_combo.currentText(),
+            density=self.sidebar_density_combo.currentText(),
+            width_px=int(self.sidebar_width_spin.value()),
+        )
+        self._apply_sidebar_settings()
+
+    def _apply_sidebar_settings(self) -> None:
+        if hasattr(self, "sidebar_search"):
+            self.sidebar_search.setVisible(self.sidebar_settings.search_visible)
+            if not self.sidebar_settings.search_visible and self.sidebar_search.text():
+                self.sidebar_search.clear()
+
+        if hasattr(self, "add_window_button"):
+            self.add_window_button.setVisible(self.sidebar_settings.add_button_visible)
+
+        if hasattr(self, "analysis_list"):
+            self.analysis_list.setSpacing(
+                2 if self.sidebar_settings.density == "Compact" else 8
+            )
+            self._filter_analysis_items(self.sidebar_search.text())
+
+        if hasattr(self, "left_sidebar"):
+            self.left_sidebar.setMinimumWidth(self.sidebar_settings.width_px)
+            self.left_sidebar.resize(
+                self.sidebar_settings.width_px,
+                max(1, self.left_sidebar.height()),
+            )
 
     def _apply_visualization_settings_to_open_windows(self) -> None:
         for sub_window in self.workspace.subWindowList():
@@ -800,11 +886,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar().showMessage("CSV를 열어 분석을 시작하세요.")
 
     def _filter_analysis_items(self, text: str) -> None:
-        query = text.strip().lower()
+        query = text.strip().lower() if self.sidebar_settings.search_visible else ""
+        items = [
+            item
+            for item in self._all_analysis_items
+            if not query or query in item.lower()
+        ]
+        if self.sidebar_settings.sort_mode == "A-Z":
+            items = sorted(items)
+
         self.analysis_list.clear()
-        for item in self._all_analysis_items:
-            if not query or query in item.lower():
-                self.analysis_list.addItem(item)
+        for item in items:
+            self.analysis_list.addItem(item)
 
     def _add_selected_analysis_window(self) -> None:
         item = self.analysis_list.currentItem()
