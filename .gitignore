@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.venv/
+venv/
+env/
+build/
+dist/
+*.egg-info/
+
+# Prototype generated artifacts
+prototype/.benchmarks/
+prototype/.generated/
+prototype/tmp/
+prototype/output/
+
+# Large/raw log assets stay local by default.
+*.csv
+*.zip
+
+# Keep MATLAB cache/output noise out of git.
+*.asv
+resources/
+
+# Local OS/editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
