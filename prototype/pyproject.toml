@@ -15,6 +15,13 @@ dependencies = [
 [project.scripts]
 mflog-proto-bench = "mflog_proto.benchmark.runner:main"
 mflog-proto-generate = "mflog_proto.data.synthetic_log:main"
+mflog-proto-ui = "mflog_proto.app:main"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=9.0",
+  "pytest-qt>=4.5",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -23,4 +30,3 @@ pythonpath = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-
