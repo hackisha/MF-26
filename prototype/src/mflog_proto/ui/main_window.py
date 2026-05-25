@@ -17,6 +17,8 @@ from mflog_proto.playback import CursorEvent, CursorKind, PlaybackState
 from mflog_proto.ui.minimal_analysis_windows import (
     BenchmarkSummaryWindow,
     CurrentValuesWindow,
+    DataAnalysisWindow,
+    DocumentsWindow,
     GGDiagramWindow,
     GPSMapWindow,
     VehicleModelWindow,
@@ -275,6 +277,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def add_analysis_window(self, title: str) -> QtWidgets.QMdiSubWindow:
         if title == "Time-Series Graph":
             widget = self._build_time_series_window()
+        elif title == "Data Analysis":
+            widget = self._build_data_analysis_window()
+        elif title == "Documents":
+            widget = self._build_documents_window()
         elif title == "G-G Diagram":
             widget = self._build_gg_diagram_window()
         elif title == "GPS Map":
@@ -334,6 +340,20 @@ class MainWindow(QtWidgets.QMainWindow):
                 "AY_CORRECTED_G": self.sensor_series["AY_CORRECTED_G"],
             },
         )
+
+    def _build_data_analysis_window(self) -> DataAnalysisWindow:
+        session_name = self.loaded_csv_path.name if self.loaded_csv_path is not None else "No CSV"
+        return DataAnalysisWindow(
+            session_name=session_name,
+            row_count=self.session_row_count,
+            duration_ms=self.playback_state.total_time_ms,
+            sampling_interval_ms=self.session_sampling_interval_ms,
+            sensor_series=self.sensor_series,
+            events=self.playback_events,
+        )
+
+    def _build_documents_window(self) -> DocumentsWindow:
+        return DocumentsWindow(_project_document_paths())
 
     def _build_placeholder_window(self, title: str) -> QtWidgets.QFrame:
         widget = QtWidgets.QFrame()
@@ -1173,6 +1193,17 @@ def _root_asset_path(name: str) -> Path:
         if candidate.exists():
             return candidate
     return source_repo_root / name
+
+
+def _project_document_paths() -> tuple[Path, ...]:
+    root = Path(__file__).resolve().parents[4]
+    candidates: list[Path] = []
+    for pattern in ("*.pdf", "*.glb", "*.md", "*.docx", "*.xlsx"):
+        candidates.extend(root.glob(pattern))
+    docs_dir = root / "docs"
+    if docs_dir.exists():
+        candidates.extend(docs_dir.glob("*.md"))
+    return tuple(sorted(candidates, key=lambda path: path.name.lower()))
 
 
 def _dispose_widget(widget: QtWidgets.QWidget) -> None:

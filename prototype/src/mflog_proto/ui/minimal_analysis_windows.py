@@ -276,6 +276,153 @@ class CurrentValuesWindow(QtWidgets.QWidget):
             self.table.item(row_index, 1).setText(text)
 
 
+class DataAnalysisWindow(QtWidgets.QWidget):
+    def __init__(
+        self,
+        *,
+        session_name: str,
+        row_count: int,
+        duration_ms: int,
+        sampling_interval_ms: int,
+        sensor_series: dict[str, Sequence[float | None]],
+        events: Sequence[object],
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("dataAnalysisWindow")
+        self._session_name = session_name
+        self._row_count = row_count
+        self._duration_ms = duration_ms
+        self._sampling_interval_ms = sampling_interval_ms
+        self._events = tuple(events)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        self.summary_label = QtWidgets.QLabel(self.summary_text())
+        self.summary_label.setObjectName("dataAnalysisSummary")
+
+        self.metrics_table = QtWidgets.QTableWidget(0, 4)
+        self.metrics_table.setObjectName("dataAnalysisMetricsTable")
+        self.metrics_table.setHorizontalHeaderLabels(("Channel", "Min", "Max", "Mean"))
+        self.metrics_table.horizontalHeader().setStretchLastSection(True)
+
+        self.events_table = QtWidgets.QTableWidget(0, 4)
+        self.events_table.setObjectName("dataAnalysisEventsTable")
+        self.events_table.setHorizontalHeaderLabels(("Severity", "Event", "Time", "Condition"))
+        self.events_table.horizontalHeader().setStretchLastSection(True)
+
+        self.reliability_badge = QtWidgets.QLabel("Reliability: info")
+        self.reliability_badge.setObjectName("reliabilityBadge")
+
+        layout.addWidget(self.summary_label)
+        layout.addWidget(self.metrics_table, 2)
+        layout.addWidget(self.events_table, 1)
+        layout.addWidget(self.reliability_badge)
+        self._populate_metrics(sensor_series)
+        self._populate_events()
+
+    @property
+    def event_count(self) -> int:
+        return self.events_table.rowCount()
+
+    def summary_text(self) -> str:
+        return (
+            f"{self._session_name} | Rows: {self._row_count} | "
+            f"Duration: {self._duration_ms / 1000:.3f} s | "
+            f"Sample: {self._sampling_interval_ms} ms"
+        )
+
+    def metric_for(self, channel_id: str, metric_name: str) -> str:
+        column = {"Min": 1, "Max": 2, "Mean": 3}[metric_name]
+        for row_index in range(self.metrics_table.rowCount()):
+            if self.metrics_table.item(row_index, 0).text() == channel_id:
+                return self.metrics_table.item(row_index, column).text()
+        raise KeyError(channel_id)
+
+    def event_name_at(self, row_index: int) -> str:
+        return self.events_table.item(row_index, 1).text()
+
+    def reliability_text(self) -> str:
+        return self.reliability_badge.text()
+
+    def _populate_metrics(self, sensor_series: dict[str, Sequence[float | None]]) -> None:
+        rows: list[tuple[str, float, float, float]] = []
+        for channel_id, values in sensor_series.items():
+            numeric_values = [float(value) for value in values if value is not None]
+            if not numeric_values:
+                continue
+            rows.append(
+                (
+                    channel_id,
+                    min(numeric_values),
+                    max(numeric_values),
+                    sum(numeric_values) / len(numeric_values),
+                )
+            )
+
+        self.metrics_table.setRowCount(len(rows))
+        for row_index, (channel_id, minimum, maximum, mean) in enumerate(rows):
+            self.metrics_table.setItem(row_index, 0, QtWidgets.QTableWidgetItem(channel_id))
+            self.metrics_table.setItem(row_index, 1, QtWidgets.QTableWidgetItem(f"{minimum:.3f}"))
+            self.metrics_table.setItem(row_index, 2, QtWidgets.QTableWidgetItem(f"{maximum:.3f}"))
+            self.metrics_table.setItem(row_index, 3, QtWidgets.QTableWidgetItem(f"{mean:.3f}"))
+
+    def _populate_events(self) -> None:
+        self.events_table.setRowCount(len(self._events))
+        for row_index, event in enumerate(self._events):
+            severity, name, time_ms, condition = _event_fields(event)
+            self.events_table.setItem(row_index, 0, QtWidgets.QTableWidgetItem(severity))
+            self.events_table.setItem(row_index, 1, QtWidgets.QTableWidgetItem(name))
+            self.events_table.setItem(
+                row_index,
+                2,
+                QtWidgets.QTableWidgetItem(f"{time_ms / 1000:.3f} s"),
+            )
+            self.events_table.setItem(row_index, 3, QtWidgets.QTableWidgetItem(condition))
+
+
+class DocumentsWindow(QtWidgets.QWidget):
+    def __init__(self, document_paths: Sequence[Path], parent: QtWidgets.QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("documentsWindow")
+        self._document_paths = tuple(document_paths)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        self.summary_label = QtWidgets.QLabel(f"Documents: {len(self._document_paths)}")
+        self.summary_label.setObjectName("documentsSummary")
+        self.table = QtWidgets.QTableWidget(0, 3)
+        self.table.setObjectName("documentsTable")
+        self.table.setHorizontalHeaderLabels(("Name", "Type", "Size"))
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.reliability_badge = QtWidgets.QLabel("Reliability: info")
+        self.reliability_badge.setObjectName("reliabilityBadge")
+        layout.addWidget(self.summary_label)
+        layout.addWidget(self.table, 1)
+        layout.addWidget(self.reliability_badge)
+        self._populate_rows()
+
+    def document_names(self) -> list[str]:
+        return [self.table.item(row_index, 0).text() for row_index in range(self.table.rowCount())]
+
+    def type_for(self, name: str) -> str:
+        for row_index in range(self.table.rowCount()):
+            if self.table.item(row_index, 0).text() == name:
+                return self.table.item(row_index, 1).text()
+        raise KeyError(name)
+
+    def reliability_text(self) -> str:
+        return self.reliability_badge.text()
+
+    def _populate_rows(self) -> None:
+        self.table.setRowCount(len(self._document_paths))
+        for row_index, path in enumerate(self._document_paths):
+            self.table.setItem(row_index, 0, QtWidgets.QTableWidgetItem(path.name))
+            self.table.setItem(row_index, 1, QtWidgets.QTableWidgetItem(path.suffix.lower()))
+            size = path.stat().st_size if path.exists() else 0
+            self.table.setItem(row_index, 2, QtWidgets.QTableWidgetItem(_format_kib(size)))
+
+
 class BenchmarkSummaryWindow(QtWidgets.QWidget):
     def __init__(self, environment: EnvironmentInfo, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
@@ -440,6 +587,18 @@ def load_glb_info(path: Path) -> GlbModelInfo:
 
 def _format_kib(byte_length: int) -> str:
     return f"{byte_length / 1024:.1f} KB"
+
+
+def _event_fields(event: object) -> tuple[str, str, int, str]:
+    if isinstance(event, tuple):
+        severity, name, time_ms, condition = event
+        return str(severity), str(name), int(time_ms), str(condition)
+    return (
+        str(getattr(event, "severity")),
+        str(getattr(event, "name")),
+        int(getattr(event, "time_ms")),
+        str(getattr(event, "condition")),
+    )
 
 
 def _circle_points(radius: float, point_count: int = 97) -> tuple[list[float], list[float]]:

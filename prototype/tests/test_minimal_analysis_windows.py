@@ -8,6 +8,8 @@ from mflog_proto.playback import PlaybackState
 from mflog_proto.ui.minimal_analysis_windows import (
     BenchmarkSummaryWindow,
     CurrentValuesWindow,
+    DataAnalysisWindow,
+    DocumentsWindow,
     GGDiagramWindow,
     GlbModelInfo,
     GPSMapWindow,
@@ -79,6 +81,40 @@ def test_current_values_table_updates_from_playback_state(qtbot):
     assert window.value_for("RPM") == "2500.000"
     assert window.value_for("TPS_percent") == "30.000"
     assert window.reliability_text() == "Reliability: info"
+
+
+def test_data_analysis_window_summarizes_session_metrics_and_events(qtbot):
+    window = DataAnalysisWindow(
+        session_name="sample.csv",
+        row_count=3,
+        duration_ms=200,
+        sampling_interval_ms=100,
+        sensor_series={
+            "RPM": [1000.0, 2000.0, 3000.0],
+            "TPS": [10.0, 20.0, 30.0],
+        },
+        events=(("warning", "Battery low", 100, "Batt_V < 12.0"),),
+    )
+    qtbot.addWidget(window)
+
+    assert window.summary_text() == "sample.csv | Rows: 3 | Duration: 0.200 s | Sample: 100 ms"
+    assert window.metric_for("RPM", "Mean") == "2000.000"
+    assert window.metric_for("TPS", "Max") == "30.000"
+    assert window.event_count == 1
+    assert window.event_name_at(0) == "Battery low"
+
+
+def test_documents_window_lists_project_reference_files(qtbot):
+    window = DocumentsWindow(
+        [
+            PROJECT_ROOT / "데이터분석기 콘티.pdf",
+            PROJECT_ROOT / "car.glb",
+        ]
+    )
+    qtbot.addWidget(window)
+
+    assert window.document_names() == ["데이터분석기 콘티.pdf", "car.glb"]
+    assert window.type_for("car.glb") == ".glb"
 
 
 def test_benchmark_summary_window_lists_environment_dependencies(qtbot):

@@ -9,6 +9,8 @@ from mflog_proto.ui.main_window import DEFAULT_ANALYSIS_ITEMS, MainWindow, _root
 from mflog_proto.ui.minimal_analysis_windows import (
     BenchmarkSummaryWindow,
     CurrentValuesWindow,
+    DataAnalysisWindow,
+    DocumentsWindow,
     GGDiagramWindow,
     GPSMapWindow,
     VehicleModelWindow,
@@ -320,10 +322,13 @@ def test_time_series_analysis_window_uses_real_pyqtgraph_widget(qtbot):
 def test_main_window_routes_minimal_analysis_windows_to_real_widgets(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
+    window.load_demo_session()
 
     created = {
         title: window.add_analysis_window(title).widget()
         for title in (
+            "Data Analysis",
+            "Documents",
             "G-G Diagram",
             "GPS Map",
             "Current Values Table",
@@ -332,6 +337,10 @@ def test_main_window_routes_minimal_analysis_windows_to_real_widgets(qtbot):
         )
     }
 
+    assert isinstance(created["Data Analysis"], DataAnalysisWindow)
+    assert isinstance(created["Documents"], DocumentsWindow)
+    assert created["Data Analysis"].metric_for("RPM", "Mean") == "3950.000"
+    assert "car.glb" in created["Documents"].document_names()
     assert isinstance(created["G-G Diagram"], GGDiagramWindow)
     assert isinstance(created["GPS Map"], GPSMapWindow)
     assert isinstance(created["Current Values Table"], CurrentValuesWindow)
