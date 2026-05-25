@@ -178,6 +178,7 @@ def test_vehicle_model_window_reports_model_and_throttles_when_hidden(qtbot):
     assert window.model_status_text() == "car.glb | GLB v2 | 1.0 KB"
     assert window.model_geometry_text() == "Loaded geometry: 1 mesh | 2 nodes"
     assert window.camera_status_text() == "Camera framed | viewport visible"
+    assert window.qualitative_note_text() == "Qualitative visualization only"
     assert window.is_camera_framed is True
     assert window.is_model_visible is True
     assert window.reliability_text() == "Reliability: info"

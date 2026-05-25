@@ -12,8 +12,13 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from mflog_proto.benchmark.metrics import collect_environment
 from mflog_proto.data.column_store import ColumnStore
-from mflog_proto.data.csv_loader import load_csv
-from mflog_proto.persistence.project_state import ProjectState, WindowState
+from mflog_proto.data.csv_loader import CsvLoadOptions, load_csv
+from mflog_proto.persistence.project_state import (
+    ProjectState,
+    WindowState,
+    load_project_state,
+    save_project_state,
+)
 from mflog_proto.playback import CursorEvent, CursorKind, PlaybackState
 from mflog_proto.ui.minimal_analysis_windows import (
     BenchmarkSummaryWindow,
@@ -391,6 +396,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 action.setObjectName(_object_name(action_title, suffix="Action"))
                 if action_title == "Open CSV":
                     action.triggered.connect(self._open_csv_dialog)
+                elif action_title == "Open Project":
+                    action.triggered.connect(self._open_project_dialog)
+                elif action_title == "Save Project":
+                    action.triggered.connect(self._save_project_dialog)
 
     def _build_central_workspace(self) -> None:
         central = QtWidgets.QWidget()
@@ -503,6 +512,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.home_button = QtWidgets.QPushButton("처음")
         self.home_button.setObjectName("playbackHomeButton")
         self.home_button.clicked.connect(lambda: self.seek_to_time_ms(0))
+        self.end_button = QtWidgets.QPushButton("끝")
+        self.end_button.setObjectName("playbackEndButton")
+        self.end_button.clicked.connect(
+            lambda: self.seek_to_time_ms(self.playback_state.total_time_ms)
+        )
         self.prev_event_button = QtWidgets.QPushButton("이전 이벤트")
         self.prev_event_button.setObjectName("playbackPrevEventButton")
         self.prev_event_button.clicked.connect(self.seek_previous_event)
@@ -519,6 +533,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.speed_combo.currentTextChanged.connect(self._set_playback_speed_from_text)
         for widget in (
             self.home_button,
+            self.end_button,
             self.prev_event_button,
             self.play_pause_button,
             self.next_event_button,
@@ -613,6 +628,48 @@ class MainWindow(QtWidgets.QMainWindow):
         if path:
             self.load_csv_session(Path(path))
 
+    def _open_project_dialog(self) -> None:
+        path, _selected_filter = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Open Project",
+            str(Path.cwd()),
+            "MF Log Project (*.mflogproj *.json);;All files (*.*)",
+        )
+        if path:
+            self.open_project_file(Path(path))
+
+    def _save_project_dialog(self) -> None:
+        path, _selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Save Project",
+            str(Path.cwd() / "session.mflogproj"),
+            "MF Log Project (*.mflogproj);;All files (*.*)",
+        )
+        if path:
+            self.save_project_file(Path(path))
+
+    def save_project_file(self, project_path: Path) -> ProjectState:
+        state = self.capture_project_state(csv_path=self.loaded_csv_path)
+        save_project_state(project_path, state)
+        self.statusBar().showMessage(f"Project saved: {project_path.name}")
+        return state
+
+    def open_project_file(self, project_path: Path) -> bool:
+        state = load_project_state(project_path)
+        loaded_csv = False
+        if state.csv_path is not None and state.csv_path.exists():
+            self.load_csv_session(state.csv_path)
+            loaded_csv = True
+        else:
+            self.queue_project_restore_after_data_load(state)
+        self.restore_project_state(state)
+        if not loaded_csv and state.csv_path is not None:
+            self.playback_warning_label.setText(
+                f"Referenced CSV is missing: {state.csv_path}"
+            )
+        self.statusBar().showMessage(f"Project opened: {project_path.name}")
+        return loaded_csv
+
     def load_demo_session(self) -> None:
         sample_count = 101
         self._configure_playback_session(
@@ -625,9 +682,16 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     def load_csv_session(self, csv_path: Path, *, autosave_warning: str = "") -> None:
-        result = load_csv(csv_path)
+        result = load_csv(csv_path, CsvLoadOptions(numeric_probe=False))
         timestamps = _timestamps_from_store(result.store)
         sample_count = len(timestamps)
+        warning = _join_warnings(
+            autosave_warning,
+            _csv_diagnostic_warning(
+                malformed_count=len(result.malformed_rows),
+                numeric_error_count=len(result.numeric_errors),
+            ),
+        )
         self._configure_playback_session(
             csv_path=csv_path,
             timestamps=timestamps,
@@ -635,7 +699,7 @@ class MainWindow(QtWidgets.QMainWindow):
             events=_detect_playback_markers(result.store, timestamps),
             row_count=result.store.row_count,
             sampling_interval_ms=_estimate_sampling_interval_ms(timestamps),
-            autosave_warning=autosave_warning,
+            autosave_warning=warning,
         )
 
     def _configure_playback_session(
@@ -766,6 +830,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _set_playback_controls_enabled(self, enabled: bool) -> None:
         for widget in (
             self.home_button,
+            self.end_button,
             self.prev_event_button,
             self.play_pause_button,
             self.next_event_button,
@@ -1164,6 +1229,19 @@ def _to_float(value: str, default: float) -> float:
 
 def _format_seconds(time_ms: int) -> str:
     return f"{time_ms / 1000:.3f} s"
+
+
+def _csv_diagnostic_warning(*, malformed_count: int, numeric_error_count: int) -> str:
+    parts: list[str] = []
+    if malformed_count:
+        parts.append(f"Malformed rows: {malformed_count}")
+    if numeric_error_count:
+        parts.append(f"Numeric errors: {numeric_error_count}")
+    return ", ".join(parts)
+
+
+def _join_warnings(*warnings: str) -> str:
+    return " | ".join(warning for warning in warnings if warning)
 
 
 def _event_color(severity: str) -> QtGui.QColor:

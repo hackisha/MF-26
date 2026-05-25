@@ -493,11 +493,14 @@ class VehicleModelWindow(QtWidgets.QWidget):
         viewport_layout.addStretch(1)
         self.camera_label = QtWidgets.QLabel(self.camera_status_text())
         self.camera_label.setObjectName("vehicleCameraStatus")
+        self.qualitative_note = QtWidgets.QLabel(self.qualitative_note_text())
+        self.qualitative_note.setObjectName("vehicleQualitativeNote")
         self.reliability_badge = QtWidgets.QLabel("Reliability: info")
         self.reliability_badge.setObjectName("reliabilityBadge")
         layout.addWidget(self.model_label)
         layout.addWidget(self.viewport, 1)
         layout.addWidget(self.camera_label)
+        layout.addWidget(self.qualitative_note)
         layout.addWidget(self.reliability_badge)
 
     @property
@@ -534,6 +537,9 @@ class VehicleModelWindow(QtWidgets.QWidget):
         framing = "Camera framed" if self.is_camera_framed else "Camera not framed"
         suffix = "viewport visible" if self.viewport.isVisible() else "viewport hidden"
         return f"{framing} | {suffix}"
+
+    def qualitative_note_text(self) -> str:
+        return "Qualitative visualization only"
 
     def reliability_text(self) -> str:
         return self.reliability_badge.text()

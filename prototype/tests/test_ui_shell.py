@@ -143,6 +143,12 @@ def test_bottom_playback_buttons_speed_and_event_markers_seek(qtbot):
 
     assert window.playback_state.current_time_ms == 0
 
+    qtbot.mouseClick(window.end_button, QtCore.Qt.LeftButton)
+
+    assert window.playback_state.current_time_ms == window.playback_state.total_time_ms
+
+    qtbot.mouseClick(window.home_button, QtCore.Qt.LeftButton)
+
     window.speed_combo.setCurrentText("2x")
     assert window.playback_state.playback_speed == 2.0
 
@@ -285,6 +291,23 @@ def test_main_window_loads_csv_file_into_shared_playback_session(tmp_path, qtbot
     assert window.sensor_card_value_labels["TPS"].styleSheet()
     assert window.sensor_card_value_labels["ax"].styleSheet()
     assert window.sensor_card_value_labels["yaw rate"].styleSheet()
+
+
+def test_main_window_reports_csv_malformed_row_diagnostics(tmp_path, qtbot):
+    csv_path = tmp_path / "malformed.csv"
+    csv_path.write_text(
+        "Timestamp,RPM,TPS_percent\n"
+        "0.0,1000,10\n"
+        "0.1,1100\n",
+        encoding="utf-8",
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.load_csv_session(csv_path)
+
+    assert "Malformed rows: 1" in window.playback_warning_label.text()
+    assert window.timeline_slider.isEnabled() is True
 
 
 def test_playback_dock_disables_without_csv_session(qtbot):
@@ -480,6 +503,38 @@ def test_main_window_queues_project_restore_until_csv_load_completes(qtbot):
     assert window.complete_data_load_for_pending_project(Path("example.csv")) is True
     assert [sub.windowTitle() for sub in window.workspace.subWindowList()] == ["G-G Diagram"]
     assert window.playback_state.current_sample == 2
+
+
+def test_main_window_saves_and_opens_project_file(tmp_path, qtbot):
+    csv_path = tmp_path / "emu.csv"
+    csv_path.write_text(
+        "Timestamp,Latitude,Longitude,GPS_Speed_KPH,RPM,TPS_percent,VSS_kmh,Gear,"
+        "Batt_V,ax_g,ay_g,gx_dps,gy_dps,gz_dps\n"
+        "0.0,37.0,127.0,40,1000,10,41,1,13.1,0.1,0.2,1,2,3\n"
+        "0.1,37.1,127.2,50,2000,20,51,2,12.9,0.3,0.4,4,5,6\n"
+        "0.2,37.2,127.4,60,3000,30,61,3,12.8,0.5,0.6,7,8,9\n",
+        encoding="utf-8",
+    )
+    project_path = tmp_path / "session.mflogproj"
+    source = MainWindow()
+    qtbot.addWidget(source)
+    source.load_csv_session(csv_path)
+    source.add_analysis_window("G-G Diagram")
+    source.seek_to_time_ms(100)
+
+    source.save_project_file(project_path)
+
+    restored = MainWindow()
+    qtbot.addWidget(restored)
+    restored.open_project_file(project_path)
+
+    assert restored.loaded_csv_path == csv_path
+    assert restored.playback_state.current_time_ms == 100
+    assert restored.current_row_label.text() == "Row: 1"
+    assert [sub.windowTitle() for sub in restored.workspace.subWindowList()] == [
+        "Time-Series Graph",
+        "G-G Diagram",
+    ]
 
 
 def test_main_window_restore_deletes_previous_mdi_widgets(qtbot):

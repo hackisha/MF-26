@@ -19,7 +19,7 @@ crashes.
 ```
 
 Expected result: all tests pass without a `python.exe` native error dialog.
-The current expected count is `112 passed`.
+The current expected count is `114 passed`.
 
 ## 2. Generate Target CSV
 
@@ -88,7 +88,10 @@ Check that:
 - `File > Open CSV` loads a root sample CSV and the dock shows filename, row
   count, total length, current time, current row, estimated sample period, and
   event count.
-- Play/pause, home, previous/next event, speed selection, timeline slider,
+- CSV malformed-row diagnostics appear as warnings without blocking playback.
+- `File > Save Project` and `File > Open Project` round-trip the CSV path,
+  playback time, tab order, and open analysis windows through `.mflogproj`.
+- Play/pause, home, end, previous/next event, speed selection, timeline slider,
   arrow-key seek, and Space play/pause work.
 - Moving the timeline updates the time-series cursor line, GPS current point,
   G-G current point, sensor cards, and event highlight to the same playback
@@ -97,7 +100,8 @@ Check that:
 - Graph hover shows sensor name, time, value, and unit tooltip; graph click
   seeks to that time.
 - Autosave warnings do not block the current CSV session or playback controls.
-- `3D Vehicle Model` loads the root `car.glb` fixture.
+- `3D Vehicle Model` loads the root `car.glb` fixture and labels the view as
+  qualitative visualization.
 
 ## 6. Windows EXE Build Smoke
 
