@@ -73,7 +73,9 @@ class PlaybackState:
         self._timestamps = _validated_sorted_floats("timestamps", timestamps)
         self._cursor_bus = cursor_bus or CursorBus()
         self._current_sample = 0
+        self._current_time_ms = round(self._timestamps[0] * 1000)
         self._is_playing = False
+        self._playback_speed = 1.0
 
     @property
     def current_sample(self) -> int:
@@ -81,7 +83,15 @@ class PlaybackState:
 
     @property
     def current_seconds(self) -> float:
-        return self._timestamps[self._current_sample]
+        return self._current_time_ms / 1000
+
+    @property
+    def current_time_ms(self) -> int:
+        return self._current_time_ms
+
+    @property
+    def total_time_ms(self) -> int:
+        return round(self._timestamps[-1] * 1000)
 
     @property
     def sample_count(self) -> int:
@@ -92,6 +102,10 @@ class PlaybackState:
         return self._is_playing
 
     @property
+    def playback_speed(self) -> float:
+        return self._playback_speed
+
+    @property
     def subscriber_count(self) -> int:
         return self._cursor_bus.subscriber_count
 
@@ -100,13 +114,30 @@ class PlaybackState:
 
     def set_sample(self, sample_index: int) -> None:
         clamped = min(max(sample_index, 0), self.sample_count - 1)
-        if clamped == self._current_sample:
+        time_ms = round(self._timestamps[clamped] * 1000)
+        if clamped == self._current_sample and time_ms == self._current_time_ms:
             return
         self._current_sample = clamped
+        self._current_time_ms = time_ms
         self._publish_playback()
 
     def set_seconds(self, seconds: float) -> None:
-        self.set_sample(self.sample_at_seconds(seconds))
+        self.set_time_ms(round(seconds * 1000))
+
+    def set_time_ms(self, time_ms: int) -> None:
+        clamped = min(max(int(time_ms), round(self._timestamps[0] * 1000)), self.total_time_ms)
+        sample_index = self.sample_at_seconds(clamped / 1000)
+        if sample_index == self._current_sample and clamped == self._current_time_ms:
+            return
+        self._current_sample = sample_index
+        self._current_time_ms = clamped
+        self._publish_playback()
+
+    def set_speed(self, speed: float) -> None:
+        if speed <= 0:
+            raise ValueError("speed must be positive")
+        self._playback_speed = float(speed)
+        self._publish_playback()
 
     def sample_at_seconds(self, seconds: float) -> int:
         insertion_index = bisect_left(self._timestamps, seconds)

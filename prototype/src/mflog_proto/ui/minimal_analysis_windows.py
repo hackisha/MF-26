@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import math
 from pathlib import Path
 import struct
 from typing import Sequence
@@ -52,6 +53,11 @@ class GGDiagramWindow(QtWidgets.QWidget):
         self.plot.showGrid(x=True, y=True, alpha=0.25)
         self.plot.setLabel("bottom", "AX_CORRECTED_G")
         self.plot.setLabel("left", "AY_CORRECTED_G")
+        self.limit_circle_radius = 1.0
+        self.limit_circle_item = pg.PlotDataItem(
+            *_circle_points(self.limit_circle_radius),
+            pen=pg.mkPen("#8fa3ad", width=1.5),
+        )
         self.cloud_item = pg.ScatterPlotItem(
             pen=pg.mkPen("#5dade2", width=1),
             brush=pg.mkBrush("#5dade2"),
@@ -62,6 +68,7 @@ class GGDiagramWindow(QtWidgets.QWidget):
             brush=pg.mkBrush("#f4c95d"),
             size=11,
         )
+        self.plot.addItem(self.limit_circle_item)
         self.plot.addItem(self.cloud_item)
         self.plot.addItem(self.current_item)
         self.reliability_badge = QtWidgets.QLabel("Reliability: info")
@@ -121,6 +128,92 @@ class GGDiagramWindow(QtWidgets.QWidget):
             self.current_item.setData([])
         else:
             self.current_item.setData([{"pos": self._current_point}])
+
+
+class GPSMapWindow(QtWidgets.QWidget):
+    def __init__(self, playback_state: PlaybackState, parent: QtWidgets.QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("gpsMapWindow")
+        self._playback_state = playback_state
+        self._positions: list[tuple[float, float] | None] = []
+        self._current_position: tuple[float, float] | None = None
+        self._unsubscribe = playback_state.subscribe(self._handle_cursor_event)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        self.plot = pg.PlotWidget(background="#1f2428")
+        self.plot.setObjectName("gpsMapPlot")
+        self.plot.showGrid(x=True, y=True, alpha=0.25)
+        self.plot.setLabel("bottom", "Longitude")
+        self.plot.setLabel("left", "Latitude")
+        self.track_item = pg.PlotDataItem(pen=pg.mkPen("#5dade2", width=1.5))
+        self.current_item = pg.ScatterPlotItem(
+            pen=pg.mkPen("#f4c95d", width=2),
+            brush=pg.mkBrush("#f4c95d"),
+            size=11,
+        )
+        self.plot.addItem(self.track_item)
+        self.plot.addItem(self.current_item)
+        self.reliability_badge = QtWidgets.QLabel("Reliability: info")
+        self.reliability_badge.setObjectName("reliabilityBadge")
+        layout.addWidget(self.plot, 1)
+        layout.addWidget(self.reliability_badge)
+
+    @property
+    def point_count(self) -> int:
+        return sum(position is not None for position in self._positions)
+
+    @property
+    def current_position(self) -> tuple[float, float] | None:
+        return self._current_position
+
+    def reliability_text(self) -> str:
+        return self.reliability_badge.text()
+
+    def set_track(
+        self,
+        *,
+        latitude: Sequence[float | None],
+        longitude: Sequence[float | None],
+    ) -> None:
+        self._positions = []
+        plot_longitudes: list[float] = []
+        plot_latitudes: list[float] = []
+        for latitude_value, longitude_value in zip(latitude, longitude, strict=True):
+            if latitude_value is None or longitude_value is None:
+                self._positions.append(None)
+                continue
+            position = (float(latitude_value), float(longitude_value))
+            self._positions.append(position)
+            plot_latitudes.append(position[0])
+            plot_longitudes.append(position[1])
+
+        self.track_item.setData(plot_longitudes, plot_latitudes)
+        self._update_current_position(self._playback_state.current_sample)
+
+    def dispose(self) -> None:
+        self._unsubscribe()
+
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
+        self.dispose()
+        super().closeEvent(event)
+
+    def _handle_cursor_event(self, event: CursorEvent) -> None:
+        if event.kind is CursorKind.PLAYBACK:
+            self._update_current_position(event.sample_index)
+
+    def _update_current_position(self, sample_index: int) -> None:
+        if not self._positions:
+            self.current_item.setData([])
+            self._current_position = None
+            return
+        clamped = min(max(sample_index, 0), len(self._positions) - 1)
+        self._current_position = self._positions[clamped]
+        if self._current_position is None:
+            self.current_item.setData([])
+        else:
+            latitude, longitude = self._current_position
+            self.current_item.setData([{"pos": (longitude, latitude)}])
 
 
 class CurrentValuesWindow(QtWidgets.QWidget):
@@ -347,6 +440,14 @@ def load_glb_info(path: Path) -> GlbModelInfo:
 
 def _format_kib(byte_length: int) -> str:
     return f"{byte_length / 1024:.1f} KB"
+
+
+def _circle_points(radius: float, point_count: int = 97) -> tuple[list[float], list[float]]:
+    angles = [2 * math.pi * index / (point_count - 1) for index in range(point_count)]
+    return (
+        [math.cos(angle) * radius for angle in angles],
+        [math.sin(angle) * radius for angle in angles],
+    )
 
 
 def _glb_scene_summary(

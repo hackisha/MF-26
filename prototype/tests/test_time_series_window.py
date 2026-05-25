@@ -32,7 +32,8 @@ def test_time_series_window_updates_hover_status_from_mouse_sample(qtbot):
 
     window.publish_hover(sample_index=1, channel_id="RPM", value=2000.0)
 
-    assert window.hover_label.text() == "Hover | RPM | 0.100 s | 2000.000"
+    assert window.hover_label.text() == "Hover | RPM | 0.100 s | 2000.000 rpm"
+    assert window.last_tooltip_text == "RPM | 0.100 s | 2000.000 rpm"
 
 
 def test_time_series_window_requires_sorted_series_x_values(qtbot):
@@ -70,4 +71,5 @@ def test_time_series_window_publishes_hover_from_plot_mouse_signal(qtbot):
     scene_pos = window.plot.plotItem.vb.mapViewToScene(QtCore.QPointF(0.1, 2000.0))
     window.plot.scene().sigMouseMoved.emit(scene_pos)
 
-    assert window.hover_label.text() == "Hover | RPM | 0.100 s | 2000.000"
+    assert window.hover_label.text() == "Hover | RPM | 0.100 s | 2000.000 rpm"
+    assert window.last_tooltip_text == "RPM | 0.100 s | 2000.000 rpm"

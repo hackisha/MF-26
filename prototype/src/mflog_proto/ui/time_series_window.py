@@ -22,6 +22,7 @@ class TimeSeriesWindow(QtWidgets.QWidget):
         self._playback_state = playback_state
         self._curves: dict[str, pg.PlotDataItem] = {}
         self._series_points: dict[str, tuple[list[float], list[float]]] = {}
+        self.last_tooltip_text = ""
         self._unsubscribe: Callable[[], None] | None = playback_state.subscribe(
             self._handle_cursor_event
         )
@@ -35,6 +36,7 @@ class TimeSeriesWindow(QtWidgets.QWidget):
         self.plot.showGrid(x=True, y=True, alpha=0.25)
         self.plot.addLegend(offset=(8, 8))
         self.plot.scene().sigMouseMoved.connect(self._handle_mouse_moved)
+        self.plot.scene().sigMouseClicked.connect(self._handle_mouse_clicked)
         self.cursor_line = pg.InfiniteLine(
             pos=playback_state.current_seconds,
             angle=90,
@@ -88,18 +90,17 @@ class TimeSeriesWindow(QtWidgets.QWidget):
             value=value,
         )
 
+    def seek_to_seconds(self, seconds: float) -> None:
+        self._playback_state.set_seconds(seconds)
+
     def _handle_cursor_event(self, event: CursorEvent) -> None:
         if event.kind is CursorKind.PLAYBACK:
             self.cursor_line.setValue(event.seconds)
             return
 
-        label = "Hover"
-        if event.channel_id is not None:
-            label += f" | {event.channel_id}"
-        label += f" | {event.seconds:.3f} s"
-        if event.value is not None:
-            label += f" | {event.value:.3f}"
-        self.hover_label.setText(label)
+        detail = _hover_detail_text(event.channel_id, event.seconds, event.value)
+        self.last_tooltip_text = detail
+        self.hover_label.setText(f"Hover | {detail}")
 
     def _handle_mouse_moved(self, scene_pos: object) -> None:
         if isinstance(scene_pos, tuple | list):
@@ -117,11 +118,33 @@ class TimeSeriesWindow(QtWidgets.QWidget):
             return
 
         channel_id, seconds, value = nearest_point
+        self._show_hover_tooltip(scene_pos, channel_id, seconds, value)
         self._playback_state.publish_hover(
             sample_index=self._playback_state.sample_at_seconds(seconds),
             channel_id=channel_id,
             value=value,
         )
+
+    def _show_hover_tooltip(
+        self,
+        scene_pos: QtCore.QPointF,
+        channel_id: str,
+        seconds: float,
+        value: float,
+    ) -> None:
+        self.last_tooltip_text = _hover_detail_text(channel_id, seconds, value)
+        widget_pos = self.plot.mapFromScene(scene_pos)
+        global_pos = self.plot.mapToGlobal(widget_pos)
+        QtWidgets.QToolTip.showText(global_pos, self.last_tooltip_text, self.plot)
+
+    def _handle_mouse_clicked(self, event: object) -> None:
+        scene_pos = getattr(event, "scenePos", lambda: None)()
+        if not isinstance(scene_pos, QtCore.QPointF):
+            return
+        if not self.plot.sceneBoundingRect().contains(scene_pos):
+            return
+        view_point = self.plot.plotItem.vb.mapSceneToView(scene_pos)
+        self.seek_to_seconds(view_point.x())
 
     def _nearest_point_to(
         self,
@@ -193,3 +216,37 @@ def _candidate_indices(x_values: Sequence[float], seconds: float) -> tuple[int, 
 def _palette_color(index: int) -> str:
     colors = ("#f4c95d", "#5dade2", "#58d68d", "#ec7063", "#af7ac5", "#f5b041")
     return colors[index % len(colors)]
+
+
+def _hover_detail_text(channel_id: str | None, seconds: float, value: float | None) -> str:
+    parts = []
+    if channel_id is not None:
+        parts.append(channel_id)
+    parts.append(f"{seconds:.3f} s")
+    if value is not None:
+        unit = _unit_for_channel(channel_id)
+        unit_suffix = f" {unit}" if unit else ""
+        parts.append(f"{value:.3f}{unit_suffix}")
+    return " | ".join(parts)
+
+
+def _unit_for_channel(channel_id: str | None) -> str:
+    if channel_id is None:
+        return ""
+    units = {
+        "RPM": "rpm",
+        "TPS": "%",
+        "TPS_percent": "%",
+        "GPS speed": "kph",
+        "VSS": "kph",
+        "VSS / GPS speed": "kph",
+        "Battery voltage": "V",
+        "ax": "g",
+        "ay": "g",
+        "AX_CORRECTED_G": "g",
+        "AY_CORRECTED_G": "g",
+        "roll rate": "deg/s",
+        "pitch rate": "deg/s",
+        "yaw rate": "deg/s",
+    }
+    return units.get(channel_id, "")

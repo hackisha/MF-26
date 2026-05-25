@@ -10,6 +10,7 @@ from mflog_proto.ui.minimal_analysis_windows import (
     CurrentValuesWindow,
     GGDiagramWindow,
     GlbModelInfo,
+    GPSMapWindow,
     VehicleModelWindow,
     load_glb_info,
 )
@@ -32,6 +33,34 @@ def test_gg_diagram_tracks_playback_point_from_corrected_acceleration(qtbot):
     assert window.point_count == 3
     assert window.current_point == (-0.5, 0.3)
     assert window.reliability_text() == "Reliability: info"
+
+
+def test_gg_diagram_draws_one_g_limit_circle(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
+    window = GGDiagramWindow(playback)
+    qtbot.addWidget(window)
+
+    x_values, y_values = window.limit_circle_item.getData()
+
+    assert window.limit_circle_radius == 1.0
+    assert len(x_values) >= 64
+    assert x_values[0] == pytest.approx(x_values[-1])
+    assert y_values[0] == pytest.approx(y_values[-1])
+
+
+def test_gps_map_tracks_current_position_from_playback(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
+    window = GPSMapWindow(playback)
+    qtbot.addWidget(window)
+
+    window.set_track(
+        latitude=[37.0, 37.0001, 37.0002],
+        longitude=[127.0, 127.0002, 127.0004],
+    )
+    playback.set_sample(1)
+
+    assert window.point_count == 3
+    assert window.current_position == pytest.approx((37.0001, 127.0002))
 
 
 def test_current_values_table_updates_from_playback_state(qtbot):

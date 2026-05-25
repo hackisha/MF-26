@@ -18,6 +18,35 @@ def test_playback_state_clamps_sample_and_reports_seconds():
 
     assert state.current_sample == 2
     assert state.current_seconds == 0.2
+    assert state.current_time_ms == 200
+    assert state.total_time_ms == 200
+
+
+def test_playback_state_seeks_by_milliseconds_and_tracks_speed():
+    state = PlaybackState(timestamps=[0.0, 0.1, 0.2, 0.3])
+
+    state.set_time_ms(210)
+    state.set_speed(2.0)
+
+    assert state.current_sample == 2
+    assert state.current_time_ms == 210
+    assert state.current_seconds == 0.21
+    assert state.playback_speed == 2.0
+
+
+def test_playback_state_keeps_unsnapped_current_time_between_samples():
+    state = PlaybackState(timestamps=[0.0, 0.1, 0.2])
+    events: list[CursorEvent] = []
+    state.subscribe(events.append)
+
+    state.set_time_ms(33)
+
+    assert state.current_time_ms == 33
+    assert state.current_seconds == 0.033
+    assert state.current_sample == 0
+    assert events == [
+        CursorEvent(kind=CursorKind.PLAYBACK, sample_index=0, seconds=0.033)
+    ]
 
 
 def test_playback_state_requires_sorted_timestamps():
@@ -31,7 +60,7 @@ def test_playback_state_selects_nearest_sample_for_seconds():
     state.set_seconds(0.26)
 
     assert state.current_sample == 2
-    assert state.current_seconds == 0.3
+    assert state.current_seconds == 0.26
 
 
 def test_playback_state_reports_nearest_sample_without_moving_cursor():

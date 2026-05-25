@@ -2,21 +2,37 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from mflog_proto.benchmark.metrics import collect_environment
+from mflog_proto.data.column_store import ColumnStore
+from mflog_proto.data.csv_loader import load_csv
 from mflog_proto.persistence.project_state import ProjectState, WindowState
 from mflog_proto.playback import CursorEvent, CursorKind, PlaybackState
 from mflog_proto.ui.minimal_analysis_windows import (
     BenchmarkSummaryWindow,
     CurrentValuesWindow,
     GGDiagramWindow,
+    GPSMapWindow,
     VehicleModelWindow,
     load_glb_info,
 )
 from mflog_proto.ui.time_series_window import TimeSeriesWindow
+
+
+@dataclass(frozen=True)
+class PlaybackMarker:
+    name: str
+    time_ms: int
+    severity: str
+    sensor: str
+    value: float
+    condition: str
 
 
 DEFAULT_PRESET_TABS: tuple[str, ...] = (
@@ -34,11 +50,13 @@ DEFAULT_PRESET_TABS: tuple[str, ...] = (
 
 DEFAULT_ANALYSIS_ITEMS: tuple[str, ...] = (
     "Time-Series Graph",
+    "Data Analysis",
     "GPS Map",
     "G-G Diagram",
     "3D Vehicle Model",
     "Current Values Table",
     "Benchmark Summary",
+    "Documents",
 )
 
 
@@ -59,7 +77,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.selected_channels: list[str] = []
         self.pending_project_state: ProjectState | None = None
         self.loaded_csv_path: Path | None = None
-        self.playback_state = PlaybackState([index / 10 for index in range(101)])
+        self.playback_state = PlaybackState([0.0])
+        self.sensor_series = _blank_sensor_series(self.playback_state.sample_count)
+        self.playback_events: tuple[PlaybackMarker, ...] = ()
+        self.session_row_count = 0
+        self.session_sampling_interval_ms = 0
+        self._syncing_event_marker_selection = False
+        self.playback_timer = QtCore.QTimer(self)
+        self.playback_timer.setInterval(33)
+        self.playback_timer.timeout.connect(self._tick_playback_timer)
+        self._playback_elapsed = QtCore.QElapsedTimer()
+        self._app_event_filter_installed = False
         self._unsubscribe_playback_status = self.playback_state.subscribe(
             self._handle_playback_event
         )
@@ -68,22 +96,31 @@ class MainWindow(QtWidgets.QMainWindow):
         self._build_central_workspace()
         self._build_left_sidebar()
         self._build_right_properties_panel()
+        self._build_playback_dock()
         self._build_bottom_timeline()
         self._apply_theme()
+        self.clear_csv_session()
 
         self.add_analysis_window("Time-Series Graph")
+        app = QtWidgets.QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
+            self._app_event_filter_installed = True
 
     def set_playback_position(self, sample_index: int) -> None:
         self.playback_state.set_sample(sample_index)
         self._update_timeline_status()
+        self._update_playback_dock_status()
 
     def set_playback_seconds(self, seconds: float) -> None:
         self.playback_state.set_seconds(seconds)
         self._update_timeline_status()
+        self._update_playback_dock_status()
 
     def _handle_playback_event(self, event: CursorEvent) -> None:
         if event.kind is CursorKind.PLAYBACK:
             self._update_timeline_status()
+            self._update_playback_dock_status()
 
     def _update_timeline_status(self) -> None:
         self.timeline_status.setText(
@@ -92,8 +129,51 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
+        app = QtWidgets.QApplication.instance()
+        if app is not None and self._app_event_filter_installed:
+            app.removeEventFilter(self)
+            self._app_event_filter_installed = False
         self._unsubscribe_playback_status()
         super().closeEvent(event)
+
+    def eventFilter(self, watched: QtCore.QObject, event: QtCore.QEvent) -> bool:  # noqa: N802
+        if event.type() != QtCore.QEvent.Type.KeyPress:
+            return super().eventFilter(watched, event)
+        if not isinstance(event, QtGui.QKeyEvent):
+            return super().eventFilter(watched, event)
+        if not self._is_event_from_this_window(watched):
+            return super().eventFilter(watched, event)
+        if isinstance(QtWidgets.QApplication.focusWidget(), QtWidgets.QLineEdit):
+            return super().eventFilter(watched, event)
+        if self._handle_playback_shortcut(event.key()):
+            return True
+        return super().eventFilter(watched, event)
+
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:  # noqa: N802
+        if self._handle_playback_shortcut(event.key()):
+            return
+        super().keyPressEvent(event)
+
+    def _is_event_from_this_window(self, watched: QtCore.QObject) -> bool:
+        if watched is self:
+            return True
+        if not isinstance(watched, QtWidgets.QWidget):
+            return False
+        return watched.window() is self or self.isAncestorOf(watched)
+
+    def _handle_playback_shortcut(self, key: int) -> bool:
+        if self.loaded_csv_path is None:
+            return False
+        if key == QtCore.Qt.Key.Key_Space:
+            self._toggle_playback()
+            return True
+        if key == QtCore.Qt.Key.Key_Left:
+            self.seek_to_time_ms(self.playback_state.current_time_ms - 500)
+            return True
+        if key == QtCore.Qt.Key.Key_Right:
+            self.seek_to_time_ms(self.playback_state.current_time_ms + 500)
+            return True
+        return False
 
     def capture_project_state(
         self,
@@ -197,6 +277,8 @@ class MainWindow(QtWidgets.QMainWindow):
             widget = self._build_time_series_window()
         elif title == "G-G Diagram":
             widget = self._build_gg_diagram_window()
+        elif title == "GPS Map":
+            widget = self._build_gps_map_window()
         elif title == "Current Values Table":
             widget = self._build_current_values_window()
         elif title == "Benchmark Summary":
@@ -214,11 +296,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _build_time_series_window(self) -> TimeSeriesWindow:
         widget = TimeSeriesWindow(self.playback_state)
-        x_values = [index / 10 for index in range(101)]
+        x_values = [
+            self.playback_state.seconds_at(index)
+            for index in range(self.playback_state.sample_count)
+        ]
         widget.set_series(
             {
-                "RPM": (x_values, [2200.0 + index * 35.0 for index in range(101)]),
-                "TPS_percent": (x_values, [20.0 + (index % 25) * 2.0 for index in range(101)]),
+                "RPM": (x_values, self.sensor_series["RPM"]),
+                "TPS_percent": (x_values, self.sensor_series["TPS_percent"]),
             }
         )
         return widget
@@ -226,8 +311,16 @@ class MainWindow(QtWidgets.QMainWindow):
     def _build_gg_diagram_window(self) -> GGDiagramWindow:
         widget = GGDiagramWindow(self.playback_state)
         widget.set_acceleration(
-            ax_corrected=[-0.4 + index * 0.008 for index in range(101)],
-            ay_corrected=[0.25 if index % 2 == 0 else -0.25 for index in range(101)],
+            ax_corrected=self.sensor_series["AX_CORRECTED_G"],
+            ay_corrected=self.sensor_series["AY_CORRECTED_G"],
+        )
+        return widget
+
+    def _build_gps_map_window(self) -> GPSMapWindow:
+        widget = GPSMapWindow(self.playback_state)
+        widget.set_track(
+            latitude=self.sensor_series["latitude"],
+            longitude=self.sensor_series["longitude"],
         )
         return widget
 
@@ -235,10 +328,10 @@ class MainWindow(QtWidgets.QMainWindow):
         return CurrentValuesWindow(
             self.playback_state,
             {
-                "RPM": [2200.0 + index * 35.0 for index in range(101)],
-                "TPS_percent": [20.0 + (index % 25) * 2.0 for index in range(101)],
-                "AX_CORRECTED_G": [-0.4 + index * 0.008 for index in range(101)],
-                "AY_CORRECTED_G": [0.25 if index % 2 == 0 else -0.25 for index in range(101)],
+                "RPM": self.sensor_series["RPM"],
+                "TPS_percent": self.sensor_series["TPS_percent"],
+                "AX_CORRECTED_G": self.sensor_series["AX_CORRECTED_G"],
+                "AY_CORRECTED_G": self.sensor_series["AY_CORRECTED_G"],
             },
         )
 
@@ -275,6 +368,8 @@ class MainWindow(QtWidgets.QMainWindow):
             for action_title in action_titles:
                 action = menu.addAction(action_title)
                 action.setObjectName(_object_name(action_title, suffix="Action"))
+                if action_title == "Open CSV":
+                    action.triggered.connect(self._open_csv_dialog)
 
     def _build_central_workspace(self) -> None:
         central = QtWidgets.QWidget()
@@ -346,6 +441,127 @@ class MainWindow(QtWidgets.QMainWindow):
         self.properties_panel.setWidget(content)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.properties_panel)
 
+    def _build_playback_dock(self) -> None:
+        self.playback_dock = QtWidgets.QDockWidget("CSV Playback", self)
+        self.playback_dock.setObjectName("playbackDock")
+        self.playback_dock.setAllowedAreas(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea)
+        self.playback_dock.setFeatures(QtWidgets.QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
+
+        content = QtWidgets.QFrame()
+        content.setObjectName("playbackDockContent")
+        layout = QtWidgets.QVBoxLayout(content)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(6)
+
+        status_row = QtWidgets.QHBoxLayout()
+        self.playback_file_label = QtWidgets.QLabel()
+        self.playback_file_label.setObjectName("playbackFileLabel")
+        self.playback_row_label = QtWidgets.QLabel()
+        self.playback_row_label.setObjectName("playbackRowLabel")
+        self.playback_interval_label = QtWidgets.QLabel()
+        self.playback_interval_label.setObjectName("playbackIntervalLabel")
+        self.playback_event_count_label = QtWidgets.QLabel()
+        self.playback_event_count_label.setObjectName("playbackEventCountLabel")
+        self.current_time_label = QtWidgets.QLabel()
+        self.current_time_label.setObjectName("playbackCurrentTimeLabel")
+        self.current_row_label = QtWidgets.QLabel()
+        self.current_row_label.setObjectName("playbackCurrentRowLabel")
+        for label in (
+            self.playback_file_label,
+            self.playback_row_label,
+            self.playback_interval_label,
+            self.playback_event_count_label,
+            self.current_time_label,
+            self.current_row_label,
+        ):
+            status_row.addWidget(label)
+        status_row.addStretch(1)
+
+        control_row = QtWidgets.QHBoxLayout()
+        control_row.setSpacing(6)
+        self.home_button = QtWidgets.QPushButton("처음")
+        self.home_button.setObjectName("playbackHomeButton")
+        self.home_button.clicked.connect(lambda: self.seek_to_time_ms(0))
+        self.prev_event_button = QtWidgets.QPushButton("이전 이벤트")
+        self.prev_event_button.setObjectName("playbackPrevEventButton")
+        self.prev_event_button.clicked.connect(self.seek_previous_event)
+        self.play_pause_button = QtWidgets.QPushButton("Play")
+        self.play_pause_button.setObjectName("playbackPlayPauseButton")
+        self.play_pause_button.clicked.connect(self._toggle_playback)
+        self.next_event_button = QtWidgets.QPushButton("다음 이벤트")
+        self.next_event_button.setObjectName("playbackNextEventButton")
+        self.next_event_button.clicked.connect(self.seek_next_event)
+        self.speed_combo = QtWidgets.QComboBox()
+        self.speed_combo.setObjectName("playbackSpeedCombo")
+        self.speed_combo.addItems(("0.25x", "0.5x", "1x", "2x", "4x"))
+        self.speed_combo.setCurrentText("1x")
+        self.speed_combo.currentTextChanged.connect(self._set_playback_speed_from_text)
+        for widget in (
+            self.home_button,
+            self.prev_event_button,
+            self.play_pause_button,
+            self.next_event_button,
+            self.speed_combo,
+        ):
+            control_row.addWidget(widget)
+
+        self.timeline_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.timeline_slider.setObjectName("playbackTimelineSlider")
+        self.timeline_slider.setRange(0, self.playback_state.total_time_ms)
+        self.timeline_slider.valueChanged.connect(self.seek_to_time_ms)
+        control_row.addWidget(self.timeline_slider, 1)
+
+        lower_row = QtWidgets.QHBoxLayout()
+        self.event_marker_list = QtWidgets.QListWidget()
+        self.event_marker_list.setObjectName("eventMarkerList")
+        self.event_marker_list.setMaximumHeight(74)
+        self.event_marker_list.currentItemChanged.connect(self._seek_to_event_item)
+        self.sensor_card_container = QtWidgets.QWidget()
+        self.sensor_card_container.setObjectName("sensorCardContainer")
+        self.sensor_card_layout = QtWidgets.QHBoxLayout(self.sensor_card_container)
+        self.sensor_card_layout.setContentsMargins(0, 0, 0, 0)
+        self.sensor_card_layout.setSpacing(6)
+        self.sensor_card_value_labels: dict[str, QtWidgets.QLabel] = {}
+        self._build_sensor_cards()
+        lower_row.addWidget(self.event_marker_list, 1)
+        lower_row.addWidget(self.sensor_card_container, 2)
+
+        self.playback_warning_label = QtWidgets.QLabel()
+        self.playback_warning_label.setObjectName("playbackWarningLabel")
+
+        layout.addLayout(status_row)
+        layout.addLayout(control_row)
+        layout.addLayout(lower_row)
+        layout.addWidget(self.playback_warning_label)
+        self.playback_dock.setWidget(content)
+        self.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.playback_dock)
+
+    def _build_sensor_cards(self) -> None:
+        for channel_id in (
+            "RPM",
+            "VSS / GPS speed",
+            "Gear",
+            "Battery voltage",
+            "TPS",
+            "ax",
+            "ay",
+            "roll rate",
+            "pitch rate",
+            "yaw rate",
+        ):
+            card = QtWidgets.QFrame()
+            card.setObjectName("sensorCard")
+            card_layout = QtWidgets.QVBoxLayout(card)
+            card_layout.setContentsMargins(8, 6, 8, 6)
+            title = QtWidgets.QLabel(channel_id)
+            title.setObjectName("sensorCardTitle")
+            value = QtWidgets.QLabel("-")
+            value.setObjectName("sensorCardValue")
+            card_layout.addWidget(title)
+            card_layout.addWidget(value)
+            self.sensor_card_layout.addWidget(card)
+            self.sensor_card_value_labels[channel_id] = value
+
     def _build_bottom_timeline(self) -> None:
         self.timeline_status = QtWidgets.QLabel("시간 0.000 s | 샘플 0")
         self.timeline_status.setObjectName("timelineStatus")
@@ -365,6 +581,254 @@ class MainWindow(QtWidgets.QMainWindow):
             item = self.analysis_list.item(0)
         if item is not None:
             self.add_analysis_window(item.text())
+
+    def _open_csv_dialog(self) -> None:
+        path, _selected_filter = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Open CSV",
+            str(Path.cwd()),
+            "CSV files (*.csv);;All files (*.*)",
+        )
+        if path:
+            self.load_csv_session(Path(path))
+
+    def load_demo_session(self) -> None:
+        sample_count = 101
+        self._configure_playback_session(
+            csv_path=Path("prototype-demo.csv"),
+            timestamps=[index / 10 for index in range(sample_count)],
+            sensor_series=_demo_sensor_series(sample_count),
+            events=_demo_playback_markers(),
+            row_count=sample_count,
+            sampling_interval_ms=100,
+        )
+
+    def load_csv_session(self, csv_path: Path, *, autosave_warning: str = "") -> None:
+        result = load_csv(csv_path)
+        timestamps = _timestamps_from_store(result.store)
+        sample_count = len(timestamps)
+        self._configure_playback_session(
+            csv_path=csv_path,
+            timestamps=timestamps,
+            sensor_series=_sensor_series_from_store(result.store, sample_count),
+            events=_detect_playback_markers(result.store, timestamps),
+            row_count=result.store.row_count,
+            sampling_interval_ms=_estimate_sampling_interval_ms(timestamps),
+            autosave_warning=autosave_warning,
+        )
+
+    def _configure_playback_session(
+        self,
+        *,
+        csv_path: Path,
+        timestamps: list[float],
+        sensor_series: dict[str, list[float]],
+        events: tuple[PlaybackMarker, ...],
+        row_count: int,
+        sampling_interval_ms: int,
+        autosave_warning: str = "",
+    ) -> None:
+        window_states = self._capture_window_state()
+        if self.playback_state.is_playing:
+            self.playback_state.pause()
+        self.playback_timer.stop()
+        self._unsubscribe_playback_status()
+        self.playback_state = PlaybackState(timestamps)
+        self._unsubscribe_playback_status = self.playback_state.subscribe(
+            self._handle_playback_event
+        )
+        self.sensor_series = sensor_series
+        self.playback_events = events
+        self.session_sampling_interval_ms = sampling_interval_ms
+        self.set_csv_session(csv_path, row_count=row_count, autosave_warning=autosave_warning)
+        self._restore_analysis_windows(window_states)
+
+    def _restore_analysis_windows(self, window_states: list[WindowState]) -> None:
+        if not window_states:
+            return
+        self._clear_workspace()
+        for window_state in window_states:
+            sub_window = self.add_analysis_window(window_state.title)
+            sub_window.move(window_state.x, window_state.y)
+            sub_window.resize(window_state.width, window_state.height)
+
+    def _toggle_playback(self) -> None:
+        if self.playback_state.is_playing:
+            self.playback_state.pause()
+            self.playback_timer.stop()
+        else:
+            self.playback_state.play()
+            self._playback_elapsed.restart()
+            self.playback_timer.start()
+        self._update_playback_dock_status()
+
+    def _tick_playback_timer(self) -> None:
+        if not self.playback_state.is_playing:
+            self.playback_timer.stop()
+            return
+        self.advance_playback(self._playback_elapsed.restart())
+
+    def advance_playback(self, elapsed_ms: int) -> None:
+        if elapsed_ms <= 0:
+            return
+        target_ms = self.playback_state.current_time_ms + round(
+            elapsed_ms * self.playback_state.playback_speed
+        )
+        if target_ms >= self.playback_state.total_time_ms:
+            self.seek_to_time_ms(self.playback_state.total_time_ms)
+            self.playback_state.pause()
+            self.playback_timer.stop()
+            self._update_playback_dock_status()
+            return
+        self.seek_to_time_ms(target_ms)
+
+    def seek_to_time_ms(self, time_ms: int) -> None:
+        self.playback_state.set_time_ms(time_ms)
+        self._update_playback_dock_status()
+        self._update_timeline_status()
+
+    def seek_previous_event(self) -> None:
+        if not self.playback_events:
+            return
+        current = self.playback_state.current_time_ms
+        previous = [event for event in self.playback_events if event.time_ms < current]
+        target = previous[-1] if previous else self.playback_events[0]
+        self.seek_to_time_ms(target.time_ms)
+
+    def seek_next_event(self) -> None:
+        if not self.playback_events:
+            return
+        current = self.playback_state.current_time_ms
+        next_events = [event for event in self.playback_events if event.time_ms > current]
+        target = next_events[0] if next_events else self.playback_events[-1]
+        self.seek_to_time_ms(target.time_ms)
+
+    def _seek_to_event_item(
+        self,
+        current: QtWidgets.QListWidgetItem | None,
+        _previous: QtWidgets.QListWidgetItem | None = None,
+    ) -> None:
+        if self._syncing_event_marker_selection:
+            return
+        if current is None:
+            return
+        self.seek_to_time_ms(int(current.data(QtCore.Qt.ItemDataRole.UserRole)))
+
+    def _set_playback_speed_from_text(self, text: str) -> None:
+        self.playback_state.set_speed(float(text.removesuffix("x")))
+        self._update_playback_dock_status()
+
+    def set_csv_session(self, csv_path: Path, *, row_count: int, autosave_warning: str = "") -> None:
+        self.loaded_csv_path = csv_path
+        self.session_row_count = row_count
+        self.playback_warning_label.setText(autosave_warning)
+        self._populate_event_markers()
+        self._set_playback_controls_enabled(True)
+        self._update_playback_dock_status()
+
+    def clear_csv_session(self) -> None:
+        self.loaded_csv_path = None
+        if self.playback_state.is_playing:
+            self.playback_state.pause()
+        self.playback_timer.stop()
+        self._set_playback_controls_enabled(False)
+        self.playback_file_label.setText("CSV를 업로드하면 재생할 수 있습니다.")
+        self.playback_row_label.setText("Rows: -")
+        self.playback_interval_label.setText("Sample: -")
+        self.playback_event_count_label.setText("Events: -")
+        self.current_time_label.setText("- / -")
+        self.current_row_label.setText("Row: -")
+
+    def sensor_card_value(self, channel_id: str) -> str:
+        return self.sensor_card_value_labels[channel_id].text()
+
+    def _set_playback_controls_enabled(self, enabled: bool) -> None:
+        for widget in (
+            self.home_button,
+            self.prev_event_button,
+            self.play_pause_button,
+            self.next_event_button,
+            self.speed_combo,
+            self.timeline_slider,
+            self.event_marker_list,
+        ):
+            widget.setEnabled(enabled)
+
+    def _populate_event_markers(self) -> None:
+        self._syncing_event_marker_selection = True
+        try:
+            self.event_marker_list.clear()
+            for event in self.playback_events:
+                item = QtWidgets.QListWidgetItem(
+                    f"{event.severity.upper()} {event.name} @ {_format_seconds(event.time_ms)}"
+                )
+                item.setData(QtCore.Qt.ItemDataRole.UserRole, event.time_ms)
+                item.setToolTip(
+                    f"{event.name}\n"
+                    f"time: {_format_seconds(event.time_ms)}\n"
+                    f"sensor: {event.sensor}\n"
+                    f"value: {event.value:g}\n"
+                    f"condition: {event.condition}"
+                )
+                item.setForeground(QtGui.QBrush(_event_color(event.severity)))
+                item.setBackground(QtGui.QBrush(QtGui.QColor("#2f3338")))
+                self.event_marker_list.addItem(item)
+        finally:
+            self._syncing_event_marker_selection = False
+
+    def _update_playback_dock_status(self) -> None:
+        if not hasattr(self, "timeline_slider"):
+            return
+        current = self.playback_state.current_sample
+        current_ms = self.playback_state.current_time_ms
+        total_ms = self.playback_state.total_time_ms
+        self.timeline_slider.blockSignals(True)
+        self.timeline_slider.setRange(0, total_ms)
+        self.timeline_slider.setValue(current_ms)
+        self.timeline_slider.blockSignals(False)
+        if self.loaded_csv_path is not None:
+            self.playback_file_label.setText(self.loaded_csv_path.name)
+        self.playback_row_label.setText(f"Rows: {self.session_row_count}")
+        self.playback_interval_label.setText(f"Sample: {self.session_sampling_interval_ms} ms")
+        self.playback_event_count_label.setText(f"Events: {len(self.playback_events)}")
+        self.current_time_label.setText(f"{_format_seconds(current_ms)} / {_format_seconds(total_ms)}")
+        self.current_row_label.setText(f"Row: {current}")
+        self.play_pause_button.setText("Pause" if self.playback_state.is_playing else "Play")
+        self._highlight_nearest_event(current_ms)
+        self._update_sensor_cards(current)
+
+    def _update_sensor_cards(self, sample_index: int) -> None:
+        for channel_id, label in self.sensor_card_value_labels.items():
+            values = self.sensor_series[channel_id]
+            value = values[min(max(sample_index, 0), len(values) - 1)]
+            if channel_id == "Gear":
+                label.setText(f"{round(value):.0f}")
+            else:
+                label.setText(f"{value:.3f}")
+            if _is_abnormal_sensor_value(channel_id, value):
+                label.setStyleSheet("color: #ec7063; font-weight: 700;")
+            else:
+                label.setStyleSheet("")
+
+    def _highlight_nearest_event(self, current_ms: int) -> None:
+        if self.event_marker_list.count() == 0:
+            return
+        nearest_row = min(
+            range(self.event_marker_list.count()),
+            key=lambda row: abs(
+                int(self.event_marker_list.item(row).data(QtCore.Qt.ItemDataRole.UserRole))
+                - current_ms
+            ),
+        )
+        self._syncing_event_marker_selection = True
+        try:
+            for row in range(self.event_marker_list.count()):
+                item = self.event_marker_list.item(row)
+                color = item.foreground().color() if row == nearest_row else QtGui.QColor("#2f3338")
+                self.event_marker_list.item(row).setBackground(QtGui.QBrush(color))
+            self.event_marker_list.setCurrentRow(nearest_row)
+        finally:
+            self._syncing_event_marker_selection = False
 
     def _apply_theme(self) -> None:
         self.setStyleSheet(
@@ -393,6 +857,19 @@ class MainWindow(QtWidgets.QMainWindow):
                 border: 1px solid #3a4046;
                 padding: 6px;
             }
+            QFrame#playbackDockContent, QFrame#sensorCard {
+                background: #171a1d;
+                border: 1px solid #3a4046;
+            }
+            QLabel#sensorCardTitle {
+                color: #f4c95d;
+                font-weight: 700;
+            }
+            QLabel#sensorCardValue {
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 700;
+            }
             QPushButton {
                 font-family: "Malgun Gothic", "Segoe UI", sans-serif;
                 background: #3f6f8f;
@@ -417,6 +894,263 @@ class MainWindow(QtWidgets.QMainWindow):
             }
             """
         )
+
+
+def _demo_sensor_series(sample_count: int) -> dict[str, list[float]]:
+    return {
+        "RPM": [2200.0 + index * 35.0 for index in range(sample_count)],
+        "GPS speed": [40.0 + (index % 50) * 1.7 for index in range(sample_count)],
+        "VSS / GPS speed": [40.0 + (index % 50) * 1.7 for index in range(sample_count)],
+        "Gear": [float(1 + (index // 20) % 5) for index in range(sample_count)],
+        "Battery voltage": [13.8 + (index % 5) * 0.01 for index in range(sample_count)],
+        "TPS": [20.0 + (index % 25) * 2.0 for index in range(sample_count)],
+        "TPS_percent": [20.0 + (index % 25) * 2.0 for index in range(sample_count)],
+        "AX_CORRECTED_G": [-0.4 + index * 0.008 for index in range(sample_count)],
+        "AY_CORRECTED_G": [0.25 if index % 2 == 0 else -0.25 for index in range(sample_count)],
+        "ax": [-0.4 + index * 0.008 for index in range(sample_count)],
+        "ay": [0.25 if index % 2 == 0 else -0.25 for index in range(sample_count)],
+        "roll rate": [index * 0.05 for index in range(sample_count)],
+        "pitch rate": [index * -0.03 for index in range(sample_count)],
+        "yaw rate": [index * 0.1 for index in range(sample_count)],
+        "latitude": [37.0 + index * 0.00001 for index in range(sample_count)],
+        "longitude": [127.0 + index * 0.000015 for index in range(sample_count)],
+    }
+
+
+def _demo_playback_markers() -> tuple[PlaybackMarker, ...]:
+    return (
+        PlaybackMarker("GPS speed dip", 2500, "info", "GPS speed", 82.5, "speed_delta > 5"),
+        PlaybackMarker("Battery warning", 5500, "warning", "Battery voltage", 12.1, "Batt_V < 12.5"),
+        PlaybackMarker("DBW tracking risk", 8200, "danger", "DBW_ERROR", 11.0, "abs(error) > 10"),
+    )
+
+
+def _blank_sensor_series(sample_count: int) -> dict[str, list[float]]:
+    keys = (
+        "RPM",
+        "GPS speed",
+        "VSS / GPS speed",
+        "Gear",
+        "Battery voltage",
+        "TPS",
+        "TPS_percent",
+        "AX_CORRECTED_G",
+        "AY_CORRECTED_G",
+        "ax",
+        "ay",
+        "roll rate",
+        "pitch rate",
+        "yaw rate",
+        "latitude",
+        "longitude",
+    )
+    return {key: [0.0 for _index in range(sample_count)] for key in keys}
+
+
+def _sensor_series_from_store(store: ColumnStore, sample_count: int) -> dict[str, list[float]]:
+    gps_speed = _numeric_series(
+        store,
+        sample_count,
+        "GPS_Speed_KPH",
+        "VSS_kmh",
+        "VSS",
+        "GPS speed",
+    )
+    ax = _numeric_series(store, sample_count, "AX_RAW_G", "ax_g", "ax", "AX_CORRECTED_G")
+    ay = _numeric_series(store, sample_count, "AY_RAW_G", "ay_g", "ay", "AY_CORRECTED_G")
+    return {
+        "RPM": _numeric_series(store, sample_count, "RPM"),
+        "GPS speed": gps_speed,
+        "VSS / GPS speed": gps_speed,
+        "Gear": _numeric_series(store, sample_count, "Gear"),
+        "Battery voltage": _numeric_series(store, sample_count, "Batt_V", "Battery voltage"),
+        "TPS": _numeric_series(store, sample_count, "TPS_percent", "TPS"),
+        "TPS_percent": _numeric_series(store, sample_count, "TPS_percent", "TPS"),
+        "AX_CORRECTED_G": ax,
+        "AY_CORRECTED_G": ay,
+        "ax": ax,
+        "ay": ay,
+        "roll rate": _numeric_series(store, sample_count, "gx_dps", "roll rate"),
+        "pitch rate": _numeric_series(store, sample_count, "gy_dps", "pitch rate"),
+        "yaw rate": _numeric_series(store, sample_count, "gz_dps", "yaw rate"),
+        "latitude": _numeric_series(store, sample_count, "Latitude", "latitude"),
+        "longitude": _numeric_series(store, sample_count, "Longitude", "longitude"),
+    }
+
+
+def _numeric_series(
+    store: ColumnStore,
+    sample_count: int,
+    *candidates: str,
+    default: float = 0.0,
+) -> list[float]:
+    values = _store_values(store, *candidates)
+    if values is None:
+        return [default for _index in range(sample_count)]
+    output = [_to_float(value, default) for value in values[:sample_count]]
+    if len(output) < sample_count:
+        output.extend(default for _index in range(sample_count - len(output)))
+    return output
+
+
+def _store_values(store: ColumnStore, *candidates: str) -> list[str] | None:
+    for candidate in candidates:
+        try:
+            return list(store.values(candidate))
+        except KeyError:
+            continue
+    return None
+
+
+def _timestamps_from_store(store: ColumnStore) -> list[float]:
+    values = _store_values(store, "TIME", "Timestamp", "time", "timestamp")
+    if not values:
+        return [0.0]
+
+    timestamps: list[float] = []
+    first_numeric: float | None = None
+    first_datetime: datetime | None = None
+    for value in values:
+        parsed_numeric = _parse_float(value)
+        if parsed_numeric is not None:
+            if first_numeric is None:
+                first_numeric = parsed_numeric
+            seconds = parsed_numeric - first_numeric
+        else:
+            parsed_datetime = _parse_datetime(value)
+            if parsed_datetime is None:
+                seconds = _next_fallback_timestamp(timestamps)
+            else:
+                if first_datetime is None:
+                    first_datetime = parsed_datetime
+                seconds = (parsed_datetime - first_datetime).total_seconds()
+
+        if timestamps and seconds < timestamps[-1]:
+            seconds = timestamps[-1]
+        timestamps.append(max(0.0, seconds))
+
+    return timestamps or [0.0]
+
+
+def _estimate_sampling_interval_ms(timestamps: list[float]) -> int:
+    deltas = [
+        right - left
+        for left, right in zip(timestamps, timestamps[1:])
+        if right > left
+    ]
+    if not deltas:
+        return 0
+    sorted_deltas = sorted(deltas)
+    return round(sorted_deltas[len(sorted_deltas) // 2] * 1000)
+
+
+def _detect_playback_markers(
+    store: ColumnStore,
+    timestamps: list[float],
+) -> tuple[PlaybackMarker, ...]:
+    sample_count = len(timestamps)
+    battery = _numeric_series(store, sample_count, "Batt_V", "Battery voltage")
+    ax = _numeric_series(store, sample_count, "AX_RAW_G", "ax_g", "ax")
+    ay = _numeric_series(store, sample_count, "AY_RAW_G", "ay_g", "ay")
+    markers: list[PlaybackMarker] = []
+
+    battery_index = _first_index(battery, lambda value: value < 12.0)
+    if battery_index is not None:
+        markers.append(
+            PlaybackMarker(
+                "Battery low",
+                round(timestamps[battery_index] * 1000),
+                "warning",
+                "Battery voltage",
+                battery[battery_index],
+                "Batt_V < 12.0",
+            )
+        )
+
+    acceleration_index = _first_index(
+        [max(abs(x), abs(y)) for x, y in zip(ax, ay, strict=True)],
+        lambda value: value > 1.0,
+    )
+    if acceleration_index is not None:
+        markers.append(
+            PlaybackMarker(
+                "G limit exceeded",
+                round(timestamps[acceleration_index] * 1000),
+                "danger",
+                "ax/ay",
+                max(abs(ax[acceleration_index]), abs(ay[acceleration_index])),
+                "max(abs(ax), abs(ay)) > 1.0",
+            )
+        )
+
+    return tuple(markers)
+
+
+def _is_abnormal_sensor_value(channel_id: str, value: float) -> bool:
+    if channel_id == "RPM":
+        return value > 9000
+    if channel_id in {"VSS / GPS speed", "GPS speed"}:
+        return value < 0
+    if channel_id == "Battery voltage":
+        return value < 12.0
+    if channel_id == "TPS":
+        return value > 90.0
+    if channel_id in {"ax", "ay"}:
+        return abs(value) > 1.0
+    if channel_id in {"roll rate", "pitch rate", "yaw rate"}:
+        return abs(value) > 100.0
+    return False
+
+
+def _first_index(values: list[float], predicate: Callable[[float], bool]) -> int | None:
+    for index, value in enumerate(values):
+        if predicate(value):
+            return index
+    return None
+
+
+def _next_fallback_timestamp(timestamps: list[float]) -> float:
+    if len(timestamps) >= 2:
+        return timestamps[-1] + max(timestamps[-1] - timestamps[-2], 0.001)
+    if timestamps:
+        return timestamps[-1] + 0.1
+    return 0.0
+
+
+def _parse_float(value: str) -> float | None:
+    try:
+        return float(str(value).strip())
+    except ValueError:
+        return None
+
+
+def _parse_datetime(value: str) -> datetime | None:
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _to_float(value: str, default: float) -> float:
+    parsed = _parse_float(value)
+    return default if parsed is None else parsed
+
+
+def _format_seconds(time_ms: int) -> str:
+    return f"{time_ms / 1000:.3f} s"
+
+
+def _event_color(severity: str) -> QtGui.QColor:
+    if severity == "danger":
+        return QtGui.QColor("#ec7063")
+    if severity == "warning":
+        return QtGui.QColor("#f4c95d")
+    return QtGui.QColor("#5dade2")
 
 
 def _object_name(text: str, *, suffix: str) -> str:
