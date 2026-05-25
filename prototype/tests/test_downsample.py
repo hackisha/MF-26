@@ -1,6 +1,13 @@
 import pytest
 
-from mflog_proto.data.downsample import GraphCache, fixed_stride, min_max_bucket
+import numpy as np
+
+from mflog_proto.data.downsample import (
+    GraphCache,
+    fixed_stride,
+    min_max_bucket,
+    min_max_bucket_arrays,
+)
 
 
 def test_fixed_stride_preserves_original_when_source_fits_limit():
@@ -121,3 +128,18 @@ def test_min_max_bucket_uses_available_capacity_after_protected_extrema():
 
     assert len(result.x) == 5
     assert len(result.x) <= 5
+
+
+def test_min_max_bucket_arrays_preserves_extrema_without_python_source_lists():
+    result = min_max_bucket_arrays(
+        x=np.asarray([0.0, 1.0, 2.0, 3.0, 4.0]),
+        y=np.asarray([0.0, 100.0, np.nan, -20.0, 5.0]),
+        max_points=4,
+    )
+
+    assert 100.0 in result.y
+    assert -20.0 in result.y
+    assert None not in (result.y[0], result.y[-1])
+    assert result.x[0] == 0.0
+    assert result.x[-1] == 4.0
+    assert len(result.x) <= 4

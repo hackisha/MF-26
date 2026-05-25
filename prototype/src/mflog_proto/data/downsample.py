@@ -5,6 +5,8 @@ import hashlib
 from math import ceil
 from typing import Literal
 
+import numpy as np
+
 
 @dataclass(frozen=True)
 class DownsampledSeries:
@@ -40,30 +42,35 @@ def min_max_bucket(x: list[float], y: list[float | None], max_points: int) -> Do
     if source_count <= max_points:
         return DownsampledSeries(list(x), list(y), "min_max_bucket", source_count)
 
-    if max_points == 2:
-        indices = [0, source_count - 1]
-    else:
-        indices = _protected_indices(y, max_points)
-        protected = set(indices)
-        interior_indices = [
-            index for index in range(1, source_count - 1) if index not in protected
-        ]
-        interior_capacity = max_points - len(indices)
-        bucket_count = max(1, ceil(interior_capacity / 2)) if interior_capacity > 0 else 0
-
-        for bucket_number in range(bucket_count):
-            start = bucket_number * len(interior_indices) // bucket_count
-            end = (bucket_number + 1) * len(interior_indices) // bucket_count
-            bucket = interior_indices[start:end]
-            remaining = max_points - len(set(indices))
-            if remaining <= 0:
-                break
-            indices.extend(_bucket_representatives(bucket, y, remaining))
+    indices = _min_max_bucket_indices(np.asarray(y, dtype=np.float64), max_points)
 
     unique_indices = sorted(dict.fromkeys(indices))
     return DownsampledSeries(
         [x[index] for index in unique_indices],
         [y[index] for index in unique_indices],
+        "min_max_bucket",
+        source_count,
+    )
+
+
+def min_max_bucket_arrays(
+    x: np.ndarray,
+    y: np.ndarray,
+    max_points: int,
+) -> DownsampledSeries:
+    if max_points < 2:
+        raise ValueError("max_points must be at least 2")
+    if len(x) != len(y):
+        raise ValueError("x and y must have the same length")
+
+    source_count = len(x)
+    if source_count <= max_points:
+        indices = list(range(source_count))
+    else:
+        indices = sorted(dict.fromkeys(_min_max_bucket_indices(y, max_points)))
+    return DownsampledSeries(
+        [float(x[index]) for index in indices],
+        [_array_value_or_none(y[index]) for index in indices],
         "min_max_bucket",
         source_count,
     )
@@ -110,30 +117,61 @@ def _validate_inputs(x: list[float], y: list[float | None], max_points: int) -> 
         raise ValueError("x and y must have the same length")
 
 
-def _bucket_representatives(
-    bucket: list[int], y: list[float | None], limit: int
-) -> list[int]:
-    valued = [index for index in bucket if y[index] is not None]
-    if not valued:
-        return bucket[:1]
+def _min_max_bucket_indices(values: np.ndarray, max_points: int) -> list[int]:
+    source_count = len(values)
+    if max_points == 2:
+        return [0, source_count - 1]
 
-    min_index = min(valued, key=lambda index: y[index])
-    max_index = max(valued, key=lambda index: y[index])
+    indices = _protected_indices_numpy(values, max_points)
+    interior_mask = np.ones(source_count, dtype=bool)
+    interior_mask[0] = False
+    interior_mask[-1] = False
+    for index in indices:
+        interior_mask[index] = False
+    interior_indices = np.flatnonzero(interior_mask)
+    interior_capacity = max_points - len(indices)
+    bucket_count = max(1, ceil(interior_capacity / 2)) if interior_capacity > 0 else 0
+
+    for bucket_number in range(bucket_count):
+        start = bucket_number * len(interior_indices) // bucket_count
+        end = (bucket_number + 1) * len(interior_indices) // bucket_count
+        bucket = interior_indices[start:end]
+        remaining = max_points - len(set(indices))
+        if remaining <= 0:
+            break
+        indices.extend(_bucket_representatives_numpy(bucket, values, remaining))
+    return indices
+
+
+def _bucket_representatives_numpy(
+    bucket: np.ndarray,
+    values: np.ndarray,
+    limit: int,
+) -> list[int]:
+    if len(bucket) == 0:
+        return []
+    bucket_values = values[bucket]
+    finite_positions = np.flatnonzero(np.isfinite(bucket_values))
+    if len(finite_positions) == 0:
+        return [int(bucket[0])]
+
+    min_index = int(bucket[int(finite_positions[np.argmin(bucket_values[finite_positions])])])
+    max_index = int(bucket[int(finite_positions[np.argmax(bucket_values[finite_positions])])])
     if limit == 1 or min_index == max_index:
         return [min_index]
     return sorted([min_index, max_index])
 
 
-def _protected_indices(y: list[float | None], max_points: int) -> list[int]:
+def _protected_indices_numpy(values: np.ndarray, max_points: int) -> list[int]:
     first = 0
-    last = len(y) - 1
+    last = len(values) - 1
     indices = [first, last]
-    valued = [index for index, value in enumerate(y) if value is not None]
-    if not valued or max_points <= 2:
+    valued = np.flatnonzero(np.isfinite(values))
+    if len(valued) == 0 or max_points <= 2:
         return indices
 
-    max_index = max(valued, key=lambda index: y[index])
-    min_index = min(valued, key=lambda index: y[index])
+    max_index = int(valued[np.argmax(values[valued])])
+    min_index = int(valued[np.argmin(values[valued])])
     for index in (max_index, min_index):
         if index not in indices and len(indices) < max_points:
             indices.append(index)
@@ -146,12 +184,13 @@ def _visible_range(x: list[float]) -> tuple[float | None, float | None]:
     return (x[0], x[-1])
 
 
+def _array_value_or_none(value: float) -> float | None:
+    numeric = float(value)
+    return numeric if np.isfinite(numeric) else None
+
+
 def _series_digest(values: list[float | None]) -> str:
     digest = hashlib.blake2b(digest_size=12)
-    for value in values:
-        if value is None:
-            digest.update(b"N;")
-        else:
-            digest.update(repr(float(value)).encode("ascii"))
-            digest.update(b";")
+    array = np.asarray(values, dtype=np.float64)
+    digest.update(array.tobytes())
     return digest.hexdigest()

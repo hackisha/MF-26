@@ -1,8 +1,3 @@
-import os
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("QT_QPA_FONTDIR", r"C:\Windows\Fonts")
-
 from PySide6 import QtCore
 import pytest
 

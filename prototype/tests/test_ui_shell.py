@@ -1,8 +1,4 @@
-import os
 from pathlib import Path
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("QT_QPA_FONTDIR", r"C:\Windows\Fonts")
 
 from PySide6 import QtCore, QtWidgets
 import shiboken6
@@ -16,6 +12,9 @@ from mflog_proto.ui.minimal_analysis_windows import (
     VehicleModelWindow,
 )
 from mflog_proto.ui.time_series_window import TimeSeriesWindow
+
+
+PROTOTYPE_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_main_window_builds_required_shell_regions(qtbot):
@@ -100,7 +99,7 @@ def test_main_window_routes_minimal_analysis_windows_to_real_widgets(qtbot):
 
 
 def test_root_asset_path_finds_car_glb_from_prototype_cwd(monkeypatch):
-    monkeypatch.chdir("prototype")
+    monkeypatch.chdir(PROTOTYPE_ROOT)
 
     path = _root_asset_path("car.glb")
 

@@ -1,8 +1,4 @@
-import os
 from pathlib import Path
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("QT_QPA_FONTDIR", r"C:\Windows\Fonts")
 
 import pytest
 from PySide6 import QtGui
@@ -17,6 +13,9 @@ from mflog_proto.ui.minimal_analysis_windows import (
     VehicleModelWindow,
     load_glb_info,
 )
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_gg_diagram_tracks_playback_point_from_corrected_acceleration(qtbot):
@@ -74,7 +73,7 @@ def test_benchmark_summary_window_lists_environment_dependencies(qtbot):
 
 
 def test_load_glb_info_reads_root_car_fixture():
-    info = load_glb_info(Path("car.glb"))
+    info = load_glb_info(PROJECT_ROOT / "car.glb")
 
     assert info.path.name == "car.glb"
     assert info.version >= 2

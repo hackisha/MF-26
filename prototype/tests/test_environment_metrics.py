@@ -40,6 +40,7 @@ def test_benchmark_runner_builds_environment_report():
     assert math.isnan(csv_metric.value)
     assert csv_metric.passed is False
     assert report.hotspots
+    assert "--target-benchmark" in report.recommendation
 
 
 def test_benchmark_runner_preserves_legacy_environment_stdout(capsys):
@@ -50,3 +51,36 @@ def test_benchmark_runner_preserves_legacy_environment_stdout(capsys):
     assert "python_version" in data
     assert "dependencies" in data
     assert "environment" not in data
+
+
+def test_benchmark_runner_exports_target_benchmark_report(tmp_path, capsys):
+    csv_path = tmp_path / "synthetic.csv"
+    json_path = tmp_path / "target.json"
+
+    assert main(
+        [
+            "--target-benchmark",
+            "--generate",
+            "--rows",
+            "12",
+            "--channels",
+            "25",
+            "--input",
+            str(csv_path),
+            "--json-output",
+            str(json_path),
+            "--no-ui",
+            "--playback-updates",
+            "4",
+            "--hover-queries",
+            "4",
+            "--graph-channel-count",
+            "2",
+        ]
+    ) == 0
+
+    stdout_data = json.loads(capsys.readouterr().out)
+    file_data = json.loads(json_path.read_text(encoding="utf-8"))
+    assert stdout_data["input_summary"]["mode"] == "target-benchmark"
+    assert file_data["input_summary"]["rows"] == 12
+    assert csv_path.exists()
