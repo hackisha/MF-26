@@ -19,6 +19,7 @@ crashes.
 ```
 
 Expected result: all tests pass without a `python.exe` native error dialog.
+The current expected count is `103 passed`.
 
 ## 2. Generate Target CSV
 
@@ -78,5 +79,22 @@ Latest local target run on 2026-05-25 passed all prototype gates:
 .\prototype\.venv\Scripts\python -m mflog_proto.app
 ```
 
-Check that the prototype opens, the left analysis list can add windows, playback
-status updates, and `3D Vehicle Model` loads the root `car.glb` fixture.
+Check that:
+
+- The prototype opens.
+- The left analysis list can add windows.
+- With no CSV session, the bottom playback dock is disabled and shows the upload
+  guidance.
+- `File > Open CSV` loads a root sample CSV and the dock shows filename, row
+  count, total length, current time, current row, estimated sample period, and
+  event count.
+- Play/pause, home, previous/next event, speed selection, timeline slider,
+  arrow-key seek, and Space play/pause work.
+- Moving the timeline updates the time-series cursor line, GPS current point,
+  G-G current point, sensor cards, and event highlight to the same playback
+  time.
+- Switching tabs preserves the loaded CSV session and playback position.
+- Graph hover shows sensor name, time, value, and unit tooltip; graph click
+  seeks to that time.
+- Autosave warnings do not block the current CSV session or playback controls.
+- `3D Vehicle Model` loads the root `car.glb` fixture.

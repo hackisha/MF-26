@@ -197,6 +197,40 @@ def test_playback_keyboard_shortcuts_work_with_slider_focus(qtbot):
     assert window.playback_state.is_playing is True
 
 
+def test_csv_session_and_playback_position_survive_tab_switches(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+
+    window.timeline_slider.setValue(4200)
+    window.preset_tabs.setCurrentIndex(1)
+    window.preset_tabs.setCurrentIndex(7)
+    window.preset_tabs.setCurrentIndex(0)
+
+    assert window.loaded_csv_path == Path("prototype-demo.csv")
+    assert window.playback_state.current_time_ms == 4200
+    assert window.current_time_label.text() == "4.200 s / 10.000 s"
+    assert window.current_row_label.text() == "Row: 42"
+
+
+def test_autosave_warning_keeps_current_csv_session_playable(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+    window.timeline_slider.setValue(2500)
+
+    window.set_csv_session(
+        Path("prototype-demo.csv"),
+        row_count=window.playback_state.sample_count,
+        autosave_warning="자동 저장 실패: 현재 세션은 유지됩니다.",
+    )
+
+    assert window.playback_warning_label.text() == "자동 저장 실패: 현재 세션은 유지됩니다."
+    assert window.timeline_slider.isEnabled() is True
+    assert window.play_pause_button.isEnabled() is True
+    assert window.playback_state.current_time_ms == 2500
+
+
 def test_previous_and_next_event_buttons_tolerate_empty_event_list(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
