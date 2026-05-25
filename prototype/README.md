@@ -10,7 +10,7 @@ The prototype measures whether Python, PySide6/Qt, pyqtgraph, numpy, and polars 
 cd prototype
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -e .[dev]
-$env:QT_QPA_PLATFORM='offscreen'
+$env:QT_QPA_PLATFORM='minimal'
 $env:QT_QPA_FONTDIR='C:\Windows\Fonts'
 .\.venv\Scripts\python -m pytest tests
 .\.venv\Scripts\python -m mflog_proto.benchmark.runner
@@ -27,4 +27,7 @@ mflog-proto-generate --rows 300000 --channels 200 --output .generated/synthetic_
 mflog-proto-ui
 ```
 
-For offscreen UI screenshots/tests on Windows, set `QT_QPA_FONTDIR=C:\Windows\Fonts` so Qt can find Korean fonts.
+Pytest defaults to Qt's `minimal` platform on Windows because pyqtgraph can crash
+intermittently during `offscreen` teardown. Use `offscreen` only for explicit
+screenshot smoke scripts, and keep `QT_QPA_FONTDIR=C:\Windows\Fonts` so Qt can
+find Korean fonts.
