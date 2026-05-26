@@ -132,6 +132,7 @@ class GGDiagramWindow(QtWidgets.QWidget):
         self._playback_state = playback_state
         self._points: list[tuple[float, float] | None] = []
         self._current_point: tuple[float, float] | None = None
+        self.last_tooltip_text = ""
         self._unsubscribe = playback_state.subscribe(self._handle_cursor_event)
 
         layout = QtWidgets.QVBoxLayout(self)
@@ -142,6 +143,7 @@ class GGDiagramWindow(QtWidgets.QWidget):
         self.plot.getPlotItem().getViewBox().setAspectLocked(True, ratio=1)
         self.plot.setLabel("bottom", "AX_CORRECTED_G")
         self.plot.setLabel("left", "AY_CORRECTED_G")
+        self.plot.scene().sigMouseMoved.connect(self._handle_mouse_moved)
         self.limit_circle_radius = 1.0
         self.limit_circle_item = pg.PlotDataItem(
             *_circle_points(self.limit_circle_radius),
@@ -163,9 +165,12 @@ class GGDiagramWindow(QtWidgets.QWidget):
         self.plot.addItem(self.limit_circle_item)
         self.plot.addItem(self.cloud_item)
         self.plot.addItem(self.current_item)
+        self.hover_label = QtWidgets.QLabel("Hover | -")
+        self.hover_label.setObjectName("hoverLabel")
         self.reliability_badge = QtWidgets.QLabel("Reliability: info")
         self.reliability_badge.setObjectName("reliabilityBadge")
         layout.addWidget(self.plot, 1)
+        layout.addWidget(self.hover_label)
         layout.addWidget(self.reliability_badge)
 
     @property
@@ -225,6 +230,37 @@ class GGDiagramWindow(QtWidgets.QWidget):
         else:
             self.current_item.setData([{"pos": self._current_point}])
 
+    def _handle_mouse_moved(self, scene_pos: object) -> None:
+        scene_pos = _single_scene_point(scene_pos)
+        if scene_pos is None or not self.plot.sceneBoundingRect().contains(scene_pos):
+            return
+        nearest = _nearest_indexed_point(
+            self.plot,
+            scene_pos,
+            self._points,
+        )
+        if nearest is None:
+            return
+        sample_index, (ax_value, ay_value) = nearest
+        detail = _gg_hover_text(
+            seconds=self._playback_state.seconds_at(sample_index),
+            ax_value=ax_value,
+            ay_value=ay_value,
+        )
+        self._show_hover_tooltip(scene_pos, detail)
+        self._playback_state.publish_hover(
+            sample_index=sample_index,
+            channel_id="G-G",
+            value=math.hypot(ax_value, ay_value),
+        )
+
+    def _show_hover_tooltip(self, scene_pos: QtCore.QPointF, detail: str) -> None:
+        self.last_tooltip_text = detail
+        self.hover_label.setText(f"Hover | {detail}")
+        widget_pos = self.plot.mapFromScene(scene_pos)
+        global_pos = self.plot.mapToGlobal(widget_pos)
+        QtWidgets.QToolTip.showText(global_pos, detail, self.plot)
+
 
 class GPSMapWindow(QtWidgets.QWidget):
     def __init__(
@@ -244,6 +280,7 @@ class GPSMapWindow(QtWidgets.QWidget):
         self._map_background_enabled = False
         self._map_tile_loaded = False
         self._map_background_status = "off"
+        self.last_tooltip_text = ""
         self._unsubscribe = playback_state.subscribe(self._handle_cursor_event)
 
         layout = QtWidgets.QVBoxLayout(self)
@@ -253,6 +290,7 @@ class GPSMapWindow(QtWidgets.QWidget):
         self.plot.showGrid(x=True, y=True, alpha=0.25)
         self.plot.setLabel("bottom", "Longitude")
         self.plot.setLabel("left", "Latitude")
+        self.plot.scene().sigMouseMoved.connect(self._handle_mouse_moved)
         self.map_tile_item = pg.ImageItem(axisOrder="row-major")
         self.route_background_item = pg.PlotDataItem(
             pen=pg.mkPen(QtGui.QColor(93, 173, 226, 90), width=5)
@@ -274,10 +312,13 @@ class GPSMapWindow(QtWidgets.QWidget):
         self.plot.addItem(self.current_item)
         self.map_background_label = QtWidgets.QLabel(self.map_background_text())
         self.map_background_label.setObjectName("gpsMapBackgroundStatus")
+        self.hover_label = QtWidgets.QLabel("Hover | -")
+        self.hover_label.setObjectName("hoverLabel")
         self.reliability_badge = QtWidgets.QLabel("Reliability: info")
         self.reliability_badge.setObjectName("reliabilityBadge")
         layout.addWidget(self.plot, 1)
         layout.addWidget(self.map_background_label)
+        layout.addWidget(self.hover_label)
         layout.addWidget(self.reliability_badge)
 
     @property
@@ -416,6 +457,37 @@ class GPSMapWindow(QtWidgets.QWidget):
         self._map_tile_loaded = False
         self._map_background_status = status
         self.map_background_label.setText(self.map_background_text())
+
+    def _handle_mouse_moved(self, scene_pos: object) -> None:
+        scene_pos = _single_scene_point(scene_pos)
+        if scene_pos is None or not self.plot.sceneBoundingRect().contains(scene_pos):
+            return
+        plot_positions = [
+            None if position is None else (position[1], position[0])
+            for position in self._positions
+        ]
+        nearest = _nearest_indexed_point(self.plot, scene_pos, plot_positions)
+        if nearest is None:
+            return
+        sample_index, (longitude, latitude) = nearest
+        detail = _gps_hover_text(
+            seconds=self._playback_state.seconds_at(sample_index),
+            latitude=latitude,
+            longitude=longitude,
+        )
+        self._show_hover_tooltip(scene_pos, detail)
+        self._playback_state.publish_hover(
+            sample_index=sample_index,
+            channel_id="GPS",
+            value=None,
+        )
+
+    def _show_hover_tooltip(self, scene_pos: QtCore.QPointF, detail: str) -> None:
+        self.last_tooltip_text = detail
+        self.hover_label.setText(f"Hover | {detail}")
+        widget_pos = self.plot.mapFromScene(scene_pos)
+        global_pos = self.plot.mapToGlobal(widget_pos)
+        QtWidgets.QToolTip.showText(global_pos, detail, self.plot)
 
 
 class CurrentValuesWindow(QtWidgets.QWidget):
@@ -670,6 +742,98 @@ class BenchmarkSummaryWindow(QtWidgets.QWidget):
             self.table.setItem(row_index, 1, QtWidgets.QTableWidgetItem(status))
 
 
+class VehicleModelViewport(QtWidgets.QWidget):
+    def __init__(self, model_info: GlbModelInfo, parent: QtWidgets.QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("vehicleModelViewport")
+        self._model_info = model_info
+        self.setMinimumHeight(160)
+
+    @property
+    def has_rendered_model(self) -> bool:
+        return self._model_info.has_visible_geometry and self._model_info.has_scene_bounds
+
+    def preview_status_text(self) -> str:
+        return "Rendered GLB preview" if self.has_rendered_model else "No visible GLB geometry"
+
+    def paintEvent(self, event: QtGui.QPaintEvent) -> None:  # noqa: N802
+        super().paintEvent(event)
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        painter.fillRect(rect, QtGui.QColor("#161a1d"))
+        painter.setPen(QtGui.QPen(QtGui.QColor("#3a4046"), 1))
+        painter.drawRect(rect)
+
+        if not self.has_rendered_model:
+            painter.setPen(QtGui.QColor("#c8d2dc"))
+            painter.drawText(rect, QtCore.Qt.AlignmentFlag.AlignCenter, self.preview_status_text())
+            return
+
+        self._draw_bounds_preview(painter, rect.adjusted(18, 18, -18, -18))
+
+    def _draw_bounds_preview(self, painter: QtGui.QPainter, rect: QtCore.QRect) -> None:
+        assert self._model_info.scene_min is not None
+        assert self._model_info.scene_max is not None
+        min_x, min_y, min_z = self._model_info.scene_min
+        max_x, max_y, max_z = self._model_info.scene_max
+        center_x = (min_x + max_x) / 2
+        center_y = (min_y + max_y) / 2
+        center_z = (min_z + max_z) / 2
+        span_x = max(max_x - min_x, 1e-6)
+        span_y = max(max_y - min_y, 1e-6)
+        span_z = max(max_z - min_z, 1e-6)
+        scale = min(rect.width() / (span_x + span_y * 0.35), rect.height() / (span_z + span_y * 0.25)) * 0.72
+        origin = QtCore.QPointF(rect.center().x(), rect.center().y())
+
+        def project(point: tuple[float, float, float]) -> QtCore.QPointF:
+            x, y, z = point
+            px = (x - center_x) * scale + (y - center_y) * scale * 0.25
+            py = -(z - center_z) * scale - (y - center_y) * scale * 0.18
+            return QtCore.QPointF(origin.x() + px, origin.y() + py)
+
+        corners = [
+            (min_x, min_y, min_z),
+            (max_x, min_y, min_z),
+            (max_x, max_y, min_z),
+            (min_x, max_y, min_z),
+            (min_x, min_y, max_z),
+            (max_x, min_y, max_z),
+            (max_x, max_y, max_z),
+            (min_x, max_y, max_z),
+        ]
+        projected = [project(corner) for corner in corners]
+        edges = (
+            (0, 1),
+            (1, 2),
+            (2, 3),
+            (3, 0),
+            (4, 5),
+            (5, 6),
+            (6, 7),
+            (7, 4),
+            (0, 4),
+            (1, 5),
+            (2, 6),
+            (3, 7),
+        )
+
+        painter.setPen(QtGui.QPen(QtGui.QColor("#5dade2"), 2))
+        for left, right in edges:
+            painter.drawLine(projected[left], projected[right])
+
+        painter.setBrush(QtGui.QBrush(QtGui.QColor(244, 201, 93, 120)))
+        painter.setPen(QtGui.QPen(QtGui.QColor("#f4c95d"), 1))
+        painter.drawEllipse(projected[0], 3, 3)
+        painter.drawEllipse(projected[6], 3, 3)
+        painter.setPen(QtGui.QColor("#c8d2dc"))
+        painter.drawText(
+            rect.adjusted(4, 4, -4, -4),
+            QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop,
+            self.preview_status_text(),
+        )
+
+
 class VehicleModelWindow(QtWidgets.QWidget):
     def __init__(self, model_info: GlbModelInfo, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
@@ -681,12 +845,7 @@ class VehicleModelWindow(QtWidgets.QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         self.model_label = QtWidgets.QLabel(self.model_status_text())
         self.model_label.setObjectName("vehicleModelStatus")
-        self.viewport = QtWidgets.QFrame()
-        self.viewport.setObjectName("vehicleModelViewport")
-        self.viewport.setMinimumHeight(160)
-        self.viewport.setStyleSheet(
-            "QFrame#vehicleModelViewport { background: #161a1d; border: 1px solid #3a4046; }"
-        )
+        self.viewport = VehicleModelViewport(model_info)
         viewport_layout = QtWidgets.QVBoxLayout(self.viewport)
         viewport_layout.setContentsMargins(10, 10, 10, 10)
         self.geometry_label = QtWidgets.QLabel(self.model_geometry_text())
@@ -743,6 +902,13 @@ class VehicleModelWindow(QtWidgets.QWidget):
     def qualitative_note_text(self) -> str:
         return "Qualitative visualization only"
 
+    @property
+    def is_model_preview_rendered(self) -> bool:
+        return self.viewport.has_rendered_model and self.viewport.isVisible()
+
+    def preview_status_text(self) -> str:
+        return self.viewport.preview_status_text()
+
     def reliability_text(self) -> str:
         return self.reliability_badge.text()
 
@@ -795,6 +961,47 @@ def load_glb_info(path: Path) -> GlbModelInfo:
 
 def _format_kib(byte_length: int) -> str:
     return f"{byte_length / 1024:.1f} KB"
+
+
+def _single_scene_point(scene_pos: object) -> QtCore.QPointF | None:
+    if isinstance(scene_pos, tuple | list):
+        if not scene_pos:
+            return None
+        scene_pos = scene_pos[0]
+    if not isinstance(scene_pos, QtCore.QPointF):
+        return None
+    return scene_pos
+
+
+def _nearest_indexed_point(
+    plot: pg.PlotWidget,
+    scene_pos: QtCore.QPointF,
+    points: Sequence[tuple[float, float] | None],
+) -> tuple[int, tuple[float, float]] | None:
+    best: tuple[int, tuple[float, float]] | None = None
+    best_distance_squared: float | None = None
+    view_box = plot.plotItem.vb
+
+    for sample_index, point in enumerate(points):
+        if point is None:
+            continue
+        point_scene = view_box.mapViewToScene(QtCore.QPointF(point[0], point[1]))
+        dx = point_scene.x() - scene_pos.x()
+        dy = point_scene.y() - scene_pos.y()
+        distance_squared = dx * dx + dy * dy
+        if best_distance_squared is None or distance_squared < best_distance_squared:
+            best_distance_squared = distance_squared
+            best = (sample_index, point)
+
+    return best
+
+
+def _gg_hover_text(*, seconds: float, ax_value: float, ay_value: float) -> str:
+    return f"G-G | {seconds:.3f} s | ax {ax_value:.3f} g | ay {ay_value:.3f} g"
+
+
+def _gps_hover_text(*, seconds: float, latitude: float, longitude: float) -> str:
+    return f"GPS | {seconds:.3f} s | lat {latitude:.6f} | lon {longitude:.6f}"
 
 
 def _is_valid_gps_position(

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from PySide6 import QtGui
+from PySide6 import QtCore, QtGui
 
 from mflog_proto.benchmark.metrics import DependencyInfo, EnvironmentInfo
 from mflog_proto.playback import PlaybackState
@@ -84,6 +84,27 @@ def test_gg_diagram_can_update_limit_circle_radius(qtbot):
     assert min(y_values) == pytest.approx(-2.5)
 
 
+def test_gg_diagram_shows_hover_info_for_nearest_point(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
+    window = GGDiagramWindow(playback)
+    qtbot.addWidget(window)
+    window.resize(640, 360)
+    window.show()
+    window.set_acceleration(
+        ax_corrected=[0.0, 0.25, -0.5],
+        ay_corrected=[0.1, -0.2, 0.3],
+    )
+    window.plot.setXRange(-1.0, 1.0)
+    window.plot.setYRange(-1.0, 1.0)
+    qtbot.waitExposed(window)
+
+    scene_pos = window.plot.plotItem.vb.mapViewToScene(QtCore.QPointF(0.25, -0.2))
+    window.plot.scene().sigMouseMoved.emit(scene_pos)
+
+    assert window.hover_label.text() == "Hover | G-G | 0.100 s | ax 0.250 g | ay -0.200 g"
+    assert window.last_tooltip_text == "G-G | 0.100 s | ax 0.250 g | ay -0.200 g"
+
+
 def test_gps_map_tracks_current_position_from_playback(qtbot):
     playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
     window = GPSMapWindow(playback)
@@ -117,6 +138,29 @@ def test_gps_map_ignores_zero_and_out_of_range_coordinates(qtbot):
     playback.set_sample(1)
 
     assert window.current_position == pytest.approx((35.292, 126.574))
+
+
+def test_gps_map_shows_hover_info_for_nearest_position(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
+    window = GPSMapWindow(playback)
+    qtbot.addWidget(window)
+    window.resize(640, 360)
+    window.show()
+    window.set_track(
+        latitude=[37.0, 37.0001, 37.0002],
+        longitude=[127.0, 127.0002, 127.0004],
+    )
+    window.plot.setXRange(126.9999, 127.0005)
+    window.plot.setYRange(36.9999, 37.0003)
+    qtbot.waitExposed(window)
+
+    scene_pos = window.plot.plotItem.vb.mapViewToScene(QtCore.QPointF(127.0002, 37.0001))
+    window.plot.scene().sigMouseMoved.emit(scene_pos)
+
+    assert window.hover_label.text() == (
+        "Hover | GPS | 0.100 s | lat 37.000100 | lon 127.000200"
+    )
+    assert window.last_tooltip_text == "GPS | 0.100 s | lat 37.000100 | lon 127.000200"
 
 
 def test_gps_map_toggles_real_map_background(qtbot):
@@ -260,6 +304,8 @@ def test_vehicle_model_window_reports_model_and_throttles_when_hidden(qtbot):
     assert window.model_geometry_text() == "Loaded geometry: 1 mesh | 2 nodes"
     assert window.camera_status_text() == "Camera framed | viewport visible"
     assert window.qualitative_note_text() == "Qualitative visualization only"
+    assert window.preview_status_text() == "Rendered GLB preview"
+    assert window.is_model_preview_rendered is True
     assert window.is_camera_framed is True
     assert window.is_model_visible is True
     assert window.reliability_text() == "Reliability: info"

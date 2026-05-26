@@ -19,7 +19,7 @@ crashes.
 ```
 
 Expected result: all tests pass without a `python.exe` native error dialog.
-The current expected count is `123 passed`.
+The current expected count is `125 passed`.
 
 ## 2. Generate Target CSV
 
@@ -112,11 +112,12 @@ Check that:
 - G-G keeps the 1 G limit circle visible after CSV upload and uses corrected
   ADXL345 acceleration for `ax_g` / `ay_g`.
 - Switching tabs preserves the loaded CSV session and playback position.
-- Graph hover shows sensor name, time, value, and unit tooltip; graph click
-  seeks to that time.
+- Time-series, GPS, and G-G plots show hover labels/tooltips with the nearest
+  sample's time and plot-specific values; time-series graph click seeks to that
+  time.
 - Autosave warnings do not block the current CSV session or playback controls.
-- `3D Vehicle Model` loads the root `car.glb` fixture and labels the view as
-  qualitative visualization.
+- `3D Vehicle Model` loads the root `car.glb` fixture, shows a visible GLB
+  preview in the viewport, and labels the view as qualitative visualization.
 
 ## 6. Windows EXE Build Smoke
 
