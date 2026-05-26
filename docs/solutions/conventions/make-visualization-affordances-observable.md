@@ -17,22 +17,24 @@ tags:
 ## Context
 
 Time-series hover existed, but GPS and G-G plots did not expose visible hover
-labels. The vehicle model window loaded GLB metadata, but the viewport only
-showed status text, which looked like the model had not loaded.
+labels. The vehicle model window originally loaded GLB metadata and then drew a
+bounds-only preview, which did not satisfy a requirement to load and show the
+actual vehicle model.
 
 ## Guidance
 
 Every visualization that claims an interaction should expose visible feedback in
 the same window. For plot hover, provide both a tooltip and a stable label such
-as `Hover | ...` so automated tests and users can verify the behavior. For model
-loading, a successful metadata parse is not enough; the viewport should show a
-visible preview, fallback render, or explicit failure state.
+as `Hover | ...` so automated tests and users can verify the behavior. For GLB
+or OBJ model loading, a successful metadata parse is not enough. Parse the actual
+mesh primitives, render their vertices/triangles, and expose observable counts or
+state in tests. A bounds box is acceptable only as an explicit fallback state.
 
 ## Why This Matters
 
 Without observable feedback, an implemented data path still feels broken. Tests
-that assert visible labels/previews catch this gap better than tests that only
-inspect internal metadata.
+that assert visible labels, rendered mesh counts, and fallback states catch this
+gap better than tests that only inspect internal metadata.
 
 ## When to Apply
 

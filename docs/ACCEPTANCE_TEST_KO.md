@@ -23,7 +23,7 @@ Windows에서 `QT_QPA_PLATFORM=minimal` 설정은 의도된 값입니다. 일반
 
 - 전체 테스트가 통과합니다.
 - `python.exe` 응용 프로그램 오류창이 뜨지 않습니다.
-- 최신 검증 기준으로는 `125 passed`가 정상입니다.
+- 최신 검증 기준으로는 `126 passed`가 정상입니다.
 
 ## 2. 300k x 200 합성 CSV 생성
 
@@ -148,8 +148,9 @@ prototype\.generated\acceptance\target_300k_200.html
 - Time-Series, GPS, G-G plot hover 시 가장 가까운 샘플의 시간과 plot별 값이
   라벨/tooltip에 표시되고, Time-Series 그래프 클릭 시 해당 시간으로 이동합니다.
 - 자동 저장 실패 경고가 표시되어도 현재 CSV 세션과 재생 기능은 유지됩니다.
-- `3D Vehicle Model` 창이 프로젝트 루트의 `car.glb`를 읽고, viewport에 보이는
-  GLB 프리뷰와 정성적 시각화 안내를 표시합니다.
+- `3D Vehicle Model` 창이 프로젝트 루트의 `car.glb`를 읽고, 렌더링 가능한
+  mesh vertex/triangle을 파싱한 뒤 viewport에 실제 GLB mesh와 정성적 시각화
+  안내를 표시합니다.
 
 ## 7. Windows EXE 빌드 스모크
 

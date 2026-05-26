@@ -11,6 +11,7 @@ from mflog_proto.ui.minimal_analysis_windows import (
     DataAnalysisWindow,
     DocumentsWindow,
     GGDiagramWindow,
+    GlbMeshPrimitive,
     GlbModelInfo,
     GPSMapWindow,
     MapTileImage,
@@ -273,6 +274,9 @@ def test_load_glb_info_reads_root_car_fixture():
     assert info.mesh_count > 0
     assert info.node_count > 0
     assert info.has_scene_bounds is True
+    assert info.has_renderable_mesh is True
+    assert info.vertex_count > 0
+    assert info.triangle_count > 0
 
 
 def test_load_glb_info_rejects_non_glb_file(tmp_path):
@@ -294,6 +298,12 @@ def test_vehicle_model_window_reports_model_and_throttles_when_hidden(qtbot):
         node_count=2,
         scene_min=(-1.0, -0.5, -0.25),
         scene_max=(1.0, 0.5, 0.25),
+        primitives=(
+            GlbMeshPrimitive(
+                vertices=((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
+                triangles=((0, 1, 2),),
+            ),
+        ),
     )
     window = VehicleModelWindow(info)
     qtbot.addWidget(window)
@@ -304,7 +314,7 @@ def test_vehicle_model_window_reports_model_and_throttles_when_hidden(qtbot):
     assert window.model_geometry_text() == "Loaded geometry: 1 mesh | 2 nodes"
     assert window.camera_status_text() == "Camera framed | viewport visible"
     assert window.qualitative_note_text() == "Qualitative visualization only"
-    assert window.preview_status_text() == "Rendered GLB preview"
+    assert window.preview_status_text() == "Loaded 3D GLB mesh"
     assert window.is_model_preview_rendered is True
     assert window.is_camera_framed is True
     assert window.is_model_visible is True
@@ -314,3 +324,17 @@ def test_vehicle_model_window_reports_model_and_throttles_when_hidden(qtbot):
     window.hideEvent(QtGui.QHideEvent())
 
     assert window.is_rendering_enabled is False
+
+
+def test_vehicle_model_window_renders_actual_glb_mesh(qtbot):
+    info = load_glb_info(PROJECT_ROOT / "car.glb")
+    window = VehicleModelWindow(info)
+    qtbot.addWidget(window)
+    window.resize(640, 360)
+    window.show()
+    qtbot.waitExposed(window)
+
+    assert window.is_model_mesh_loaded is True
+    assert window.rendered_vertex_count == info.vertex_count
+    assert window.rendered_triangle_count == info.triangle_count
+    assert window.preview_status_text() == "Loaded 3D GLB mesh"

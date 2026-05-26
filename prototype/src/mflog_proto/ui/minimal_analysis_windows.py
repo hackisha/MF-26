@@ -8,7 +8,7 @@ import math
 from pathlib import Path
 import struct
 import tempfile
-from typing import Protocol, Sequence
+from typing import Any, Protocol, Sequence
 import urllib.error
 import urllib.request
 
@@ -18,6 +18,12 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from mflog_proto.benchmark.metrics import EnvironmentInfo
 from mflog_proto.playback import CursorEvent, CursorKind, PlaybackState
+
+
+@dataclass(frozen=True)
+class GlbMeshPrimitive:
+    vertices: tuple[tuple[float, float, float], ...]
+    triangles: tuple[tuple[int, int, int], ...]
 
 
 @dataclass(frozen=True)
@@ -31,6 +37,7 @@ class GlbModelInfo:
     node_count: int = 0
     scene_min: tuple[float, float, float] | None = None
     scene_max: tuple[float, float, float] | None = None
+    primitives: tuple[GlbMeshPrimitive, ...] = ()
 
     @property
     def has_visible_geometry(self) -> bool:
@@ -39,6 +46,18 @@ class GlbModelInfo:
     @property
     def has_scene_bounds(self) -> bool:
         return self.scene_min is not None and self.scene_max is not None
+
+    @property
+    def has_renderable_mesh(self) -> bool:
+        return any(primitive.vertices and primitive.triangles for primitive in self.primitives)
+
+    @property
+    def vertex_count(self) -> int:
+        return sum(len(primitive.vertices) for primitive in self.primitives)
+
+    @property
+    def triangle_count(self) -> int:
+        return sum(len(primitive.triangles) for primitive in self.primitives)
 
 
 @dataclass(frozen=True)
@@ -751,10 +770,18 @@ class VehicleModelViewport(QtWidgets.QWidget):
 
     @property
     def has_rendered_model(self) -> bool:
-        return self._model_info.has_visible_geometry and self._model_info.has_scene_bounds
+        return self._model_info.has_renderable_mesh and self._model_info.has_scene_bounds
 
     def preview_status_text(self) -> str:
-        return "Rendered GLB preview" if self.has_rendered_model else "No visible GLB geometry"
+        return "Loaded 3D GLB mesh" if self.has_rendered_model else "No renderable GLB mesh"
+
+    @property
+    def rendered_vertex_count(self) -> int:
+        return self._model_info.vertex_count
+
+    @property
+    def rendered_triangle_count(self) -> int:
+        return self._model_info.triangle_count
 
     def paintEvent(self, event: QtGui.QPaintEvent) -> None:  # noqa: N802
         super().paintEvent(event)
@@ -770,9 +797,9 @@ class VehicleModelViewport(QtWidgets.QWidget):
             painter.drawText(rect, QtCore.Qt.AlignmentFlag.AlignCenter, self.preview_status_text())
             return
 
-        self._draw_bounds_preview(painter, rect.adjusted(18, 18, -18, -18))
+        self._draw_mesh_preview(painter, rect.adjusted(18, 18, -18, -18))
 
-    def _draw_bounds_preview(self, painter: QtGui.QPainter, rect: QtCore.QRect) -> None:
+    def _draw_mesh_preview(self, painter: QtGui.QPainter, rect: QtCore.QRect) -> None:
         assert self._model_info.scene_min is not None
         assert self._model_info.scene_max is not None
         min_x, min_y, min_z = self._model_info.scene_min
@@ -780,52 +807,61 @@ class VehicleModelViewport(QtWidgets.QWidget):
         center_x = (min_x + max_x) / 2
         center_y = (min_y + max_y) / 2
         center_z = (min_z + max_z) / 2
-        span_x = max(max_x - min_x, 1e-6)
-        span_y = max(max_y - min_y, 1e-6)
-        span_z = max(max_z - min_z, 1e-6)
-        scale = min(rect.width() / (span_x + span_y * 0.35), rect.height() / (span_z + span_y * 0.25)) * 0.72
+        span = max(max_x - min_x, max_y - min_y, max_z - min_z, 1e-6)
+        scale = min(rect.width(), rect.height()) / span * 0.72
         origin = QtCore.QPointF(rect.center().x(), rect.center().y())
+        yaw = math.radians(-36)
+        pitch = math.radians(24)
+        cos_yaw = math.cos(yaw)
+        sin_yaw = math.sin(yaw)
+        cos_pitch = math.cos(pitch)
+        sin_pitch = math.sin(pitch)
 
-        def project(point: tuple[float, float, float]) -> QtCore.QPointF:
+        def project(point: tuple[float, float, float]) -> tuple[QtCore.QPointF, float]:
             x, y, z = point
-            px = (x - center_x) * scale + (y - center_y) * scale * 0.25
-            py = -(z - center_z) * scale - (y - center_y) * scale * 0.18
-            return QtCore.QPointF(origin.x() + px, origin.y() + py)
+            x -= center_x
+            y -= center_y
+            z -= center_z
+            view_x = x * cos_yaw + z * sin_yaw
+            view_z = -x * sin_yaw + z * cos_yaw
+            view_y = y * cos_pitch - view_z * sin_pitch
+            depth = y * sin_pitch + view_z * cos_pitch
+            screen = QtCore.QPointF(
+                origin.x() + view_x * scale,
+                origin.y() - view_y * scale,
+            )
+            return screen, depth
 
-        corners = [
-            (min_x, min_y, min_z),
-            (max_x, min_y, min_z),
-            (max_x, max_y, min_z),
-            (min_x, max_y, min_z),
-            (min_x, min_y, max_z),
-            (max_x, min_y, max_z),
-            (max_x, max_y, max_z),
-            (min_x, max_y, max_z),
+        projected_primitives = [
+            [project(vertex) for vertex in primitive.vertices]
+            for primitive in self._model_info.primitives
         ]
-        projected = [project(corner) for corner in corners]
-        edges = (
-            (0, 1),
-            (1, 2),
-            (2, 3),
-            (3, 0),
-            (4, 5),
-            (5, 6),
-            (6, 7),
-            (7, 4),
-            (0, 4),
-            (1, 5),
-            (2, 6),
-            (3, 7),
-        )
+        faces: list[tuple[float, QtGui.QPainterPath]] = []
+        for primitive, projected in zip(
+            self._model_info.primitives,
+            projected_primitives,
+            strict=True,
+        ):
+            for left, middle, right in primitive.triangles:
+                if left >= len(projected) or middle >= len(projected) or right >= len(projected):
+                    continue
+                left_point, left_depth = projected[left]
+                middle_point, middle_depth = projected[middle]
+                right_point, right_depth = projected[right]
+                path = QtGui.QPainterPath(left_point)
+                path.lineTo(middle_point)
+                path.lineTo(right_point)
+                path.closeSubpath()
+                average_depth = (left_depth + middle_depth + right_depth) / 3
+                faces.append((average_depth, path))
 
-        painter.setPen(QtGui.QPen(QtGui.QColor("#5dade2"), 2))
-        for left, right in edges:
-            painter.drawLine(projected[left], projected[right])
+        painter.setPen(QtGui.QPen(QtGui.QColor(112, 196, 245, 130), 1))
+        for face_index, (_, path) in enumerate(sorted(faces, key=lambda face: face[0])):
+            color = QtGui.QColor("#59afe3") if face_index % 2 else QtGui.QColor("#4b9bd1")
+            color.setAlpha(115)
+            painter.fillPath(path, QtGui.QBrush(color))
+            painter.drawPath(path)
 
-        painter.setBrush(QtGui.QBrush(QtGui.QColor(244, 201, 93, 120)))
-        painter.setPen(QtGui.QPen(QtGui.QColor("#f4c95d"), 1))
-        painter.drawEllipse(projected[0], 3, 3)
-        painter.drawEllipse(projected[6], 3, 3)
         painter.setPen(QtGui.QColor("#c8d2dc"))
         painter.drawText(
             rect.adjusted(4, 4, -4, -4),
@@ -906,6 +942,18 @@ class VehicleModelWindow(QtWidgets.QWidget):
     def is_model_preview_rendered(self) -> bool:
         return self.viewport.has_rendered_model and self.viewport.isVisible()
 
+    @property
+    def is_model_mesh_loaded(self) -> bool:
+        return self.viewport.has_rendered_model
+
+    @property
+    def rendered_vertex_count(self) -> int:
+        return self.viewport.rendered_vertex_count
+
+    @property
+    def rendered_triangle_count(self) -> int:
+        return self.viewport.rendered_triangle_count
+
     def preview_status_text(self) -> str:
         return self.viewport.preview_status_text()
 
@@ -924,38 +972,25 @@ class VehicleModelWindow(QtWidgets.QWidget):
 
 
 def load_glb_info(path: Path) -> GlbModelInfo:
-    with path.open("rb") as handle:
-        header = handle.read(12)
-        first_chunk_header = handle.read(8)
-        json_chunk = b""
-    if len(header) != 12 or header[:4] != b"glTF":
-        raise ValueError(f"{path} is not a GLB file")
-    version, byte_length = struct.unpack("<II", header[4:12])
-    json_chunk_length = 0
-    bin_chunk_length = 0
-    if len(first_chunk_header) == 8:
-        chunk_length, chunk_type = struct.unpack("<II", first_chunk_header)
-        if chunk_type != 0x4E4F534A:
-            raise ValueError(f"{path} first GLB chunk is not JSON")
-        json_chunk_length = chunk_length
-        with path.open("rb") as handle:
-            handle.seek(20)
-            json_chunk = handle.read(json_chunk_length)
-            handle.seek(20 + json_chunk_length)
-            second_chunk_header = handle.read(8)
-        if len(second_chunk_header) == 8:
-            bin_chunk_length = struct.unpack("<II", second_chunk_header)[0]
-    mesh_count, node_count, scene_min, scene_max = _glb_scene_summary(json_chunk)
+    version, byte_length, json_chunk, bin_chunk = _read_glb_chunks(path)
+    document = _parse_glb_json(json_chunk)
+    mesh_count, node_count, scene_min, scene_max = _glb_scene_summary(document)
+    primitives = _glb_mesh_primitives(document, bin_chunk)
+    mesh_scene_min, mesh_scene_max = _bounds_for_primitives(primitives)
+    if mesh_scene_min is not None and mesh_scene_max is not None:
+        scene_min = mesh_scene_min
+        scene_max = mesh_scene_max
     return GlbModelInfo(
         path=path,
         version=version,
         byte_length=byte_length,
-        json_chunk_length=json_chunk_length,
-        bin_chunk_length=bin_chunk_length,
+        json_chunk_length=len(json_chunk),
+        bin_chunk_length=len(bin_chunk),
         mesh_count=mesh_count,
         node_count=node_count,
         scene_min=scene_min,
         scene_max=scene_max,
+        primitives=primitives,
     )
 
 
@@ -1103,12 +1138,70 @@ def _circle_points(radius: float, point_count: int = 97) -> tuple[list[float], l
     )
 
 
-def _glb_scene_summary(
-    json_chunk: bytes,
-) -> tuple[int, int, tuple[float, float, float] | None, tuple[float, float, float] | None]:
+_GLB_JSON_CHUNK = 0x4E4F534A
+_GLB_BIN_CHUNK = 0x004E4942
+_GLTF_COMPONENT_FORMATS = {
+    5120: "b",
+    5121: "B",
+    5122: "h",
+    5123: "H",
+    5125: "I",
+    5126: "f",
+}
+_GLTF_TYPE_COMPONENT_COUNTS = {
+    "SCALAR": 1,
+    "VEC2": 2,
+    "VEC3": 3,
+    "VEC4": 4,
+    "MAT2": 4,
+    "MAT3": 9,
+    "MAT4": 16,
+}
+
+
+def _read_glb_chunks(path: Path) -> tuple[int, int, bytes, bytes]:
+    with path.open("rb") as handle:
+        header = handle.read(12)
+        if len(header) != 12 or header[:4] != b"glTF":
+            raise ValueError(f"{path} is not a GLB file")
+
+        version, byte_length = struct.unpack("<II", header[4:12])
+        json_chunk = b""
+        bin_chunk = b""
+        first_chunk = True
+
+        while True:
+            chunk_header = handle.read(8)
+            if not chunk_header:
+                break
+            if len(chunk_header) != 8:
+                raise ValueError(f"{path} has an incomplete GLB chunk header")
+            chunk_length, chunk_type = struct.unpack("<II", chunk_header)
+            chunk_data = handle.read(chunk_length)
+            if len(chunk_data) != chunk_length:
+                raise ValueError(f"{path} has an incomplete GLB chunk")
+            if first_chunk and chunk_type != _GLB_JSON_CHUNK:
+                raise ValueError(f"{path} first GLB chunk is not JSON")
+            first_chunk = False
+            if chunk_type == _GLB_JSON_CHUNK:
+                json_chunk = chunk_data
+            elif chunk_type == _GLB_BIN_CHUNK and not bin_chunk:
+                bin_chunk = chunk_data
+
     if not json_chunk:
+        raise ValueError(f"{path} does not contain a GLB JSON chunk")
+    return version, byte_length, json_chunk, bin_chunk
+
+
+def _parse_glb_json(json_chunk: bytes) -> dict[str, Any]:
+    return json.loads(json_chunk.rstrip(b" \x00\r\n\t").decode("utf-8"))
+
+
+def _glb_scene_summary(
+    document: dict[str, Any],
+) -> tuple[int, int, tuple[float, float, float] | None, tuple[float, float, float] | None]:
+    if not document:
         return 0, 0, None, None
-    document = json.loads(json_chunk.decode("utf-8"))
     bounds = [
         (accessor["min"], accessor["max"])
         for accessor in document.get("accessors", [])
@@ -1119,3 +1212,235 @@ def _glb_scene_summary(
         scene_min = tuple(float(min(pair[0][axis] for pair in bounds)) for axis in range(3))
         scene_max = tuple(float(max(pair[1][axis] for pair in bounds)) for axis in range(3))
     return len(document.get("meshes", [])), len(document.get("nodes", [])), scene_min, scene_max
+
+
+def _glb_mesh_primitives(
+    document: dict[str, Any],
+    bin_chunk: bytes,
+) -> tuple[GlbMeshPrimitive, ...]:
+    meshes = document.get("meshes", [])
+    nodes = document.get("nodes", [])
+    scenes = document.get("scenes", [])
+    if not meshes or not nodes or not bin_chunk:
+        return ()
+
+    scene_index = int(document.get("scene", 0))
+    if 0 <= scene_index < len(scenes):
+        root_node_indices = scenes[scene_index].get("nodes", [])
+    else:
+        root_node_indices = []
+    if not root_node_indices:
+        root_node_indices = list(range(len(nodes)))
+
+    primitives: list[GlbMeshPrimitive] = []
+
+    def visit(node_index: int, parent_transform: np.ndarray, stack: set[int]) -> None:
+        if node_index in stack or not 0 <= node_index < len(nodes):
+            return
+        node = nodes[node_index]
+        if not isinstance(node, dict):
+            return
+        transform = parent_transform @ _node_transform(node)
+        mesh_index = node.get("mesh")
+        if isinstance(mesh_index, int) and 0 <= mesh_index < len(meshes):
+            primitives.extend(
+                _glb_node_mesh_primitives(document, bin_chunk, meshes[mesh_index], transform)
+            )
+        next_stack = {*stack, node_index}
+        for child_index in node.get("children", []):
+            if isinstance(child_index, int):
+                visit(child_index, transform, next_stack)
+
+    identity = np.identity(4, dtype=float)
+    for root_node_index in root_node_indices:
+        if isinstance(root_node_index, int):
+            visit(root_node_index, identity, set())
+
+    return tuple(primitives)
+
+
+def _glb_node_mesh_primitives(
+    document: dict[str, Any],
+    bin_chunk: bytes,
+    mesh: object,
+    transform: np.ndarray,
+) -> list[GlbMeshPrimitive]:
+    if not isinstance(mesh, dict):
+        return []
+
+    primitives: list[GlbMeshPrimitive] = []
+    for primitive in mesh.get("primitives", []):
+        if not isinstance(primitive, dict) or primitive.get("mode", 4) != 4:
+            continue
+        attributes = primitive.get("attributes", {})
+        position_accessor_index = (
+            attributes.get("POSITION") if isinstance(attributes, dict) else None
+        )
+        if not isinstance(position_accessor_index, int):
+            continue
+
+        positions = _accessor_vec3_values(document, bin_chunk, position_accessor_index)
+        if not positions:
+            continue
+        if isinstance(primitive.get("indices"), int):
+            indices = _accessor_scalar_int_values(document, bin_chunk, primitive["indices"])
+        else:
+            indices = tuple(range(len(positions)))
+        triangles = _triangles_from_indices(indices, len(positions))
+        if not triangles:
+            continue
+
+        vertices = tuple(_transform_point(transform, position) for position in positions)
+        primitives.append(GlbMeshPrimitive(vertices=vertices, triangles=triangles))
+
+    return primitives
+
+
+def _accessor_vec3_values(
+    document: dict[str, Any],
+    bin_chunk: bytes,
+    accessor_index: int,
+) -> tuple[tuple[float, float, float], ...]:
+    values = _accessor_values(document, bin_chunk, accessor_index)
+    vectors: list[tuple[float, float, float]] = []
+    for value in values:
+        if isinstance(value, tuple) and len(value) >= 3:
+            vectors.append((float(value[0]), float(value[1]), float(value[2])))
+    return tuple(vectors)
+
+
+def _accessor_scalar_int_values(
+    document: dict[str, Any],
+    bin_chunk: bytes,
+    accessor_index: int,
+) -> tuple[int, ...]:
+    values = _accessor_values(document, bin_chunk, accessor_index)
+    indices: list[int] = []
+    for value in values:
+        if isinstance(value, tuple):
+            if value:
+                indices.append(int(value[0]))
+        else:
+            indices.append(int(value))
+    return tuple(indices)
+
+
+def _accessor_values(
+    document: dict[str, Any],
+    bin_chunk: bytes,
+    accessor_index: int,
+) -> tuple[float | int | tuple[float | int, ...], ...]:
+    accessors = document.get("accessors", [])
+    buffer_views = document.get("bufferViews", [])
+    if not 0 <= accessor_index < len(accessors):
+        return ()
+    accessor = accessors[accessor_index]
+    if not isinstance(accessor, dict):
+        return ()
+    buffer_view_index = accessor.get("bufferView")
+    if not isinstance(buffer_view_index, int) or not 0 <= buffer_view_index < len(buffer_views):
+        return ()
+    buffer_view = buffer_views[buffer_view_index]
+    if not isinstance(buffer_view, dict) or int(buffer_view.get("buffer", 0)) != 0:
+        return ()
+
+    component_type = accessor.get("componentType")
+    component_format = _GLTF_COMPONENT_FORMATS.get(component_type)
+    component_count = _GLTF_TYPE_COMPONENT_COUNTS.get(str(accessor.get("type", "")))
+    if component_format is None or component_count is None:
+        return ()
+
+    count = int(accessor.get("count", 0))
+    component_size = struct.calcsize("<" + component_format)
+    element_size = component_size * component_count
+    stride = int(buffer_view.get("byteStride", element_size))
+    byte_offset = int(buffer_view.get("byteOffset", 0)) + int(accessor.get("byteOffset", 0))
+    values: list[float | int | tuple[float | int, ...]] = []
+    unpack_format = "<" + component_format * component_count
+
+    for value_index in range(count):
+        offset = byte_offset + value_index * stride
+        if offset + element_size > len(bin_chunk):
+            break
+        unpacked = struct.unpack_from(unpack_format, bin_chunk, offset)
+        if component_count == 1:
+            values.append(unpacked[0])
+        else:
+            values.append(unpacked)
+
+    return tuple(values)
+
+
+def _triangles_from_indices(
+    indices: Sequence[int],
+    vertex_count: int,
+) -> tuple[tuple[int, int, int], ...]:
+    triangles: list[tuple[int, int, int]] = []
+    for index in range(0, len(indices) - 2, 3):
+        triangle = (int(indices[index]), int(indices[index + 1]), int(indices[index + 2]))
+        if all(0 <= vertex_index < vertex_count for vertex_index in triangle):
+            triangles.append(triangle)
+    return tuple(triangles)
+
+
+def _node_transform(node: dict[str, Any]) -> np.ndarray:
+    matrix = node.get("matrix")
+    if isinstance(matrix, list) and len(matrix) == 16:
+        return np.array(matrix, dtype=float).reshape((4, 4), order="F")
+
+    translation = np.identity(4, dtype=float)
+    if isinstance(node.get("translation"), list) and len(node["translation"]) >= 3:
+        translation[:3, 3] = [float(value) for value in node["translation"][:3]]
+
+    rotation = _quaternion_matrix(node.get("rotation"))
+
+    scale = np.identity(4, dtype=float)
+    if isinstance(node.get("scale"), list) and len(node["scale"]) >= 3:
+        scale[0, 0] = float(node["scale"][0])
+        scale[1, 1] = float(node["scale"][1])
+        scale[2, 2] = float(node["scale"][2])
+
+    return translation @ rotation @ scale
+
+
+def _quaternion_matrix(rotation: object) -> np.ndarray:
+    if not isinstance(rotation, list) or len(rotation) < 4:
+        return np.identity(4, dtype=float)
+    x, y, z, w = (float(value) for value in rotation[:4])
+    norm = math.sqrt(x * x + y * y + z * z + w * w)
+    if norm <= 1e-12:
+        return np.identity(4, dtype=float)
+    x /= norm
+    y /= norm
+    z /= norm
+    w /= norm
+    return np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w), 0],
+            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w), 0],
+            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y), 0],
+            [0, 0, 0, 1],
+        ],
+        dtype=float,
+    )
+
+
+def _transform_point(
+    transform: np.ndarray,
+    point: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    transformed = transform @ np.array([point[0], point[1], point[2], 1.0], dtype=float)
+    w = transformed[3] if abs(transformed[3]) > 1e-12 else 1.0
+    return (float(transformed[0] / w), float(transformed[1] / w), float(transformed[2] / w))
+
+
+def _bounds_for_primitives(
+    primitives: Sequence[GlbMeshPrimitive],
+) -> tuple[tuple[float, float, float] | None, tuple[float, float, float] | None]:
+    vertices = [vertex for primitive in primitives for vertex in primitive.vertices]
+    if not vertices:
+        return None, None
+    return (
+        tuple(float(min(vertex[axis] for vertex in vertices)) for axis in range(3)),
+        tuple(float(max(vertex[axis] for vertex in vertices)) for axis in range(3)),
+    )

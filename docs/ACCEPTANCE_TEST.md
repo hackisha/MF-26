@@ -19,7 +19,7 @@ crashes.
 ```
 
 Expected result: all tests pass without a `python.exe` native error dialog.
-The current expected count is `125 passed`.
+The current expected count is `126 passed`.
 
 ## 2. Generate Target CSV
 
@@ -116,8 +116,9 @@ Check that:
   sample's time and plot-specific values; time-series graph click seeks to that
   time.
 - Autosave warnings do not block the current CSV session or playback controls.
-- `3D Vehicle Model` loads the root `car.glb` fixture, shows a visible GLB
-  preview in the viewport, and labels the view as qualitative visualization.
+- `3D Vehicle Model` loads the root `car.glb` fixture, parses the renderable
+  mesh vertices/triangles, shows the actual GLB mesh in the viewport, and labels
+  the view as qualitative visualization.
 
 ## 6. Windows EXE Build Smoke
 
