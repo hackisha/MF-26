@@ -28,6 +28,7 @@ from mflog_proto.ui.minimal_analysis_windows import (
     DocumentsWindow,
     GGDiagramWindow,
     GPSMapWindow,
+    GPSRouteLayer,
     MapTileProvider,
     VehicleModelWindow,
     load_glb_info,
@@ -214,6 +215,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.loaded_csv_path: Path | None = None
         self.visualization_settings = VisualizationSettings()
         self.sidebar_settings = SidebarSettings()
+        self.vehicle_model_path = _root_asset_path("car.glb")
+        self.vehicle_model_info = load_glb_info(self.vehicle_model_path)
+        self.gps_route_layers: dict[str, GPSRouteLayer] = {}
+        self.active_gps_route_name = ""
         self._map_tile_provider = map_tile_provider
         self.playback_state = PlaybackState([0.0])
         self.sensor_series = _blank_sensor_series(self.playback_state.sample_count)
@@ -426,7 +431,7 @@ class MainWindow(QtWidgets.QMainWindow):
         elif title == "Benchmark Summary":
             widget = BenchmarkSummaryWindow(collect_environment())
         elif title == "3D Vehicle Model":
-            widget = VehicleModelWindow(load_glb_info(_root_asset_path("car.glb")))
+            widget = self._build_vehicle_model_window()
         else:
             widget = self._build_placeholder_window(title)
 
@@ -474,11 +479,20 @@ class MainWindow(QtWidgets.QMainWindow):
         widget.set_map_background_enabled(
             self.visualization_settings.gps_map_background_enabled
         )
-        widget.set_track(
-            latitude=self.sensor_series["latitude"],
-            longitude=self.sensor_series["longitude"],
-        )
+        if self.gps_route_layers:
+            widget.set_route_layers(
+                tuple(self.gps_route_layers.values()),
+                active_route_name=self.active_gps_route_name,
+            )
+        else:
+            widget.set_track(
+                latitude=self.sensor_series["latitude"],
+                longitude=self.sensor_series["longitude"],
+            )
         return widget
+
+    def _build_vehicle_model_window(self) -> VehicleModelWindow:
+        return VehicleModelWindow(self.vehicle_model_info)
 
     def _build_current_values_window(self) -> CurrentValuesWindow:
         return CurrentValuesWindow(
@@ -693,6 +707,15 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addRow("좌측 정렬", self.sidebar_sort_combo)
         layout.addRow("좌측 밀도", self.sidebar_density_combo)
         layout.addRow("좌측 폭", self.sidebar_width_spin)
+        self.vehicle_model_path_edit = QtWidgets.QLineEdit(str(self.vehicle_model_path))
+        self.vehicle_model_path_edit.setObjectName("vehicleModelPathEdit")
+        self.vehicle_model_path_edit.setReadOnly(True)
+        self.vehicle_model_load_button = QtWidgets.QPushButton("Load GLB...")
+        self.vehicle_model_load_button.setObjectName("vehicleModelLoadButton")
+        self.vehicle_model_load_button.clicked.connect(self._open_vehicle_model_dialog)
+        layout.addRow("Vehicle GLB", self.vehicle_model_path_edit)
+        layout.addRow("", self.vehicle_model_load_button)
+
         self.properties_panel.setWidget(content)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.properties_panel)
 
@@ -916,6 +939,36 @@ class MainWindow(QtWidgets.QMainWindow):
         if path:
             self.load_csv_session(Path(path))
 
+    def _open_vehicle_model_dialog(self) -> None:
+        path, _selected_filter = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Open Vehicle GLB",
+            str(self.vehicle_model_path.parent),
+            "GLB files (*.glb);;All files (*.*)",
+        )
+        if path:
+            self.load_vehicle_model_path(Path(path))
+
+    def load_vehicle_model_path(self, model_path: Path) -> bool:
+        try:
+            model_info = load_glb_info(model_path)
+        except (OSError, ValueError) as exc:
+            self.statusBar().showMessage(f"Vehicle model load failed: {exc}")
+            return False
+
+        self.vehicle_model_path = model_path
+        self.vehicle_model_info = model_info
+        if hasattr(self, "vehicle_model_path_edit"):
+            self.vehicle_model_path_edit.setText(str(model_path))
+
+        for sub_window in self.workspace.subWindowList():
+            widget = sub_window.widget()
+            if isinstance(widget, VehicleModelWindow):
+                widget.set_model_info(model_info)
+
+        self.statusBar().showMessage(f"Vehicle model loaded: {model_path.name}")
+        return True
+
     def _open_project_dialog(self) -> None:
         path, _selected_filter = QtWidgets.QFileDialog.getOpenFileName(
             self,
@@ -1011,10 +1064,20 @@ class MainWindow(QtWidgets.QMainWindow):
             self._handle_playback_event
         )
         self.sensor_series = sensor_series
+        self._remember_gps_route(csv_path, sensor_series)
         self.playback_events = events
         self.session_sampling_interval_ms = sampling_interval_ms
         self.set_csv_session(csv_path, row_count=row_count, autosave_warning=autosave_warning)
         self._restore_analysis_windows(window_states)
+
+    def _remember_gps_route(self, csv_path: Path, sensor_series: dict[str, list[float]]) -> None:
+        route_name = csv_path.name
+        self.gps_route_layers[route_name] = GPSRouteLayer(
+            name=route_name,
+            latitude=tuple(sensor_series.get("latitude", [])),
+            longitude=tuple(sensor_series.get("longitude", [])),
+        )
+        self.active_gps_route_name = route_name
 
     def _restore_analysis_windows(self, window_states: list[WindowState]) -> None:
         if not window_states:

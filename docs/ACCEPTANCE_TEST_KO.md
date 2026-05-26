@@ -23,7 +23,7 @@ Windows에서 `QT_QPA_PLATFORM=minimal` 설정은 의도된 값입니다. 일반
 
 - 전체 테스트가 통과합니다.
 - `python.exe` 응용 프로그램 오류창이 뜨지 않습니다.
-- 최신 검증 기준으로는 `126 passed`가 정상입니다.
+- 최신 검증 기준으로는 `128 passed`가 정상입니다.
 
 ## 2. 300k x 200 합성 CSV 생성
 
@@ -151,6 +151,15 @@ prototype\.generated\acceptance\target_300k_200.html
 - `3D Vehicle Model` 창이 프로젝트 루트의 `car.glb`를 읽고, 렌더링 가능한
   mesh vertex/triangle을 파싱한 뒤 viewport에 실제 GLB mesh와 정성적 시각화
   안내를 표시합니다.
+
+추가 GPS/3D 확인:
+
+- GPS Map은 지금까지 로드한 CSV 경로를 모두 연한 배경 route로 표시하고,
+  현재 재생 중인 CSV route를 더 강하게 강조합니다.
+- GPS route 위에 마우스를 올리면 가장 가까운 route point가 별도 marker로
+  강조되고 hover label/tooltip에 시간과 좌표가 표시됩니다.
+- 우측 속성 패널의 `Vehicle GLB` 설정에서 다른 `.glb` 차량 모델을 로드할 수
+  있으며, 열린 `3D Vehicle Model` 창과 새로 여는 창에 즉시 반영됩니다.
 
 ## 7. Windows EXE 빌드 스모크
 

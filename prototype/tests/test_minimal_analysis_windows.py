@@ -164,6 +164,45 @@ def test_gps_map_shows_hover_info_for_nearest_position(qtbot):
     assert window.last_tooltip_text == "GPS | 0.100 s | lat 37.000100 | lon 127.000200"
 
 
+def test_gps_map_draws_all_routes_and_highlights_active_hover(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
+    window = GPSMapWindow(playback)
+    qtbot.addWidget(window)
+    window.resize(640, 360)
+    window.show()
+    window.set_route_layers(
+        (
+            {
+                "name": "practice.csv",
+                "latitude": (36.99, 36.9902),
+                "longitude": (126.99, 126.9903),
+            },
+            {
+                "name": "endurance.csv",
+                "latitude": (37.0, 37.0001, 37.0002),
+                "longitude": (127.0, 127.0002, 127.0004),
+            },
+        ),
+        active_route_name="endurance.csv",
+    )
+    window.plot.setXRange(126.989, 127.001)
+    window.plot.setYRange(36.989, 37.001)
+    qtbot.waitExposed(window)
+
+    scene_pos = window.plot.plotItem.vb.mapViewToScene(QtCore.QPointF(127.0002, 37.0001))
+    window.plot.scene().sigMouseMoved.emit(scene_pos)
+
+    assert window.background_route_layer_count == 2
+    assert window.route_background_point_count == 5
+    assert window.active_route_name == "endurance.csv"
+    assert window.point_count == 3
+    assert window.current_position == pytest.approx((37.0, 127.0))
+    assert window.hover_position == pytest.approx((37.0001, 127.0002))
+    assert window.hover_route_name == "endurance.csv"
+    assert window.hover_marker_visible is True
+    assert window.last_tooltip_text == "GPS | 0.100 s | lat 37.000100 | lon 127.000200"
+
+
 def test_gps_map_toggles_real_map_background(qtbot):
     playback = PlaybackState(timestamps=[0.0, 0.1])
     tile_provider = FakeMapTileProvider()

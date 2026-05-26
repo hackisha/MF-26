@@ -1,4 +1,5 @@
 from pathlib import Path
+import shutil
 import sys
 
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -470,6 +471,27 @@ def test_visual_settings_update_gps_background_and_time_series_style(qtbot):
 
     new_time_series = window.add_analysis_window("Time-Series Graph").widget()
     assert new_time_series.curve_style("RPM") == ("#ec7063", 0.75)
+
+
+def test_right_properties_load_vehicle_model_path_for_open_and_new_windows(qtbot, tmp_path):
+    custom_model = tmp_path / "custom-car.glb"
+    shutil.copyfile(PROTOTYPE_ROOT.parent / "car.glb", custom_model)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    vehicle_window = window.add_analysis_window("3D Vehicle Model").widget()
+
+    assert window.vehicle_model_path.name == "car.glb"
+    assert window.vehicle_model_load_button.objectName() == "vehicleModelLoadButton"
+
+    assert window.load_vehicle_model_path(custom_model) is True
+
+    assert window.vehicle_model_path == custom_model
+    assert window.vehicle_model_path_edit.text() == str(custom_model)
+    assert vehicle_window.model_status_text().startswith("custom-car.glb | GLB v")
+    assert vehicle_window.is_model_mesh_loaded is True
+
+    new_vehicle_window = window.add_analysis_window("3D Vehicle Model").widget()
+    assert new_vehicle_window.model_status_text().startswith("custom-car.glb | GLB v")
 
 
 def test_main_window_routes_minimal_analysis_windows_to_real_widgets(qtbot):

@@ -19,7 +19,7 @@ crashes.
 ```
 
 Expected result: all tests pass without a `python.exe` native error dialog.
-The current expected count is `126 passed`.
+The current expected count is `128 passed`.
 
 ## 2. Generate Target CSV
 
@@ -107,6 +107,9 @@ Check that:
   point remain usable. The same panel can adjust time-series line color and
   thickness, plus the G-G limit-circle radius, for existing and newly opened
   windows.
+- GPS map draws all loaded CSV route plots faintly in the background, highlights
+  the currently playing CSV route, and shows a hover marker/label for the nearest
+  route point under the mouse.
 - GPS routes ignore invalid `(0, 0)` and out-of-range coordinate samples instead
   of drawing a line from the null island origin to the real track.
 - G-G keeps the 1 G limit circle visible after CSV upload and uses corrected
@@ -118,7 +121,8 @@ Check that:
 - Autosave warnings do not block the current CSV session or playback controls.
 - `3D Vehicle Model` loads the root `car.glb` fixture, parses the renderable
   mesh vertices/triangles, shows the actual GLB mesh in the viewport, and labels
-  the view as qualitative visualization.
+  the view as qualitative visualization. The right properties panel can load a
+  different GLB model and applies it to open and newly created 3D vehicle windows.
 
 ## 6. Windows EXE Build Smoke
 

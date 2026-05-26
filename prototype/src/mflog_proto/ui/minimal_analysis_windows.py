@@ -8,7 +8,7 @@ import math
 from pathlib import Path
 import struct
 import tempfile
-from typing import Any, Protocol, Sequence
+from typing import Any, Mapping, Protocol, Sequence
 import urllib.error
 import urllib.request
 
@@ -67,6 +67,30 @@ class MapTileImage:
     east: float
     south: float
     north: float
+
+
+@dataclass(frozen=True)
+class GPSRouteLayer:
+    name: str
+    latitude: Sequence[float | None]
+    longitude: Sequence[float | None]
+
+
+@dataclass(frozen=True)
+class _PreparedGPSRouteLayer:
+    name: str
+    positions: tuple[tuple[float, float] | None, ...]
+    plot_latitudes: tuple[float, ...]
+    plot_longitudes: tuple[float, ...]
+    valid_count: int
+
+
+@dataclass(frozen=True)
+class _GPSHoverCandidate:
+    route_name: str
+    sample_index: int
+    latitude: float
+    longitude: float
 
 
 class MapTileProvider(Protocol):
@@ -292,9 +316,18 @@ class GPSMapWindow(QtWidgets.QWidget):
         super().__init__(parent)
         self.setObjectName("gpsMapWindow")
         self._playback_state = playback_state
-        self._tile_provider = tile_provider if tile_provider is not None else OpenStreetMapTileProvider()
+        self._tile_provider = (
+            tile_provider if tile_provider is not None else OpenStreetMapTileProvider()
+        )
         self._positions: list[tuple[float, float] | None] = []
+        self._route_layers: tuple[_PreparedGPSRouteLayer, ...] = ()
+        self._hover_candidates: tuple[_GPSHoverCandidate, ...] = ()
+        self._all_positions: tuple[tuple[float, float], ...] = ()
+        self._active_route_name = ""
         self._current_position: tuple[float, float] | None = None
+        self._hover_position: tuple[float, float] | None = None
+        self._hover_route_name = ""
+        self._hover_marker_visible = False
         self._route_background_point_count = 0
         self._map_background_enabled = False
         self._map_tile_loaded = False
@@ -312,23 +345,30 @@ class GPSMapWindow(QtWidgets.QWidget):
         self.plot.scene().sigMouseMoved.connect(self._handle_mouse_moved)
         self.map_tile_item = pg.ImageItem(axisOrder="row-major")
         self.route_background_item = pg.PlotDataItem(
-            pen=pg.mkPen(QtGui.QColor(93, 173, 226, 90), width=5)
+            pen=pg.mkPen(QtGui.QColor(93, 173, 226, 45), width=2)
         )
-        self.track_item = pg.PlotDataItem(pen=pg.mkPen("#5dade2", width=1.5))
+        self.track_item = pg.PlotDataItem(pen=pg.mkPen("#5dade2", width=3))
         self.current_item = pg.ScatterPlotItem(
             pen=pg.mkPen("#f4c95d", width=2),
             brush=pg.mkBrush("#f4c95d"),
             size=11,
+        )
+        self.hover_item = pg.ScatterPlotItem(
+            pen=pg.mkPen("#ffffff", width=2),
+            brush=pg.mkBrush(QtGui.QColor(244, 201, 93, 80)),
+            size=15,
         )
         self.map_tile_item.setZValue(-10)
         self.map_tile_item.setVisible(False)
         self.route_background_item.setZValue(0)
         self.track_item.setZValue(5)
         self.current_item.setZValue(10)
+        self.hover_item.setZValue(15)
         self.plot.addItem(self.map_tile_item)
         self.plot.addItem(self.route_background_item)
         self.plot.addItem(self.track_item)
         self.plot.addItem(self.current_item)
+        self.plot.addItem(self.hover_item)
         self.map_background_label = QtWidgets.QLabel(self.map_background_text())
         self.map_background_label.setObjectName("gpsMapBackgroundStatus")
         self.hover_label = QtWidgets.QLabel("Hover | -")
@@ -349,8 +389,28 @@ class GPSMapWindow(QtWidgets.QWidget):
         return self._route_background_point_count
 
     @property
+    def background_route_layer_count(self) -> int:
+        return len(self._route_layers)
+
+    @property
+    def active_route_name(self) -> str:
+        return self._active_route_name
+
+    @property
     def current_position(self) -> tuple[float, float] | None:
         return self._current_position
+
+    @property
+    def hover_position(self) -> tuple[float, float] | None:
+        return self._hover_position
+
+    @property
+    def hover_route_name(self) -> str:
+        return self._hover_route_name
+
+    @property
+    def hover_marker_visible(self) -> bool:
+        return self._hover_marker_visible
 
     @property
     def map_background_enabled(self) -> bool:
@@ -388,25 +448,82 @@ class GPSMapWindow(QtWidgets.QWidget):
         latitude: Sequence[float | None],
         longitude: Sequence[float | None],
     ) -> None:
+        self.set_route_layers(
+            (
+                GPSRouteLayer(
+                    name="Current CSV",
+                    latitude=latitude,
+                    longitude=longitude,
+                ),
+            ),
+            active_route_name="Current CSV",
+        )
+
+    def set_route_layers(
+        self,
+        route_layers: Sequence[GPSRouteLayer | Mapping[str, object]],
+        *,
+        active_route_name: str,
+    ) -> None:
+        prepared_layers = tuple(
+            _prepare_gps_route_layer(_coerce_gps_route_layer(layer))
+            for layer in route_layers
+        )
+        prepared_names = {layer.name for layer in prepared_layers}
+        if active_route_name not in prepared_names and prepared_layers:
+            active_route_name = prepared_layers[-1].name
+        elif not prepared_layers:
+            active_route_name = ""
+
+        self._route_layers = prepared_layers
+        self._active_route_name = active_route_name
         self._positions = []
-        plot_longitudes: list[float] = []
-        plot_latitudes: list[float] = []
+        self._hover_position = None
+        self._hover_route_name = ""
+        self._hover_marker_visible = False
+        self.hover_item.setData([])
+
+        background_longitudes: list[float] = []
+        background_latitudes: list[float] = []
+        hover_candidates: list[_GPSHoverCandidate] = []
+        all_positions: list[tuple[float, float]] = []
         valid_count = 0
-        for latitude_value, longitude_value in zip(latitude, longitude, strict=True):
-            if not _is_valid_gps_position(latitude_value, longitude_value):
-                self._positions.append(None)
-                plot_latitudes.append(math.nan)
-                plot_longitudes.append(math.nan)
-                continue
-            position = (float(latitude_value), float(longitude_value))
-            self._positions.append(position)
-            plot_latitudes.append(position[0])
-            plot_longitudes.append(position[1])
-            valid_count += 1
+
+        active_layer: _PreparedGPSRouteLayer | None = None
+        for layer in prepared_layers:
+            if background_longitudes:
+                background_longitudes.append(math.nan)
+                background_latitudes.append(math.nan)
+            background_longitudes.extend(layer.plot_longitudes)
+            background_latitudes.extend(layer.plot_latitudes)
+            valid_count += layer.valid_count
+            if layer.name == active_route_name:
+                active_layer = layer
+            for sample_index, position in enumerate(layer.positions):
+                if position is None:
+                    continue
+                latitude_value, longitude_value = position
+                all_positions.append(position)
+                hover_candidates.append(
+                    _GPSHoverCandidate(
+                        route_name=layer.name,
+                        sample_index=sample_index,
+                        latitude=latitude_value,
+                        longitude=longitude_value,
+                    )
+                )
 
         self._route_background_point_count = valid_count
-        self.route_background_item.setData(plot_longitudes, plot_latitudes)
-        self.track_item.setData(plot_longitudes, plot_latitudes)
+        self._hover_candidates = tuple(hover_candidates)
+        self._all_positions = tuple(all_positions)
+        self.route_background_item.setData(background_longitudes, background_latitudes)
+
+        if active_layer is None:
+            self.track_item.setData([], [])
+        else:
+            self._positions = list(active_layer.positions)
+            self.track_item.setData(active_layer.plot_longitudes, active_layer.plot_latitudes)
+
         self._refresh_map_background()
         self._update_current_position(self._playback_state.current_sample)
 
@@ -438,7 +555,7 @@ class GPSMapWindow(QtWidgets.QWidget):
         if not self._map_background_enabled:
             return
 
-        positions = [position for position in self._positions if position is not None]
+        positions = list(self._all_positions)
         if not positions:
             self._clear_map_background("waiting for GPS")
             return
@@ -481,28 +598,57 @@ class GPSMapWindow(QtWidgets.QWidget):
         scene_pos = _single_scene_point(scene_pos)
         if scene_pos is None or not self.plot.sceneBoundingRect().contains(scene_pos):
             return
-        plot_positions = [
-            None if position is None else (position[1], position[0])
-            for position in self._positions
-        ]
-        nearest = _nearest_indexed_point(self.plot, scene_pos, plot_positions)
+        nearest = self._nearest_hover_candidate(scene_pos)
         if nearest is None:
             return
-        sample_index, (longitude, latitude) = nearest
+        sample_index = min(nearest.sample_index, self._playback_state.sample_count - 1)
         detail = _gps_hover_text(
             seconds=self._playback_state.seconds_at(sample_index),
-            latitude=latitude,
-            longitude=longitude,
+            latitude=nearest.latitude,
+            longitude=nearest.longitude,
         )
-        self._show_hover_tooltip(scene_pos, detail)
-        self._playback_state.publish_hover(
-            sample_index=sample_index,
-            channel_id="GPS",
-            value=None,
-        )
+        if nearest.route_name and nearest.route_name != self._active_route_name:
+            detail = f"{nearest.route_name} | {detail}"
+        self._show_hover_tooltip(scene_pos, detail, nearest)
+        if nearest.route_name == self._active_route_name:
+            self._playback_state.publish_hover(
+                sample_index=sample_index,
+                channel_id="GPS",
+                value=None,
+            )
 
-    def _show_hover_tooltip(self, scene_pos: QtCore.QPointF, detail: str) -> None:
+    def _nearest_hover_candidate(
+        self,
+        scene_pos: QtCore.QPointF,
+    ) -> _GPSHoverCandidate | None:
+        best: _GPSHoverCandidate | None = None
+        best_distance_squared: float | None = None
+        view_box = self.plot.plotItem.vb
+
+        for candidate in self._hover_candidates:
+            point_scene = view_box.mapViewToScene(
+                QtCore.QPointF(candidate.longitude, candidate.latitude)
+            )
+            dx = point_scene.x() - scene_pos.x()
+            dy = point_scene.y() - scene_pos.y()
+            distance_squared = dx * dx + dy * dy
+            if best_distance_squared is None or distance_squared < best_distance_squared:
+                best_distance_squared = distance_squared
+                best = candidate
+
+        return best
+
+    def _show_hover_tooltip(
+        self,
+        scene_pos: QtCore.QPointF,
+        detail: str,
+        candidate: _GPSHoverCandidate,
+    ) -> None:
         self.last_tooltip_text = detail
+        self._hover_position = (candidate.latitude, candidate.longitude)
+        self._hover_route_name = candidate.route_name
+        self._hover_marker_visible = True
+        self.hover_item.setData([{"pos": (candidate.longitude, candidate.latitude)}])
         self.hover_label.setText(f"Hover | {detail}")
         widget_pos = self.plot.mapFromScene(scene_pos)
         global_pos = self.plot.mapToGlobal(widget_pos)
@@ -768,6 +914,10 @@ class VehicleModelViewport(QtWidgets.QWidget):
         self._model_info = model_info
         self.setMinimumHeight(160)
 
+    def set_model_info(self, model_info: GlbModelInfo) -> None:
+        self._model_info = model_info
+        self.update()
+
     @property
     def has_rendered_model(self) -> bool:
         return self._model_info.has_renderable_mesh and self._model_info.has_scene_bounds
@@ -899,6 +1049,13 @@ class VehicleModelWindow(QtWidgets.QWidget):
         layout.addWidget(self.camera_label)
         layout.addWidget(self.qualitative_note)
         layout.addWidget(self.reliability_badge)
+
+    def set_model_info(self, model_info: GlbModelInfo) -> None:
+        self._model_info = model_info
+        self.viewport.set_model_info(model_info)
+        self.model_label.setText(self.model_status_text())
+        self.geometry_label.setText(self.model_geometry_text())
+        self.camera_label.setText(self.camera_status_text())
 
     @property
     def is_rendering_enabled(self) -> bool:
@@ -1037,6 +1194,50 @@ def _gg_hover_text(*, seconds: float, ax_value: float, ay_value: float) -> str:
 
 def _gps_hover_text(*, seconds: float, latitude: float, longitude: float) -> str:
     return f"GPS | {seconds:.3f} s | lat {latitude:.6f} | lon {longitude:.6f}"
+
+
+def _coerce_gps_route_layer(layer: GPSRouteLayer | Mapping[str, object]) -> GPSRouteLayer:
+    if isinstance(layer, GPSRouteLayer):
+        return layer
+    name = str(layer.get("name", "CSV"))
+    latitude = layer.get("latitude", ())
+    longitude = layer.get("longitude", ())
+    if not isinstance(latitude, Sequence) or isinstance(latitude, str):
+        latitude = ()
+    if not isinstance(longitude, Sequence) or isinstance(longitude, str):
+        longitude = ()
+    return GPSRouteLayer(
+        name=name,
+        latitude=tuple(latitude),
+        longitude=tuple(longitude),
+    )
+
+
+def _prepare_gps_route_layer(layer: GPSRouteLayer) -> _PreparedGPSRouteLayer:
+    positions: list[tuple[float, float] | None] = []
+    plot_latitudes: list[float] = []
+    plot_longitudes: list[float] = []
+    valid_count = 0
+
+    for latitude_value, longitude_value in zip(layer.latitude, layer.longitude, strict=True):
+        if not _is_valid_gps_position(latitude_value, longitude_value):
+            positions.append(None)
+            plot_latitudes.append(math.nan)
+            plot_longitudes.append(math.nan)
+            continue
+        position = (float(latitude_value), float(longitude_value))
+        positions.append(position)
+        plot_latitudes.append(position[0])
+        plot_longitudes.append(position[1])
+        valid_count += 1
+
+    return _PreparedGPSRouteLayer(
+        name=layer.name,
+        positions=tuple(positions),
+        plot_latitudes=tuple(plot_latitudes),
+        plot_longitudes=tuple(plot_longitudes),
+        valid_count=valid_count,
+    )
 
 
 def _is_valid_gps_position(
