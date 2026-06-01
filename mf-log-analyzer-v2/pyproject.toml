@@ -27,6 +27,7 @@ mf-log-analyzer-v2 = "mf_log_analyzer_v2.__main__:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 qt_api = "pyside6"
 
 [tool.ruff]
