@@ -23,7 +23,7 @@ Windows에서 `QT_QPA_PLATFORM=minimal` 설정은 의도된 값입니다. 일반
 
 - 전체 테스트가 통과합니다.
 - `python.exe` 응용 프로그램 오류창이 뜨지 않습니다.
-- 최신 검증 기준으로는 `139 passed`가 정상입니다.
+- 최신 검증 기준으로는 `140 passed`가 정상입니다.
 
 ## 2. 300k x 200 합성 CSV 생성
 
@@ -189,8 +189,9 @@ prototype\dist\MF-LOG-ANALYZER-v2\MF-LOG-ANALYZER-v2.exe
 Compress-Archive -Path .\dist\MF-LOG-ANALYZER-v2 -DestinationPath .\dist\MF-LOG-ANALYZER-v2.zip -Force
 ```
 
-생성된 exe를 실행해 앱 창이 열리고, `3D Vehicle Model`과 `Documents` 창에서
-번들된 `car.glb`, `데이터분석기 콘티.pdf`를 확인합니다.
+생성된 exe를 실행해 앱 창이 무한질주 로고 프로그램 아이콘으로 열리고,
+`3D Vehicle Model`과 `Documents` 창에서 번들된 `car.glb`,
+`데이터분석기 콘티.pdf`를 확인합니다.
 
 ## 8. 판정
 
