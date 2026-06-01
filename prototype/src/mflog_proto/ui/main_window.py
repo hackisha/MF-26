@@ -527,6 +527,7 @@ class MainWindow(QtWidgets.QMainWindow):
             playback_state=self.playback_state,
             ax_corrected=self.sensor_series["AX_CORRECTED_G"],
             ay_corrected=self.sensor_series["AY_CORRECTED_G"],
+            yaw_rate=self.sensor_series["yaw rate"],
         )
 
     def _build_current_values_window(self) -> CurrentValuesWindow:

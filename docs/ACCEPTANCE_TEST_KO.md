@@ -23,7 +23,7 @@ Windows에서 `QT_QPA_PLATFORM=minimal` 설정은 의도된 값입니다. 일반
 
 - 전체 테스트가 통과합니다.
 - `python.exe` 응용 프로그램 오류창이 뜨지 않습니다.
-- 최신 검증 기준으로는 `136 passed`가 정상입니다.
+- 최신 검증 기준으로는 `139 passed`가 정상입니다.
 
 ## 2. 300k x 200 합성 CSV 생성
 
@@ -157,7 +157,8 @@ prototype\.generated\acceptance\target_300k_200.html
 - `3D Vehicle Model` 창이 프로젝트 루트의 `car.glb`를 읽고, 렌더링 가능한
   mesh vertex/triangle을 파싱한 뒤 viewport에 실제 GLB mesh와 정성적 시각화
   안내를 표시합니다. 재생 중에는 현재 보정 `ax`/`ay` 가속도에 따라 모델이
-  roll/pitch 방향으로 기울고 자세 텍스트가 갱신됩니다.
+  roll/pitch 방향으로 기울고, `yaw rate` 적분값으로 yaw가 표시되며, 자세
+  텍스트와 viewport의 XYZ 축 및 Roll/Pitch/Yaw 화살표가 갱신됩니다.
 
 추가 GPS/3D 확인:
 

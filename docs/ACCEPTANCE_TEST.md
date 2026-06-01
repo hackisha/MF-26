@@ -19,7 +19,7 @@ crashes.
 ```
 
 Expected result: all tests pass without a `python.exe` native error dialog.
-The current expected count is `136 passed`.
+The current expected count is `139 passed`.
 
 ## 2. Generate Target CSV
 
@@ -128,10 +128,11 @@ Check that:
 - `3D Vehicle Model` loads the root `car.glb` fixture, parses the renderable
   mesh vertices/triangles, shows the actual GLB mesh in the viewport, and labels
   the view as qualitative visualization. During playback, the model tilts from
-  the current corrected `ax`/`ay` acceleration and shows the roll/pitch attitude
-  text. The right properties panel can load a different GLB model and applies it
-  to open and newly created 3D vehicle windows. The selected GLB path is
-  preserved in `.mflogproj` save/open flows.
+  the current corrected `ax`/`ay` acceleration, integrates yaw from `yaw rate`,
+  shows the roll/pitch/yaw attitude text, and draws XYZ axes plus
+  Roll/Pitch/Yaw arrows in the viewport. The right properties panel can load a
+  different GLB model and applies it to open and newly created 3D vehicle
+  windows. The selected GLB path is preserved in `.mflogproj` save/open flows.
 
 ## 6. Windows EXE Build Smoke
 

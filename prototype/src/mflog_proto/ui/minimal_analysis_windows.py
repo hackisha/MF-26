@@ -956,26 +956,45 @@ class BenchmarkSummaryWindow(QtWidgets.QWidget):
 
 
 class VehicleModelViewport(QtWidgets.QWidget):
+    AXIS_LABELS = ("X", "Y", "Z")
+    ATTITUDE_ARROW_LABELS = ("Roll", "Pitch", "Yaw")
+
     def __init__(self, model_info: GlbModelInfo, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("vehicleModelViewport")
         self._model_info = model_info
         self._roll_degrees = 0.0
         self._pitch_degrees = 0.0
+        self._yaw_degrees = 0.0
         self.setMinimumHeight(160)
 
     def set_model_info(self, model_info: GlbModelInfo) -> None:
         self._model_info = model_info
         self.update()
 
-    def set_attitude(self, *, roll_degrees: float, pitch_degrees: float) -> None:
+    def set_attitude(
+        self,
+        *,
+        roll_degrees: float,
+        pitch_degrees: float,
+        yaw_degrees: float = 0.0,
+    ) -> None:
         self._roll_degrees = float(roll_degrees)
         self._pitch_degrees = float(pitch_degrees)
+        self._yaw_degrees = float(yaw_degrees)
         self.update()
 
     @property
-    def attitude_degrees(self) -> tuple[float, float]:
-        return self._roll_degrees, self._pitch_degrees
+    def attitude_degrees(self) -> tuple[float, float, float]:
+        return self._roll_degrees, self._pitch_degrees, self._yaw_degrees
+
+    @property
+    def axis_labels(self) -> tuple[str, str, str]:
+        return self.AXIS_LABELS
+
+    @property
+    def attitude_arrow_labels(self) -> tuple[str, str, str]:
+        return self.ATTITUDE_ARROW_LABELS
 
     @property
     def has_rendered_model(self) -> bool:
@@ -1021,10 +1040,13 @@ class VehicleModelViewport(QtWidgets.QWidget):
         origin = QtCore.QPointF(rect.center().x(), rect.center().y())
         model_roll = math.radians(self._roll_degrees)
         model_pitch = math.radians(self._pitch_degrees)
+        model_yaw = math.radians(self._yaw_degrees)
         cos_roll = math.cos(model_roll)
         sin_roll = math.sin(model_roll)
         cos_model_pitch = math.cos(model_pitch)
         sin_model_pitch = math.sin(model_pitch)
+        cos_model_yaw = math.cos(model_yaw)
+        sin_model_yaw = math.sin(model_yaw)
         yaw = math.radians(-36)
         camera_pitch = math.radians(24)
         cos_yaw = math.cos(yaw)
@@ -1037,6 +1059,9 @@ class VehicleModelViewport(QtWidgets.QWidget):
             x -= center_x
             y -= center_y
             z -= center_z
+            yawed_x = x * cos_model_yaw + z * sin_model_yaw
+            yawed_z = -x * sin_model_yaw + z * cos_model_yaw
+            x, z = yawed_x, yawed_z
             pitched_y = y * cos_model_pitch - z * sin_model_pitch
             pitched_z = y * sin_model_pitch + z * cos_model_pitch
             rolled_x = x * cos_roll - pitched_y * sin_roll
@@ -1088,6 +1113,139 @@ class VehicleModelViewport(QtWidgets.QWidget):
             QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop,
             self.preview_status_text(),
         )
+        self._draw_reference_axes(painter, rect)
+        self._draw_attitude_arrows(painter, rect)
+
+    def _draw_reference_axes(self, painter: QtGui.QPainter, rect: QtCore.QRect) -> None:
+        origin = QtCore.QPointF(rect.left() + 34, rect.bottom() - 30)
+        self._draw_arrow(
+            painter,
+            origin,
+            QtCore.QPointF(origin.x() + 42, origin.y()),
+            QtGui.QColor("#ec7063"),
+            "X",
+        )
+        self._draw_arrow(
+            painter,
+            origin,
+            QtCore.QPointF(origin.x(), origin.y() - 42),
+            QtGui.QColor("#58d68d"),
+            "Y",
+        )
+        self._draw_arrow(
+            painter,
+            origin,
+            QtCore.QPointF(origin.x() + 30, origin.y() - 26),
+            QtGui.QColor("#5dade2"),
+            "Z",
+        )
+
+    def _draw_attitude_arrows(self, painter: QtGui.QPainter, rect: QtCore.QRect) -> None:
+        left = rect.right() - 166
+        top = rect.top() + 18
+        panel = QtCore.QRectF(left, top, 150, 102)
+        painter.setPen(QtGui.QPen(QtGui.QColor("#4a5660"), 1))
+        painter.setBrush(QtGui.QColor(21, 26, 30, 190))
+        painter.drawRoundedRect(panel, 4, 4)
+
+        roll_length = _clamp(self._roll_degrees / 18.0, -1.0, 1.0) * 44
+        pitch_length = _clamp(self._pitch_degrees / 18.0, -1.0, 1.0) * 34
+        self._draw_arrow(
+            painter,
+            QtCore.QPointF(left + 76, top + 24),
+            QtCore.QPointF(left + 76 + roll_length, top + 24),
+            QtGui.QColor("#f4c95d"),
+            f"Roll {self._roll_degrees:.1f}",
+        )
+        self._draw_arrow(
+            painter,
+            QtCore.QPointF(left + 76, top + 55),
+            QtCore.QPointF(left + 76, top + 55 - pitch_length),
+            QtGui.QColor("#af7ac5"),
+            f"Pitch {self._pitch_degrees:.1f}",
+        )
+        self._draw_yaw_arrow(
+            painter,
+            center=QtCore.QPointF(left + 76, top + 82),
+            radius=14,
+            color=QtGui.QColor("#5dade2"),
+        )
+
+    def _draw_yaw_arrow(
+        self,
+        painter: QtGui.QPainter,
+        *,
+        center: QtCore.QPointF,
+        radius: float,
+        color: QtGui.QColor,
+    ) -> None:
+        painter.setPen(QtGui.QPen(color, 2))
+        arc_rect = QtCore.QRectF(
+            center.x() - radius,
+            center.y() - radius,
+            radius * 2,
+            radius * 2,
+        )
+        magnitude = min(abs(self._yaw_degrees), 180.0) / 180.0
+        span_degrees = 36.0 + magnitude * 252.0
+        span = int(span_degrees * 16)
+        if self._yaw_degrees < 0:
+            span *= -1
+        painter.drawArc(arc_rect, 35 * 16, span)
+        end_angle = math.radians(35 + span / 16)
+        end = QtCore.QPointF(
+            center.x() + math.cos(end_angle) * radius,
+            center.y() - math.sin(end_angle) * radius,
+        )
+        tangent_angle = end_angle + (math.pi / 2 if self._yaw_degrees >= 0 else -math.pi / 2)
+        self._draw_arrow_head(painter, end, tangent_angle, color)
+        painter.setPen(QtGui.QColor("#dce7ee"))
+        painter.drawText(
+            QtCore.QRectF(center.x() + 22, center.y() - 10, 72, 22),
+            QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter,
+            f"Yaw {self._yaw_degrees:.1f}",
+        )
+
+    def _draw_arrow(
+        self,
+        painter: QtGui.QPainter,
+        start: QtCore.QPointF,
+        end: QtCore.QPointF,
+        color: QtGui.QColor,
+        label: str,
+    ) -> None:
+        painter.setPen(QtGui.QPen(color, 2))
+        painter.drawLine(start, end)
+        angle = math.atan2(start.y() - end.y(), end.x() - start.x())
+        self._draw_arrow_head(painter, end, angle, color)
+        painter.setPen(QtGui.QColor("#dce7ee"))
+        painter.drawText(
+            QtCore.QRectF(end.x() + 4, end.y() - 12, 80, 24),
+            QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter,
+            label,
+        )
+
+    def _draw_arrow_head(
+        self,
+        painter: QtGui.QPainter,
+        tip: QtCore.QPointF,
+        angle: float,
+        color: QtGui.QColor,
+    ) -> None:
+        arrow_size = 7
+        left = QtCore.QPointF(
+            tip.x() - math.cos(angle - math.pi / 7) * arrow_size,
+            tip.y() + math.sin(angle - math.pi / 7) * arrow_size,
+        )
+        right = QtCore.QPointF(
+            tip.x() - math.cos(angle + math.pi / 7) * arrow_size,
+            tip.y() + math.sin(angle + math.pi / 7) * arrow_size,
+        )
+        path = QtGui.QPainterPath(tip)
+        path.lineTo(left)
+        path.lineTo(right)
+        path.closeSubpath()
+        painter.fillPath(path, QtGui.QBrush(color))
 
 
 class VehicleModelWindow(QtWidgets.QWidget):
@@ -1099,6 +1257,7 @@ class VehicleModelWindow(QtWidgets.QWidget):
         playback_state: PlaybackState | None = None,
         ax_corrected: Sequence[float | None] = (),
         ay_corrected: Sequence[float | None] = (),
+        yaw_rate: Sequence[float | None] = (),
     ) -> None:
         super().__init__(parent)
         self.setObjectName("vehicleModelWindow")
@@ -1107,7 +1266,10 @@ class VehicleModelWindow(QtWidgets.QWidget):
         self._playback_state = playback_state
         self._ax_corrected = list(ax_corrected)
         self._ay_corrected = list(ay_corrected)
+        self._yaw_rate = list(yaw_rate)
+        self._cumulative_yaw_degrees: list[float] = []
         self._unsubscribe: Callable[[], None] | None = None
+        self._rebuild_cumulative_yaw_degrees()
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -1136,7 +1298,10 @@ class VehicleModelWindow(QtWidgets.QWidget):
         layout.addWidget(self.reliability_badge)
         if self._playback_state is not None:
             self._unsubscribe = self._playback_state.subscribe(self._handle_cursor_event)
-            self._update_attitude(self._playback_state.current_sample)
+            self._update_attitude(
+                self._playback_state.current_sample,
+                self._playback_state.current_seconds,
+            )
 
     def set_model_info(self, model_info: GlbModelInfo) -> None:
         self._model_info = model_info
@@ -1150,19 +1315,37 @@ class VehicleModelWindow(QtWidgets.QWidget):
         *,
         ax_corrected: Sequence[float | None],
         ay_corrected: Sequence[float | None],
+        yaw_rate: Sequence[float | None] | None = None,
     ) -> None:
         self._ax_corrected = list(ax_corrected)
         self._ay_corrected = list(ay_corrected)
+        if yaw_rate is not None:
+            self._yaw_rate = list(yaw_rate)
+            self._rebuild_cumulative_yaw_degrees()
         sample_index = 0 if self._playback_state is None else self._playback_state.current_sample
-        self._update_attitude(sample_index)
+        current_seconds = None if self._playback_state is None else self._playback_state.current_seconds
+        self._update_attitude(sample_index, current_seconds)
 
     @property
-    def attitude_degrees(self) -> tuple[float, float]:
+    def attitude_degrees(self) -> tuple[float, float, float]:
         return self.viewport.attitude_degrees
 
+    @property
+    def axis_labels(self) -> tuple[str, str, str]:
+        return self.viewport.axis_labels
+
+    @property
+    def attitude_arrow_labels(self) -> tuple[str, str, str]:
+        return self.viewport.attitude_arrow_labels
+
     def attitude_text(self) -> str:
-        roll, pitch = self.attitude_degrees
-        return f"Attitude: roll {roll:.1f} deg | pitch {pitch:.1f} deg"
+        roll, pitch, yaw = self.attitude_degrees
+        return f"Attitude: roll {roll:.1f} deg | pitch {pitch:.1f} deg | yaw {yaw:.1f} deg"
+
+    def overlay_status_text(self) -> str:
+        axes = "/".join(self.axis_labels)
+        arrows = "/".join(self.attitude_arrow_labels)
+        return f"Axes: {axes} | Arrows: {arrows}"
 
     @property
     def is_rendering_enabled(self) -> bool:
@@ -1245,16 +1428,89 @@ class VehicleModelWindow(QtWidgets.QWidget):
 
     def _handle_cursor_event(self, event: CursorEvent) -> None:
         if event.kind is CursorKind.PLAYBACK:
-            self._update_attitude(event.sample_index)
+            self._update_attitude(event.sample_index, event.seconds)
 
-    def _update_attitude(self, sample_index: int) -> None:
+    def _update_attitude(self, sample_index: int, seconds: float | None = None) -> None:
         ax = _sequence_value(self._ax_corrected, sample_index)
         ay = _sequence_value(self._ay_corrected, sample_index)
         roll = _clamp(ay * 12.0, -18.0, 18.0)
         pitch = _clamp(-ax * 12.0, -18.0, 18.0)
-        self.viewport.set_attitude(roll_degrees=roll, pitch_degrees=pitch)
+        yaw = self._integrated_yaw_degrees(sample_index, seconds)
+        self.viewport.set_attitude(
+            roll_degrees=roll,
+            pitch_degrees=pitch,
+            yaw_degrees=yaw,
+        )
         if hasattr(self, "attitude_label"):
             self.attitude_label.setText(self.attitude_text())
+
+    def _integrated_yaw_degrees(self, sample_index: int, seconds: float | None = None) -> float:
+        if not self._yaw_rate:
+            return 0.0
+        if self._playback_state is None:
+            return _wrap_degrees(_sequence_value(self._yaw_rate, sample_index))
+        if len(self._cumulative_yaw_degrees) != self._playback_state.sample_count:
+            self._rebuild_cumulative_yaw_degrees()
+        if not self._cumulative_yaw_degrees:
+            return 0.0
+
+        clamped = min(max(sample_index, 0), self._playback_state.sample_count - 1)
+        if seconds is None:
+            seconds = self._playback_state.seconds_at(clamped)
+        first_seconds = self._playback_state.seconds_at(0)
+        last_seconds = self._playback_state.seconds_at(self._playback_state.sample_count - 1)
+        clamped_seconds = _clamp(float(seconds), first_seconds, last_seconds)
+        before_index, after_index = self._yaw_interval_indices_for_seconds(clamped_seconds)
+        yaw_degrees = self._cumulative_yaw_degrees[before_index]
+        if after_index > before_index:
+            before_seconds = self._playback_state.seconds_at(before_index)
+            after_seconds = self._playback_state.seconds_at(after_index)
+            span_seconds = max(0.0, after_seconds - before_seconds)
+            partial_seconds = max(0.0, clamped_seconds - before_seconds)
+            if span_seconds > 0.0 and partial_seconds > 0.0:
+                previous_rate = _sequence_value(self._yaw_rate, before_index)
+                next_rate = _sequence_value(self._yaw_rate, after_index)
+                fraction = _clamp(partial_seconds / span_seconds, 0.0, 1.0)
+                interpolated_rate = previous_rate + (next_rate - previous_rate) * fraction
+                yaw_degrees += (previous_rate + interpolated_rate) / 2 * partial_seconds
+        return _wrap_degrees(yaw_degrees)
+
+    def _rebuild_cumulative_yaw_degrees(self) -> None:
+        if self._playback_state is None or not self._yaw_rate:
+            self._cumulative_yaw_degrees = []
+            return
+        cumulative = [0.0] * self._playback_state.sample_count
+        for index in range(1, self._playback_state.sample_count):
+            previous_rate = _sequence_value(self._yaw_rate, index - 1)
+            current_rate = _sequence_value(self._yaw_rate, index)
+            delta_seconds = max(
+                0.0,
+                self._playback_state.seconds_at(index)
+                - self._playback_state.seconds_at(index - 1),
+            )
+            cumulative[index] = cumulative[index - 1] + (
+                previous_rate + current_rate
+            ) / 2 * delta_seconds
+        self._cumulative_yaw_degrees = cumulative
+
+    def _yaw_interval_indices_for_seconds(self, seconds: float) -> tuple[int, int]:
+        if self._playback_state is None:
+            return (0, 0)
+        last_index = self._playback_state.sample_count - 1
+        if last_index <= 0 or seconds <= self._playback_state.seconds_at(0):
+            return (0, 0)
+        if seconds >= self._playback_state.seconds_at(last_index):
+            return (last_index, last_index)
+
+        low = 0
+        high = last_index
+        while low < high:
+            mid = (low + high + 1) // 2
+            if self._playback_state.seconds_at(mid) <= seconds:
+                low = mid
+            else:
+                high = mid - 1
+        return (low, min(low + 1, last_index))
 
 
 def load_glb_info(path: Path) -> GlbModelInfo:
@@ -1495,6 +1751,13 @@ def _sequence_value(values: Sequence[float | None], index: int) -> float:
 
 def _clamp(value: float, minimum: float, maximum: float) -> float:
     return min(max(value, minimum), maximum)
+
+
+def _wrap_degrees(value: float) -> float:
+    wrapped = (value + 180.0) % 360.0 - 180.0
+    if wrapped == -180.0 and value > 0:
+        return 180.0
+    return wrapped
 
 
 def _event_fields(event: object) -> tuple[str, str, int, str]:

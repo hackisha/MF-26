@@ -422,20 +422,67 @@ def test_vehicle_model_window_renders_actual_glb_mesh(qtbot):
 
 def test_vehicle_model_window_tilts_from_playback_acceleration(qtbot):
     info = load_glb_info(PROJECT_ROOT / "car.glb")
-    playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
+    playback = PlaybackState(timestamps=[0.0, 0.1, 0.2, 0.3])
     window = VehicleModelWindow(
         info,
         playback_state=playback,
-        ax_corrected=[0.0, 0.5, -2.0],
-        ay_corrected=[0.0, -0.25, 2.0],
+        ax_corrected=[0.0, 0.5, -2.0, 0.0],
+        ay_corrected=[0.0, -0.25, 2.0, 0.0],
+        yaw_rate=[0.0, 60.0, 60.0, 120.0],
     )
     qtbot.addWidget(window)
 
     playback.set_sample(1)
 
-    assert window.attitude_degrees == pytest.approx((-3.0, -6.0))
-    assert window.attitude_text() == "Attitude: roll -3.0 deg | pitch -6.0 deg"
+    assert window.attitude_degrees == pytest.approx((-3.0, -6.0, 3.0))
+    assert window.attitude_text() == (
+        "Attitude: roll -3.0 deg | pitch -6.0 deg | yaw 3.0 deg"
+    )
 
     playback.set_sample(2)
 
-    assert window.attitude_degrees == pytest.approx((18.0, 18.0))
+    assert window.attitude_degrees == pytest.approx((18.0, 18.0, 9.0))
+
+    playback.set_time_ms(250)
+
+    assert window.attitude_degrees[2] == pytest.approx(12.75)
+
+
+def test_vehicle_model_window_initializes_yaw_from_current_playback_time(qtbot):
+    info = load_glb_info(PROJECT_ROOT / "car.glb")
+    playback = PlaybackState(timestamps=[0.0, 0.1, 0.2, 0.3])
+    playback.set_time_ms(250)
+    window = VehicleModelWindow(
+        info,
+        playback_state=playback,
+        ax_corrected=[0.0, 0.5, -2.0, 0.0],
+        ay_corrected=[0.0, -0.25, 2.0, 0.0],
+        yaw_rate=[0.0, 60.0, 60.0, 120.0],
+    )
+    qtbot.addWidget(window)
+
+    assert window.attitude_degrees[2] == pytest.approx(12.75)
+
+
+def test_vehicle_model_window_exposes_axis_and_attitude_arrow_overlays(qtbot):
+    info = load_glb_info(PROJECT_ROOT / "car.glb")
+    window = VehicleModelWindow(info)
+    qtbot.addWidget(window)
+    window.resize(640, 360)
+
+    assert window.axis_labels == ("X", "Y", "Z")
+    assert window.attitude_arrow_labels == ("Roll", "Pitch", "Yaw")
+    assert window.overlay_status_text() == "Axes: X/Y/Z | Arrows: Roll/Pitch/Yaw"
+
+    window.show()
+    qtbot.waitExposed(window)
+    image = window.viewport.grab().toImage()
+
+    axis_pixels = 0
+    for y in range(max(0, image.height() - 70), image.height()):
+        for x in range(0, min(140, image.width())):
+            color = image.pixelColor(x, y)
+            if color.red() > 150 and color.green() < 140 and color.blue() < 140:
+                axis_pixels += 1
+
+    assert axis_pixels > 0

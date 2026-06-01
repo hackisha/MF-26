@@ -629,6 +629,18 @@ def test_main_window_routes_minimal_analysis_windows_to_real_widgets(qtbot):
     assert isinstance(created["3D Vehicle Model"], VehicleModelWindow)
 
 
+def test_main_window_passes_yaw_rate_to_vehicle_model_window(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+    vehicle_window = window.add_analysis_window("3D Vehicle Model").widget()
+
+    window.set_playback_position(10)
+
+    assert vehicle_window.attitude_degrees[2] == pytest.approx(0.5)
+    assert "yaw 0.5 deg" in vehicle_window.attitude_text()
+
+
 def test_root_asset_path_finds_car_glb_from_prototype_cwd(monkeypatch):
     monkeypatch.chdir(PROTOTYPE_ROOT)
 
