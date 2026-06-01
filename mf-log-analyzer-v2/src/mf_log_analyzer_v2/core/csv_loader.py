@@ -22,18 +22,30 @@ def _emit(
 
 def load_csv(path: Path, profile: VehicleProfile, on_progress: ProgressCallback | None = None) -> LogTable:
     _emit(on_progress, "reading")
-    raw = pl.read_csv(path, infer_schema_length=10_000, ignore_errors=True)
-    headers = raw.columns
+    header = pl.read_csv(path, n_rows=0)
+    headers = header.columns
 
-    _emit(on_progress, "mapping", total_rows=raw.height)
+    _emit(on_progress, "mapping")
     mapped_columns: dict[str, pl.Series] = {}
+    sources_by_channel: dict[str, str] = {}
+    needed_sources: list[str] = []
+    seen_sources: set[str] = set()
 
-    _emit(on_progress, "calibrating", total_rows=raw.height)
-    for channel_id, channel in profile.channels.items():
+    for channel_id in profile.channels:
         source = profile.source_for(channel_id, headers)
         if source is None:
             continue
-        values = raw[source].cast(pl.Float64, strict=False).to_numpy()
+        sources_by_channel[channel_id] = source
+        if source not in seen_sources:
+            needed_sources.append(source)
+            seen_sources.add(source)
+
+    raw = pl.read_csv(path, columns=needed_sources, infer_schema_length=10_000)
+
+    _emit(on_progress, "calibrating", total_rows=raw.height)
+    for channel_id, source in sources_by_channel.items():
+        channel = profile.channels[channel_id]
+        values = raw[source].cast(pl.Float64, strict=True).to_numpy()
         mapped_columns[channel_id] = pl.Series(channel_id, channel.calibration.apply(values))
 
     if "Timestamp" not in mapped_columns:
