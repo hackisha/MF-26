@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 
 from mf_log_analyzer_v2.core.models import LoadProgress, LogTable, VehicleProfile
@@ -29,16 +30,23 @@ def load_csv(path: Path, profile: VehicleProfile, on_progress: ProgressCallback 
     mapped_columns: dict[str, pl.Series] = {}
     sources_by_channel: dict[str, str] = {}
     needed_sources: list[str] = []
+    missing_required_channels: list[str] = []
     seen_sources: set[str] = set()
 
-    for channel_id in profile.channels:
+    for channel_id, channel in profile.channels.items():
         source = profile.source_for(channel_id, headers)
         if source is None:
+            if channel.required:
+                missing_required_channels.append(channel_id)
             continue
         sources_by_channel[channel_id] = source
         if source not in seen_sources:
             needed_sources.append(source)
             seen_sources.add(source)
+
+    if missing_required_channels:
+        missing = ", ".join(missing_required_channels)
+        raise ValueError(f"Missing required channel: {missing}")
 
     if needed_sources:
         raw = pl.read_csv(path, columns=needed_sources, infer_schema_length=10_000)
@@ -51,7 +59,14 @@ def load_csv(path: Path, profile: VehicleProfile, on_progress: ProgressCallback 
     _emit(on_progress, "calibrating", total_rows=row_count)
     for channel_id, source in sources_by_channel.items():
         channel = profile.channels[channel_id]
-        values = raw[source].cast(pl.Float64, strict=True).to_numpy()
+        source_values = raw[source]
+        if source_values.null_count() > 0:
+            raise ValueError(f"Missing numeric value in source column: {source}")
+
+        values = source_values.cast(pl.Float64, strict=True).to_numpy()
+        if not np.isfinite(values).all():
+            raise ValueError(f"Non-finite numeric value in source column: {source}")
+
         mapped_columns[channel_id] = pl.Series(channel_id, channel.calibration.apply(values))
 
     if "Timestamp" not in mapped_columns:

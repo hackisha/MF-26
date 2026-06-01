@@ -143,3 +143,31 @@ def test_load_csv_raises_for_invalid_numeric_values(tmp_path: Path):
 
     with pytest.raises(InvalidOperationError):
         load_csv(csv_path, mf_default_profile())
+
+
+def test_load_csv_raises_for_missing_required_timestamp(tmp_path: Path):
+    csv_path = tmp_path / "sample.csv"
+    csv_path.write_text(
+        "RPM\n"
+        "1000\n"
+        "1200\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Missing required channel: Timestamp"):
+        load_csv(csv_path, mf_default_profile())
+
+
+@pytest.mark.parametrize(
+    "csv_text",
+    [
+        "Timestamp,RPM\n0.0,1000\n0.1,\n",
+        "Timestamp,RPM\n0.0,1000\n0.1\n",
+    ],
+)
+def test_load_csv_raises_for_missing_mapped_numeric_values(tmp_path: Path, csv_text: str):
+    csv_path = tmp_path / "sample.csv"
+    csv_path.write_text(csv_text, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Missing numeric value in source column: RPM"):
+        load_csv(csv_path, mf_default_profile())
