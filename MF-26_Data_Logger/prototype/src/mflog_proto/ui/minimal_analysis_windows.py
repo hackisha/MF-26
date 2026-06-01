@@ -61,6 +61,13 @@ class GlbModelInfo:
 
 
 @dataclass(frozen=True)
+class _VehicleProjection:
+    center: tuple[float, float, float]
+    span: float
+    project: Callable[[tuple[float, float, float]], tuple[QtCore.QPointF, float]]
+
+
+@dataclass(frozen=True)
 class MapTileImage:
     image: QtGui.QImage
     west: float
@@ -1003,6 +1010,22 @@ class VehicleModelViewport(QtWidgets.QWidget):
     def preview_status_text(self) -> str:
         return "Loaded 3D GLB mesh" if self.has_rendered_model else "No renderable GLB mesh"
 
+    def axis_origin_text(self) -> str:
+        return "Axes origin: vehicle center"
+
+    def attitude_overlay_text(self) -> str:
+        roll = _format_degrees(self._roll_degrees)
+        pitch = _format_degrees(self._pitch_degrees)
+        yaw = _format_degrees(self._yaw_degrees)
+        return f"Roll {roll} deg | Pitch {pitch} deg | Yaw {yaw} deg"
+
+    def vehicle_axis_origin_for_rect(self, rect: QtCore.QRect) -> QtCore.QPointF | None:
+        if not self.has_rendered_model:
+            return None
+        projection = self._projection_for_rect(rect)
+        point, _ = projection.project(projection.center)
+        return point
+
     @property
     def rendered_vertex_count(self) -> int:
         return self._model_info.vertex_count
@@ -1028,6 +1051,48 @@ class VehicleModelViewport(QtWidgets.QWidget):
         self._draw_mesh_preview(painter, rect.adjusted(18, 18, -18, -18))
 
     def _draw_mesh_preview(self, painter: QtGui.QPainter, rect: QtCore.QRect) -> None:
+        projection = self._projection_for_rect(rect)
+
+        projected_primitives = [
+            [projection.project(vertex) for vertex in primitive.vertices]
+            for primitive in self._model_info.primitives
+        ]
+        faces: list[tuple[float, QtGui.QPainterPath]] = []
+        for primitive, projected in zip(
+            self._model_info.primitives,
+            projected_primitives,
+            strict=True,
+        ):
+            for left, middle, right in primitive.triangles:
+                if left >= len(projected) or middle >= len(projected) or right >= len(projected):
+                    continue
+                left_point, left_depth = projected[left]
+                middle_point, middle_depth = projected[middle]
+                right_point, right_depth = projected[right]
+                path = QtGui.QPainterPath(left_point)
+                path.lineTo(middle_point)
+                path.lineTo(right_point)
+                path.closeSubpath()
+                average_depth = (left_depth + middle_depth + right_depth) / 3
+                faces.append((average_depth, path))
+
+        painter.setPen(QtGui.QPen(QtGui.QColor(112, 196, 245, 130), 1))
+        for face_index, (_, path) in enumerate(sorted(faces, key=lambda face: face[0])):
+            color = QtGui.QColor("#59afe3") if face_index % 2 else QtGui.QColor("#4b9bd1")
+            color.setAlpha(115)
+            painter.fillPath(path, QtGui.QBrush(color))
+            painter.drawPath(path)
+
+        painter.setPen(QtGui.QColor("#c8d2dc"))
+        painter.drawText(
+            rect.adjusted(4, 4, -4, -4),
+            QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop,
+            self.preview_status_text(),
+        )
+        self._draw_vehicle_center_axes(painter, projection)
+        self._draw_attitude_hud(painter, rect)
+
+    def _projection_for_rect(self, rect: QtCore.QRect) -> _VehicleProjection:
         assert self._model_info.scene_min is not None
         assert self._model_info.scene_max is not None
         min_x, min_y, min_z = self._model_info.scene_min
@@ -1077,99 +1142,122 @@ class VehicleModelViewport(QtWidgets.QWidget):
             )
             return screen, depth
 
-        projected_primitives = [
-            [project(vertex) for vertex in primitive.vertices]
-            for primitive in self._model_info.primitives
-        ]
-        faces: list[tuple[float, QtGui.QPainterPath]] = []
-        for primitive, projected in zip(
-            self._model_info.primitives,
-            projected_primitives,
-            strict=True,
-        ):
-            for left, middle, right in primitive.triangles:
-                if left >= len(projected) or middle >= len(projected) or right >= len(projected):
-                    continue
-                left_point, left_depth = projected[left]
-                middle_point, middle_depth = projected[middle]
-                right_point, right_depth = projected[right]
-                path = QtGui.QPainterPath(left_point)
-                path.lineTo(middle_point)
-                path.lineTo(right_point)
-                path.closeSubpath()
-                average_depth = (left_depth + middle_depth + right_depth) / 3
-                faces.append((average_depth, path))
-
-        painter.setPen(QtGui.QPen(QtGui.QColor(112, 196, 245, 130), 1))
-        for face_index, (_, path) in enumerate(sorted(faces, key=lambda face: face[0])):
-            color = QtGui.QColor("#59afe3") if face_index % 2 else QtGui.QColor("#4b9bd1")
-            color.setAlpha(115)
-            painter.fillPath(path, QtGui.QBrush(color))
-            painter.drawPath(path)
-
-        painter.setPen(QtGui.QColor("#c8d2dc"))
-        painter.drawText(
-            rect.adjusted(4, 4, -4, -4),
-            QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop,
-            self.preview_status_text(),
-        )
-        self._draw_reference_axes(painter, rect)
-        self._draw_attitude_arrows(painter, rect)
-
-    def _draw_reference_axes(self, painter: QtGui.QPainter, rect: QtCore.QRect) -> None:
-        origin = QtCore.QPointF(rect.left() + 34, rect.bottom() - 30)
-        self._draw_arrow(
-            painter,
-            origin,
-            QtCore.QPointF(origin.x() + 42, origin.y()),
-            QtGui.QColor("#ec7063"),
-            "X",
-        )
-        self._draw_arrow(
-            painter,
-            origin,
-            QtCore.QPointF(origin.x(), origin.y() - 42),
-            QtGui.QColor("#58d68d"),
-            "Y",
-        )
-        self._draw_arrow(
-            painter,
-            origin,
-            QtCore.QPointF(origin.x() + 30, origin.y() - 26),
-            QtGui.QColor("#5dade2"),
-            "Z",
+        return _VehicleProjection(
+            center=(center_x, center_y, center_z),
+            span=span,
+            project=project,
         )
 
-    def _draw_attitude_arrows(self, painter: QtGui.QPainter, rect: QtCore.QRect) -> None:
-        left = rect.right() - 166
-        top = rect.top() + 18
-        panel = QtCore.QRectF(left, top, 150, 102)
+    def _draw_vehicle_center_axes(
+        self,
+        painter: QtGui.QPainter,
+        projection: _VehicleProjection,
+    ) -> None:
+        center_x, center_y, center_z = projection.center
+        axis_length = projection.span * 0.34
+        origin, _ = projection.project(projection.center)
+        axes = (
+            ((center_x + axis_length, center_y, center_z), QtGui.QColor("#ec7063"), "X"),
+            ((center_x, center_y + axis_length, center_z), QtGui.QColor("#58d68d"), "Y"),
+            ((center_x, center_y, center_z + axis_length), QtGui.QColor("#5dade2"), "Z"),
+        )
+        painter.save()
+        painter.setPen(QtGui.QPen(QtGui.QColor("#101417"), 3))
+        painter.setBrush(QtGui.QColor("#f4c95d"))
+        painter.drawEllipse(origin, 4, 4)
+        painter.restore()
+        for end_point, color, label in axes:
+            end, _ = projection.project(end_point)
+            self._draw_arrow(painter, origin, end, color, label)
+
+    def _draw_attitude_hud(self, painter: QtGui.QPainter, rect: QtCore.QRect) -> None:
+        text = self.attitude_overlay_text()
+        font = QtGui.QFont(painter.font())
+        font.setPointSize(max(8, font.pointSize() - 1))
+        metrics = QtGui.QFontMetrics(font)
+        items = (
+            ("roll", f"Roll {_format_degrees(self._roll_degrees)} deg", QtGui.QColor("#f4c95d")),
+            ("pitch", f"Pitch {_format_degrees(self._pitch_degrees)} deg", QtGui.QColor("#af7ac5")),
+            ("yaw", f"Yaw {_format_degrees(self._yaw_degrees)} deg", QtGui.QColor("#5dade2")),
+        )
+        item_widths = [metrics.horizontalAdvance(label) + 28 for _, label, _ in items]
+        natural_width = sum(item_widths) + 16
+        available_width = max(64, rect.width() - 12)
+        panel_width = min(available_width, max(metrics.horizontalAdvance(text) + 22, natural_width))
+        panel_height = metrics.height() + 10
+        panel = QtCore.QRectF(
+            rect.left() + 6,
+            rect.bottom() - panel_height - 6,
+            panel_width,
+            panel_height,
+        )
+        painter.save()
+        painter.setFont(font)
         painter.setPen(QtGui.QPen(QtGui.QColor("#4a5660"), 1))
-        painter.setBrush(QtGui.QColor(21, 26, 30, 190))
+        painter.setBrush(QtGui.QColor(21, 26, 30, 215))
         painter.drawRoundedRect(panel, 4, 4)
+        painter.setPen(QtGui.QColor("#f4f8fb"))
+        if panel_width >= natural_width:
+            x = panel.left() + 10
+            for (kind, label, color), item_width in zip(items, item_widths, strict=True):
+                center = QtCore.QPointF(x + 8, panel.center().y())
+                self._draw_attitude_marker(painter, center, kind, color)
+                painter.setPen(QtGui.QColor("#f4f8fb"))
+                painter.drawText(
+                    QtCore.QRectF(x + 22, panel.top(), item_width - 22, panel.height()),
+                    QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter,
+                    label,
+                )
+                x += item_width
+        else:
+            painter.drawText(
+                panel.adjusted(10, 0, -8, 0),
+                QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter,
+                metrics.elidedText(text, QtCore.Qt.TextElideMode.ElideRight, int(panel_width - 18)),
+            )
+        painter.restore()
 
-        roll_length = _clamp(self._roll_degrees / 18.0, -1.0, 1.0) * 44
-        pitch_length = _clamp(self._pitch_degrees / 18.0, -1.0, 1.0) * 34
-        self._draw_arrow(
-            painter,
-            QtCore.QPointF(left + 76, top + 24),
-            QtCore.QPointF(left + 76 + roll_length, top + 24),
-            QtGui.QColor("#f4c95d"),
-            f"Roll {self._roll_degrees:.1f}",
-        )
-        self._draw_arrow(
-            painter,
-            QtCore.QPointF(left + 76, top + 55),
-            QtCore.QPointF(left + 76, top + 55 - pitch_length),
-            QtGui.QColor("#af7ac5"),
-            f"Pitch {self._pitch_degrees:.1f}",
-        )
-        self._draw_yaw_arrow(
-            painter,
-            center=QtCore.QPointF(left + 76, top + 82),
-            radius=14,
-            color=QtGui.QColor("#5dade2"),
-        )
+    def _draw_attitude_marker(
+        self,
+        painter: QtGui.QPainter,
+        center: QtCore.QPointF,
+        kind: str,
+        color: QtGui.QColor,
+    ) -> None:
+        painter.save()
+        painter.setPen(QtGui.QPen(color, 2))
+        if kind == "roll":
+            direction = 1 if self._roll_degrees >= 0 else -1
+            magnitude = 5 + abs(_clamp(self._roll_degrees / 18.0, -1.0, 1.0)) * 7
+            start = QtCore.QPointF(center.x() - direction * 5, center.y())
+            end = QtCore.QPointF(center.x() + direction * magnitude, center.y())
+            painter.drawLine(start, end)
+            self._draw_arrow_head(painter, end, math.atan2(start.y() - end.y(), end.x() - start.x()), color)
+        elif kind == "pitch":
+            direction = -1 if self._pitch_degrees >= 0 else 1
+            magnitude = 5 + abs(_clamp(self._pitch_degrees / 18.0, -1.0, 1.0)) * 7
+            start = QtCore.QPointF(center.x(), center.y() - direction * 5)
+            end = QtCore.QPointF(center.x(), center.y() + direction * magnitude)
+            painter.drawLine(start, end)
+            self._draw_arrow_head(painter, end, math.atan2(start.y() - end.y(), end.x() - start.x()), color)
+        else:
+            radius = 7
+            arc_rect = QtCore.QRectF(
+                center.x() - radius,
+                center.y() - radius,
+                radius * 2,
+                radius * 2,
+            )
+            span = 250 * 16 if self._yaw_degrees >= 0 else -250 * 16
+            painter.drawArc(arc_rect, 35 * 16, span)
+            end_angle = math.radians(35 + span / 16)
+            end = QtCore.QPointF(
+                center.x() + math.cos(end_angle) * radius,
+                center.y() - math.sin(end_angle) * radius,
+            )
+            tangent_angle = end_angle + (math.pi / 2 if self._yaw_degrees >= 0 else -math.pi / 2)
+            self._draw_arrow_head(painter, end, tangent_angle, color)
+        painter.restore()
 
     def _draw_yaw_arrow(
         self,
@@ -1340,12 +1428,20 @@ class VehicleModelWindow(QtWidgets.QWidget):
 
     def attitude_text(self) -> str:
         roll, pitch, yaw = self.attitude_degrees
-        return f"Attitude: roll {roll:.1f} deg | pitch {pitch:.1f} deg | yaw {yaw:.1f} deg"
+        return (
+            f"Attitude: roll {_format_degrees(roll)} deg | "
+            f"pitch {_format_degrees(pitch)} deg | yaw {_format_degrees(yaw)} deg"
+        )
+
+    def axis_origin_text(self) -> str:
+        return self.viewport.axis_origin_text()
+
+    def attitude_overlay_text(self) -> str:
+        return self.viewport.attitude_overlay_text()
 
     def overlay_status_text(self) -> str:
         axes = "/".join(self.axis_labels)
-        arrows = "/".join(self.attitude_arrow_labels)
-        return f"Axes: {axes} | Arrows: {arrows}"
+        return f"Axes: vehicle-center {axes} | Attitude HUD: Roll/Pitch/Yaw"
 
     @property
     def is_rendering_enabled(self) -> bool:
@@ -1758,6 +1854,11 @@ def _wrap_degrees(value: float) -> float:
     if wrapped == -180.0 and value > 0:
         return 180.0
     return wrapped
+
+
+def _format_degrees(value: float) -> str:
+    cleaned = 0.0 if abs(value) < 0.05 else value
+    return f"{cleaned:.1f}"
 
 
 def _event_fields(event: object) -> tuple[str, str, int, str]:
