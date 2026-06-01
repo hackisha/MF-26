@@ -9,6 +9,7 @@ import sys
 from typing import Callable, Sequence
 
 from PySide6 import QtCore, QtGui, QtWidgets
+import shiboken6
 
 from mflog_proto.benchmark.metrics import collect_environment
 from mflog_proto.data.column_store import ColumnStore
@@ -136,6 +137,8 @@ class _AnalysisWindowOverlayControls(QtCore.QObject):
         return super().eventFilter(watched, event)
 
     def update_geometry(self) -> None:
+        if not shiboken6.isValid(self._sub_window) or not shiboken6.isValid(self._content):
+            return
         is_maximized = (
             self._sub_window.isMaximized()
             or bool(self._sub_window.windowState() & QtCore.Qt.WindowState.WindowMaximized)
@@ -448,6 +451,8 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         sub_window.resize(460, 260)
         sub_window.show()
+        self.workspace.setActiveSubWindow(sub_window)
+        self._update_properties_for_active_window(sub_window)
         return sub_window
 
     def _build_time_series_window(self) -> TimeSeriesWindow:
@@ -579,6 +584,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.workspace.setObjectName("workspace")
         self.workspace.setViewMode(QtWidgets.QMdiArea.ViewMode.SubWindowView)
         self.workspace.setBackground(QtGui.QBrush(QtGui.QColor("#202326")))
+        self.workspace.subWindowActivated.connect(self._update_properties_for_active_window)
 
         central_layout.addWidget(self.preset_tabs)
         central_layout.addWidget(self.workspace, 1)
@@ -625,11 +631,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.properties_panel.setAllowedAreas(QtCore.Qt.DockWidgetArea.RightDockWidgetArea)
 
         content = QtWidgets.QWidget()
-        layout = QtWidgets.QFormLayout(content)
+        layout = QtWidgets.QVBoxLayout(content)
         layout.setContentsMargins(12, 12, 12, 12)
-        layout.addRow("선택 창", QtWidgets.QLabel("Time-Series Graph"))
-        layout.addRow("그래프 모드", QtWidgets.QLabel("Overlay"))
-        layout.addRow("단위", QtWidgets.QLabel("프로필 기본값"))
+        layout.setSpacing(10)
+        self.properties_selection_label = QtWidgets.QLabel("선택 창: -")
+        self.properties_selection_label.setObjectName("propertiesSelectionLabel")
+        self.properties_stack = QtWidgets.QStackedWidget()
+        self.properties_stack.setObjectName("propertiesStack")
+
         self.gps_map_background_checkbox = QtWidgets.QCheckBox("실제 지도 배경")
         self.gps_map_background_checkbox.setObjectName("gpsMapBackgroundCheckbox")
         self.gps_map_background_checkbox.setChecked(
@@ -663,10 +672,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.gg_limit_radius_spin.valueChanged.connect(
             self._update_visualization_settings_from_controls
         )
-        layout.addRow("GPS", self.gps_map_background_checkbox)
-        layout.addRow("선 색상", self.graph_line_color_combo)
-        layout.addRow("선 굵기", self.graph_line_width_spin)
-        layout.addRow("G-G 한계원", self.gg_limit_radius_spin)
 
         self.sidebar_search_visible_checkbox = QtWidgets.QCheckBox("검색창 표시")
         self.sidebar_search_visible_checkbox.setObjectName("sidebarSearchVisibleCheckbox")
@@ -705,22 +710,119 @@ class MainWindow(QtWidgets.QMainWindow):
         self.sidebar_width_spin.valueChanged.connect(
             self._update_sidebar_settings_from_controls
         )
-        layout.addRow("좌측 검색", self.sidebar_search_visible_checkbox)
-        layout.addRow("좌측 추가", self.sidebar_add_button_visible_checkbox)
-        layout.addRow("좌측 정렬", self.sidebar_sort_combo)
-        layout.addRow("좌측 밀도", self.sidebar_density_combo)
-        layout.addRow("좌측 폭", self.sidebar_width_spin)
+
         self.vehicle_model_path_edit = QtWidgets.QLineEdit(str(self.vehicle_model_path))
         self.vehicle_model_path_edit.setObjectName("vehicleModelPathEdit")
         self.vehicle_model_path_edit.setReadOnly(True)
         self.vehicle_model_load_button = QtWidgets.QPushButton("Load GLB...")
         self.vehicle_model_load_button.setObjectName("vehicleModelLoadButton")
         self.vehicle_model_load_button.clicked.connect(self._open_vehicle_model_dialog)
-        layout.addRow("Vehicle GLB", self.vehicle_model_path_edit)
-        layout.addRow("", self.vehicle_model_load_button)
+
+        self.workspace_properties_page = self._make_properties_page(
+            "workspacePropertiesPage",
+            (
+                ("좌측 검색", self.sidebar_search_visible_checkbox),
+                ("좌측 추가", self.sidebar_add_button_visible_checkbox),
+                ("좌측 정렬", self.sidebar_sort_combo),
+                ("좌측 밀도", self.sidebar_density_combo),
+                ("좌측 폭", self.sidebar_width_spin),
+            ),
+        )
+        self.time_series_properties_page = self._make_properties_page(
+            "timeSeriesPropertiesPage",
+            (
+                ("그래프 모드", QtWidgets.QLabel("Overlay")),
+                ("단위", QtWidgets.QLabel("프로필 기본값")),
+                ("선 색상", self.graph_line_color_combo),
+                ("선 굵기", self.graph_line_width_spin),
+            ),
+        )
+        self.gps_properties_page = self._make_properties_page(
+            "gpsPropertiesPage",
+            (("GPS", self.gps_map_background_checkbox),),
+        )
+        self.gg_properties_page = self._make_properties_page(
+            "ggPropertiesPage",
+            (("G-G 한계원", self.gg_limit_radius_spin),),
+        )
+        self.vehicle_model_properties_page = self._make_properties_page(
+            "vehicleModelPropertiesPage",
+            (
+                ("Vehicle GLB", self.vehicle_model_path_edit),
+                ("", self.vehicle_model_load_button),
+            ),
+        )
+        self.read_only_properties_label = QtWidgets.QLabel("선택한 창의 추가 설정이 없습니다.")
+        self.read_only_properties_label.setWordWrap(True)
+        self.read_only_properties_page = self._make_properties_page(
+            "readOnlyPropertiesPage",
+            (("정보", self.read_only_properties_label),),
+        )
+
+        for page in (
+            self.workspace_properties_page,
+            self.time_series_properties_page,
+            self.gps_properties_page,
+            self.gg_properties_page,
+            self.vehicle_model_properties_page,
+            self.read_only_properties_page,
+        ):
+            self.properties_stack.addWidget(page)
+
+        layout.addWidget(self.properties_selection_label)
+        layout.addWidget(self.properties_stack, 1)
 
         self.properties_panel.setWidget(content)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.properties_panel)
+        self._update_properties_for_active_window()
+
+    def _make_properties_page(
+        self,
+        object_name: str,
+        rows: tuple[tuple[str, QtWidgets.QWidget], ...],
+    ) -> QtWidgets.QWidget:
+        page = QtWidgets.QWidget()
+        page.setObjectName(object_name)
+        form = QtWidgets.QFormLayout(page)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setSpacing(8)
+        for label, widget in rows:
+            form.addRow(label, widget)
+        return page
+
+    def _update_properties_for_active_window(
+        self,
+        sub_window: QtWidgets.QMdiSubWindow | None = None,
+    ) -> None:
+        if not hasattr(self, "properties_stack"):
+            return
+
+        if sub_window is None:
+            sub_window = self.workspace.activeSubWindow()
+        if sub_window is not None and not shiboken6.isValid(sub_window):
+            sub_window = None
+
+        selected_title = "작업공간"
+        selected_page = self.workspace_properties_page
+        try:
+            selected_widget = None if sub_window is None else sub_window.widget()
+        except RuntimeError:
+            selected_widget = None
+        if selected_widget is not None:
+            selected_title = sub_window.windowTitle()
+            if isinstance(selected_widget, TimeSeriesWindow):
+                selected_page = self.time_series_properties_page
+            elif isinstance(selected_widget, GPSMapWindow):
+                selected_page = self.gps_properties_page
+            elif isinstance(selected_widget, GGDiagramWindow):
+                selected_page = self.gg_properties_page
+            elif isinstance(selected_widget, VehicleModelWindow):
+                selected_page = self.vehicle_model_properties_page
+            else:
+                selected_page = self.read_only_properties_page
+
+        self.properties_selection_label.setText(f"선택 창: {selected_title}")
+        self.properties_stack.setCurrentWidget(selected_page)
 
     def _update_visualization_settings_from_controls(self, *_args: object) -> None:
         self.visualization_settings = VisualizationSettings(

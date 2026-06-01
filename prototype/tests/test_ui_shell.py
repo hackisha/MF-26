@@ -122,6 +122,41 @@ def test_right_properties_can_sort_left_sidebar_analysis_items(qtbot):
     assert item_titles == sorted(DEFAULT_ANALYSIS_ITEMS)
 
 
+def test_right_properties_follow_selected_analysis_window(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitExposed(window)
+    time_series_subwindow = window.workspace.subWindowList()[0]
+
+    window.workspace.setActiveSubWindow(time_series_subwindow)
+    QtWidgets.QApplication.processEvents()
+
+    assert window.properties_stack.currentWidget().objectName() == "timeSeriesPropertiesPage"
+    assert window.properties_selection_label.text() == "선택 창: Time-Series Graph"
+    assert window.graph_line_width_spin.isVisible() is True
+    assert window.gps_map_background_checkbox.isVisible() is False
+    assert window.vehicle_model_load_button.isVisible() is False
+
+    gps_subwindow = window.add_analysis_window("GPS Map")
+    window.workspace.setActiveSubWindow(gps_subwindow)
+    QtWidgets.QApplication.processEvents()
+
+    assert window.properties_stack.currentWidget().objectName() == "gpsPropertiesPage"
+    assert window.properties_selection_label.text() == "선택 창: GPS Map"
+    assert window.gps_map_background_checkbox.isVisible() is True
+    assert window.graph_line_width_spin.isVisible() is False
+    assert window.vehicle_model_load_button.isVisible() is False
+
+    vehicle_subwindow = window.add_analysis_window("3D Vehicle Model")
+    window.workspace.setActiveSubWindow(vehicle_subwindow)
+    QtWidgets.QApplication.processEvents()
+
+    assert window.properties_stack.currentWidget().objectName() == "vehicleModelPropertiesPage"
+    assert window.vehicle_model_load_button.isVisible() is True
+    assert window.gps_map_background_checkbox.isVisible() is False
+
+
 def test_bottom_playback_dock_exposes_required_csv_controls_and_status(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)

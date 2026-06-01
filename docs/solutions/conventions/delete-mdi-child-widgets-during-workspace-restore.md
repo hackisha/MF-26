@@ -1,6 +1,7 @@
 ---
 title: "Delete MDI child widgets during workspace restore"
 date: "2026-05-25"
+last_updated: "2026-06-02"
 track: "knowledge"
 category: "conventions"
 problem_type: "best_practice"
@@ -52,6 +53,11 @@ QtWidgets.QApplication.processEvents()
 
 assert not shiboken6.isValid(old_widget)
 ```
+
+If an MDI child owns helper controllers that schedule delayed UI work, guard
+those callbacks with `shiboken6.isValid(...)` before touching the subwindow or
+content widget. Workspace restore can delete the native C++ object before a
+queued geometry/update callback runs.
 
 ## Why This Matters
 
