@@ -23,7 +23,7 @@ Windows에서 `QT_QPA_PLATFORM=minimal` 설정은 의도된 값입니다. 일반
 
 - 전체 테스트가 통과합니다.
 - `python.exe` 응용 프로그램 오류창이 뜨지 않습니다.
-- 최신 검증 기준으로는 `135 passed`가 정상입니다.
+- 최신 검증 기준으로는 `136 passed`가 정상입니다.
 
 ## 2. 300k x 200 합성 CSV 생성
 
@@ -125,7 +125,9 @@ prototype\.generated\acceptance\target_300k_200.html
 - 우측 속성 패널은 현재 선택한 분석 창을 따라가며 해당 창에 필요한 설정만
   표시합니다. 분석 창별 전용 설정이 없는 작업공간/기본 페이지에서는 좌측
   분석 패널의 검색창 표시, 추가 버튼 표시, 기본/A-Z 정렬,
-  Compact/Comfortable 밀도, 패널 폭을 조정할 수 있습니다.
+  Compact/Comfortable 밀도, 패널 폭을 조정할 수 있습니다. 속성 페이지는
+  그룹/행 경계가 보이고, 라벨/체크박스/입력창/비활성 컨트롤이 다크 배경에서도
+  읽히는 대비로 표시됩니다.
 - CSV가 없는 초기 상태에서는 하단 재생 도크가 비활성화되고 업로드 안내가 표시됩니다.
 - `File > Open CSV`로 루트 샘플 CSV를 열면 파일명, row 수, 전체 길이, 현재 시간,
   현재 row, 추정 샘플링 주기, 이벤트 수가 하단 도크에 표시됩니다.
@@ -150,6 +152,7 @@ prototype\.generated\acceptance\target_300k_200.html
 - 탭을 이동했다가 돌아와도 CSV 세션과 재생 위치가 유지됩니다.
 - Time-Series, GPS, G-G plot hover 시 가장 가까운 샘플의 시간과 plot별 값이
   라벨/tooltip에 표시되고, Time-Series 그래프 클릭 시 해당 시간으로 이동합니다.
+  분석 창의 상태/보조 라벨도 어두운 창 배경 위에서 읽을 수 있어야 합니다.
 - 자동 저장 실패 경고가 표시되어도 현재 CSV 세션과 재생 기능은 유지됩니다.
 - `3D Vehicle Model` 창이 프로젝트 루트의 `car.glb`를 읽고, 렌더링 가능한
   mesh vertex/triangle을 파싱한 뒤 viewport에 실제 GLB mesh와 정성적 시각화

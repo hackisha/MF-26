@@ -19,7 +19,7 @@ crashes.
 ```
 
 Expected result: all tests pass without a `python.exe` native error dialog.
-The current expected count is `135 passed`.
+The current expected count is `136 passed`.
 
 ## 2. Generate Target CSV
 
@@ -87,7 +87,9 @@ Check that:
   that window's relevant settings. With no analysis-specific settings selected,
   the workspace page can tune the left analysis panel: show/hide search,
   show/hide the add button, switch default/A-Z ordering, choose compact or
-  comfortable density, and adjust the panel width.
+  comfortable density, and adjust the panel width. Property pages use visible
+  grouped rows, high-contrast labels, and readable checkboxes/inputs in both
+  enabled and disabled states.
 - With no CSV session, the bottom playback dock is disabled and shows the upload
   guidance.
 - `File > Open CSV` loads a root sample CSV and the dock shows filename, row
@@ -120,7 +122,8 @@ Check that:
 - Switching tabs preserves the loaded CSV session and playback position.
 - Time-series, GPS, and G-G plots show hover labels/tooltips with the nearest
   sample's time and plot-specific values; time-series graph click seeks to that
-  time.
+  time. Analysis-window status labels remain readable against the dark window
+  background.
 - Autosave warnings do not block the current CSV session or playback controls.
 - `3D Vehicle Model` loads the root `car.glb` fixture, parses the renderable
   mesh vertices/triangles, shows the actual GLB mesh in the viewport, and labels

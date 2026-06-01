@@ -658,6 +658,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.properties_panel.setAllowedAreas(QtCore.Qt.DockWidgetArea.RightDockWidgetArea)
 
         content = QtWidgets.QWidget()
+        content.setObjectName("propertiesPanelContent")
         layout = QtWidgets.QVBoxLayout(content)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
@@ -821,11 +822,39 @@ class MainWindow(QtWidgets.QMainWindow):
     ) -> QtWidgets.QWidget:
         page = QtWidgets.QWidget()
         page.setObjectName(object_name)
-        form = QtWidgets.QFormLayout(page)
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setSpacing(8)
+        page_layout = QtWidgets.QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.setSpacing(10)
+
+        group = QtWidgets.QFrame()
+        group.setObjectName("settingsGroupFrame")
+        group_layout = QtWidgets.QVBoxLayout(group)
+        group_layout.setContentsMargins(8, 8, 8, 8)
+        group_layout.setSpacing(8)
         for label, widget in rows:
-            form.addRow(label, widget)
+            if isinstance(widget, QtWidgets.QLabel) and not widget.objectName():
+                widget.setObjectName("settingsValueLabel")
+                widget.setWordWrap(True)
+
+            row = QtWidgets.QFrame()
+            row.setObjectName("settingsRow")
+            row_layout = QtWidgets.QHBoxLayout(row)
+            row_layout.setContentsMargins(10, 8, 10, 8)
+            row_layout.setSpacing(10)
+
+            label_widget = QtWidgets.QLabel(label)
+            label_widget.setObjectName("settingsRowLabel")
+            label_widget.setMinimumWidth(90)
+            label_widget.setAlignment(
+                QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop
+            )
+            label_widget.setWordWrap(True)
+            row_layout.addWidget(label_widget)
+            row_layout.addWidget(widget, 1)
+            group_layout.addWidget(row)
+
+        page_layout.addWidget(group)
+        page_layout.addStretch(1)
         return page
 
     def _update_properties_for_active_window(
@@ -1456,12 +1485,33 @@ class MainWindow(QtWidgets.QMainWindow):
             QMainWindow, QMdiArea {
                 font-family: "Malgun Gothic", "Segoe UI", sans-serif;
                 background: #202326;
-                color: #e7ecef;
+                color: #edf3f7;
             }
             QMenuBar, QMenu, QDockWidget, QStatusBar, QTabBar::tab {
                 font-family: "Malgun Gothic", "Segoe UI", sans-serif;
                 background: #2b2f33;
-                color: #e7ecef;
+                color: #edf3f7;
+            }
+            QDockWidget#propertiesPanel {
+                background: #1a1f22;
+                color: #f4f8fb;
+                border-left: 1px solid #4a5660;
+            }
+            QDockWidget#propertiesPanel::title {
+                background: #252b30;
+                color: #ffffff;
+                padding: 6px;
+                border-bottom: 1px solid #4a5660;
+            }
+            QWidget#propertiesPanelContent {
+                background: #1a1f22;
+            }
+            QLabel#propertiesSelectionLabel {
+                color: #ffffff;
+                font-weight: 700;
+                padding: 6px 8px;
+                background: #252b30;
+                border: 1px solid #4a5660;
             }
             QTabBar::tab {
                 padding: 8px 12px;
@@ -1471,15 +1521,84 @@ class MainWindow(QtWidgets.QMainWindow):
                 background: #3a4046;
                 color: #f4c95d;
             }
-            QLineEdit, QListWidget {
-                background: #171a1d;
-                color: #e7ecef;
-                border: 1px solid #3a4046;
+            QLineEdit, QListWidget, QComboBox, QAbstractSpinBox, QTableWidget {
+                background: #11161a;
+                color: #f2f6f8;
+                border: 1px solid #5a6872;
                 padding: 6px;
             }
+            QLineEdit:focus, QListWidget:focus, QComboBox:focus, QAbstractSpinBox:focus {
+                border: 1px solid #f4c95d;
+            }
+            QLineEdit:disabled, QListWidget:disabled, QComboBox:disabled,
+            QAbstractSpinBox:disabled, QPushButton:disabled {
+                background: #2d3338;
+                color: #b8c3ca;
+                border: 1px solid #4b555d;
+            }
+            QListWidget::item {
+                color: #f2f6f8;
+                padding: 4px 6px;
+            }
+            QListWidget::item:selected, QListWidget::item:hover {
+                background: #314251;
+                color: #ffffff;
+            }
+            QFrame#settingsGroupFrame {
+                background: #151a1e;
+                border: 1px solid #56636d;
+            }
+            QFrame#settingsRow {
+                background: #20262a;
+                border: 1px solid #39454d;
+            }
+            QLabel#settingsRowLabel {
+                color: #f4c95d;
+                font-weight: 700;
+            }
+            QLabel#settingsValueLabel {
+                color: #f4f8fb;
+                font-weight: 600;
+            }
+            QCheckBox {
+                color: #f2f6f8;
+                spacing: 8px;
+            }
+            QCheckBox:disabled {
+                color: #b8c3ca;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 1px solid #7b8993;
+                background: #11161a;
+            }
+            QCheckBox::indicator:checked {
+                background: #4f8db3;
+                border: 1px solid #f4c95d;
+            }
+            QCheckBox::indicator:disabled {
+                background: #2b3034;
+                border: 1px solid #4b555d;
+            }
+            QComboBox::drop-down {
+                border-left: 1px solid #5a6872;
+                width: 24px;
+            }
+            QSlider::groove:horizontal {
+                height: 6px;
+                background: #101418;
+                border: 1px solid #3f4a52;
+            }
+            QSlider::handle:horizontal {
+                width: 14px;
+                margin: -5px 0;
+                background: #f4c95d;
+                border: 1px solid #ffffff;
+            }
             QFrame#playbackDockContent, QFrame#sensorCard {
-                background: #171a1d;
-                border: 1px solid #3a4046;
+                background: #151a1e;
+                border: 1px solid #4a5660;
             }
             QLabel#sensorCardTitle {
                 color: #f4c95d;
@@ -1494,12 +1613,30 @@ class MainWindow(QtWidgets.QMainWindow):
                 font-family: "Malgun Gothic", "Segoe UI", sans-serif;
                 background: #3f6f8f;
                 color: #ffffff;
-                border: 0;
+                border: 1px solid #5d8dad;
                 padding: 7px 10px;
+            }
+            QPushButton:hover {
+                background: #4a7fa1;
             }
             QLabel {
                 font-family: "Malgun Gothic", "Segoe UI", sans-serif;
-                color: #d7dde2;
+                color: #edf3f7;
+            }
+            QWidget#timeSeriesWindow, QWidget#ggDiagramWindow, QWidget#gpsMapWindow,
+            QWidget#currentValuesWindow, QWidget#dataAnalysisWindow,
+            QWidget#documentsWindow, QWidget#benchmarkSummaryWindow,
+            QWidget#vehicleModelWindow {
+                background: #151a1e;
+            }
+            QLabel#hoverLabel, QLabel#reliabilityBadge, QLabel#gpsMapBackgroundStatus,
+            QLabel#vehicleCameraStatus, QLabel#vehicleQualitativeNote,
+            QLabel#vehicleAttitudeStatus, QLabel#dataAnalysisSummary,
+            QLabel#documentsSummary, QLabel#benchmarkSummaryText {
+                color: #dce7ee;
+                background: #20262a;
+                border: 1px solid #39454d;
+                padding: 4px 6px;
             }
             QFrame#analysisWindowFrame {
                 background: #252a2e;

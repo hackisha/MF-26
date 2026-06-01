@@ -157,6 +157,40 @@ def test_right_properties_follow_selected_analysis_window(qtbot):
     assert window.gps_map_background_checkbox.isVisible() is False
 
 
+def test_right_properties_panel_uses_grouped_readable_rows(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    group = window.time_series_properties_page.findChild(
+        QtWidgets.QFrame,
+        "settingsGroupFrame",
+    )
+    rows = window.time_series_properties_page.findChildren(
+        QtWidgets.QFrame,
+        "settingsRow",
+    )
+    labels = window.time_series_properties_page.findChildren(
+        QtWidgets.QLabel,
+        "settingsRowLabel",
+    )
+    style = window.styleSheet()
+
+    assert group is not None
+    assert len(rows) >= 5
+    assert all(label.minimumWidth() >= 86 for label in labels)
+    for selector in (
+        "QDockWidget#propertiesPanel",
+        "QWidget#propertiesPanelContent",
+        "QFrame#settingsGroupFrame",
+        "QFrame#settingsRow",
+        "QLabel#settingsRowLabel",
+        "QCheckBox::indicator",
+        "QComboBox:disabled",
+        "QLabel#hoverLabel",
+    ):
+        assert selector in style
+
+
 def test_bottom_playback_dock_exposes_required_csv_controls_and_status(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
