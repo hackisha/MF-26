@@ -49,3 +49,35 @@ def test_cursor_bus_publishes_over_subscriber_copy():
         ("adding", "hover", 2.0),
         ("late", "hover", 2.0),
     ]
+
+
+def test_cursor_bus_unsubscribes_callback():
+    bus = CursorBus()
+    events = []
+
+    def subscriber(event):
+        events.append((event.kind, event.time_sec))
+
+    bus.subscribe(subscriber)
+    bus.unsubscribe(subscriber)
+
+    bus.set_playback_time(1.0)
+
+    assert events == []
+
+
+def test_cursor_bus_unsubscribe_absent_callback_is_noop():
+    bus = CursorBus()
+    events = []
+
+    def subscriber(event):
+        events.append((event.kind, event.time_sec))
+
+    bus.unsubscribe(subscriber)
+    bus.subscribe(subscriber)
+    bus.unsubscribe(subscriber)
+    bus.unsubscribe(subscriber)
+
+    bus.set_hover_time(2.0)
+
+    assert events == []

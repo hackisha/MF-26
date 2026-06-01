@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pyqtgraph as pg
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from mf_log_analyzer_v2.app.cursor_bus import CursorBus, CursorEvent
@@ -38,7 +39,17 @@ class TimeSeriesWindow(QWidget):
 
         self.plot_widget.addItem(self.playback_line)
         self.plot_widget.addItem(self.hover_line)
-        self.cursor_bus.subscribe(self._handle_cursor_event)
+        self._cursor_callback = self._handle_cursor_event
+        self.cursor_bus.subscribe(self._cursor_callback)
+        self.destroyed.connect(
+            lambda *_args, cursor_bus=self.cursor_bus, cursor_callback=self._cursor_callback: cursor_bus.unsubscribe(
+                cursor_callback
+            )
+        )
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self._unsubscribe_from_cursor_bus()
+        super().closeEvent(event)
 
     def _handle_cursor_event(self, event: CursorEvent) -> None:
         if event.kind == "playback" and event.time_sec is not None:
@@ -49,3 +60,6 @@ class TimeSeriesWindow(QWidget):
                 return
             self.hover_line.show()
             self.hover_line.setValue(event.time_sec)
+
+    def _unsubscribe_from_cursor_bus(self, *_args: object) -> None:
+        self.cursor_bus.unsubscribe(self._cursor_callback)

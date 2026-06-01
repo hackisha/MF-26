@@ -20,6 +20,10 @@ class CursorBus:
     def subscribe(self, callback: Callable[[CursorEvent], None]) -> None:
         self._subscribers.append(callback)
 
+    def unsubscribe(self, callback: Callable[[CursorEvent], None]) -> None:
+        if callback in self._subscribers:
+            self._subscribers.remove(callback)
+
     def set_playback_time(self, time_sec: float) -> None:
         self.playback_time_sec = time_sec
         self._publish(CursorEvent(kind="playback", time_sec=time_sec))
