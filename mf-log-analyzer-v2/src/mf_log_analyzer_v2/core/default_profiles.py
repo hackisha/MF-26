@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mf_log_analyzer_v2.core.models import Calibration, ChannelDefinition, VehicleProfile
+from mf_log_analyzer_v2.core.models import Calibration, ChannelDefinition, ChannelGroup, VehicleProfile
 
 
 def channel(
@@ -9,7 +9,7 @@ def channel(
     display_ko: str,
     source_columns: tuple[str, ...],
     unit: str,
-    group: str,
+    group: ChannelGroup,
     color: str,
     calibration: Calibration | None = None,
     required: bool = False,
@@ -19,7 +19,7 @@ def channel(
         display_name={"en": display_en, "ko": display_ko},
         source_columns=source_columns,
         unit=unit,
-        group=group,  # type: ignore[arg-type]
+        group=group,
         color=color,
         calibration=calibration or Calibration(),
         required=required,
