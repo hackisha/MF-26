@@ -384,6 +384,14 @@ class GPSMapWindow(QtWidgets.QWidget):
         self._hover_route_name = ""
         self._hover_marker_visible = False
         self._route_background_point_count = 0
+        self._route_hover_candidates: tuple[_GPSHoverCandidate, ...] = ()
+        self._route_positions: tuple[tuple[float, float], ...] = ()
+        self._ideal_positions: list[tuple[float, float] | None] = []
+        self._ideal_hover_candidates: tuple[_GPSHoverCandidate, ...] = ()
+        self._ideal_valid_positions: tuple[tuple[float, float], ...] = ()
+        self._ideal_path_point_count = 0
+        self._ideal_path_status = "off"
+        self._ideal_current_position: tuple[float, float] | None = None
         self._map_background_enabled = False
         self._map_tile_loaded = False
         self._map_background_status = "off"
@@ -402,11 +410,20 @@ class GPSMapWindow(QtWidgets.QWidget):
         self.route_background_item = pg.PlotDataItem(
             pen=pg.mkPen(QtGui.QColor(93, 173, 226, 45), width=2)
         )
+        self.ideal_path_item = pg.PlotDataItem(
+            pen=pg.mkPen(QtGui.QColor(244, 201, 93, 210), width=2, style=QtCore.Qt.PenStyle.DashLine)
+        )
         self.track_item = pg.PlotDataItem(pen=pg.mkPen("#5dade2", width=3))
         self.current_item = pg.ScatterPlotItem(
             pen=pg.mkPen("#f4c95d", width=2),
             brush=pg.mkBrush("#f4c95d"),
             size=11,
+        )
+        self.ideal_current_item = pg.ScatterPlotItem(
+            pen=pg.mkPen("#f4c95d", width=2),
+            brush=pg.mkBrush(QtGui.QColor(244, 201, 93, 90)),
+            size=14,
+            symbol="x",
         )
         self.hover_item = pg.ScatterPlotItem(
             pen=pg.mkPen("#ffffff", width=2),
@@ -416,22 +433,29 @@ class GPSMapWindow(QtWidgets.QWidget):
         self.map_tile_item.setZValue(-10)
         self.map_tile_item.setVisible(False)
         self.route_background_item.setZValue(0)
+        self.ideal_path_item.setZValue(6)
         self.track_item.setZValue(5)
         self.current_item.setZValue(10)
+        self.ideal_current_item.setZValue(11)
         self.hover_item.setZValue(15)
         self.plot.addItem(self.map_tile_item)
         self.plot.addItem(self.route_background_item)
+        self.plot.addItem(self.ideal_path_item)
         self.plot.addItem(self.track_item)
         self.plot.addItem(self.current_item)
+        self.plot.addItem(self.ideal_current_item)
         self.plot.addItem(self.hover_item)
         self.map_background_label = QtWidgets.QLabel(self.map_background_text())
         self.map_background_label.setObjectName("gpsMapBackgroundStatus")
+        self.ideal_path_label = QtWidgets.QLabel(self.ideal_path_text())
+        self.ideal_path_label.setObjectName("gpsIdealPathStatus")
         self.hover_label = QtWidgets.QLabel("Hover | -")
         self.hover_label.setObjectName("hoverLabel")
         self.reliability_badge = QtWidgets.QLabel("Reliability: info")
         self.reliability_badge.setObjectName("reliabilityBadge")
         layout.addWidget(self.plot, 1)
         layout.addWidget(self.map_background_label)
+        layout.addWidget(self.ideal_path_label)
         layout.addWidget(self.hover_label)
         layout.addWidget(self.reliability_badge)
 
@@ -475,6 +499,18 @@ class GPSMapWindow(QtWidgets.QWidget):
     def map_tile_loaded(self) -> bool:
         return self._map_tile_loaded
 
+    @property
+    def ideal_path_visible(self) -> bool:
+        return self._ideal_path_point_count > 0 and self.ideal_path_item.isVisible()
+
+    @property
+    def ideal_path_point_count(self) -> int:
+        return self._ideal_path_point_count
+
+    @property
+    def ideal_current_position(self) -> tuple[float, float] | None:
+        return self._ideal_current_position
+
     def set_map_background_enabled(self, enabled: bool) -> None:
         enabled = bool(enabled)
         if enabled == self._map_background_enabled:
@@ -493,6 +529,9 @@ class GPSMapWindow(QtWidgets.QWidget):
         if not self._map_background_enabled:
             return "Map background: off"
         return f"Map background: on ({self._map_background_status})"
+
+    def ideal_path_text(self) -> str:
+        return f"Ideal path: {self._ideal_path_status} | {self._ideal_path_point_count} points"
 
     def reliability_text(self) -> str:
         return self.reliability_badge.text()
@@ -569,8 +608,8 @@ class GPSMapWindow(QtWidgets.QWidget):
                 )
 
         self._route_background_point_count = valid_count
-        self._hover_candidates = tuple(hover_candidates)
-        self._all_positions = tuple(all_positions)
+        self._route_hover_candidates = tuple(hover_candidates)
+        self._route_positions = tuple(all_positions)
         self.route_background_item.setData(background_longitudes, background_latitudes)
 
         if active_layer is None:
@@ -579,8 +618,64 @@ class GPSMapWindow(QtWidgets.QWidget):
             self._positions = list(active_layer.positions)
             self.track_item.setData(active_layer.plot_longitudes, active_layer.plot_latitudes)
 
+        self._sync_hover_and_map_positions()
         self._refresh_map_background()
         self._update_current_position(self._playback_state.current_sample)
+
+    def set_ideal_path(
+        self,
+        *,
+        latitude: Sequence[float | None],
+        longitude: Sequence[float | None],
+        status: str,
+    ) -> None:
+        prepared = _prepare_gps_route_layer(
+            GPSRouteLayer(name="Ideal path", latitude=latitude, longitude=longitude)
+        )
+        self._ideal_positions = list(prepared.positions)
+        self._ideal_valid_positions = tuple(
+            position for position in prepared.positions if position is not None
+        )
+        self._ideal_path_point_count = prepared.valid_count
+        self._ideal_path_status = status
+        if prepared.valid_count == 0:
+            self.ideal_path_item.setVisible(False)
+            self.ideal_path_item.setData([], [])
+        else:
+            self.ideal_path_item.setVisible(True)
+            self.ideal_path_item.setData(prepared.plot_longitudes, prepared.plot_latitudes)
+
+        self._ideal_hover_candidates = tuple(
+            _GPSHoverCandidate(
+                route_name=prepared.name,
+                sample_index=sample_index,
+                latitude=position[0],
+                longitude=position[1],
+            )
+            for sample_index, position in enumerate(prepared.positions)
+            if position is not None
+        )
+        self.ideal_path_label.setText(self.ideal_path_text())
+        self._sync_hover_and_map_positions()
+        self._refresh_map_background()
+        self._update_current_position(self._playback_state.current_sample)
+
+    def clear_ideal_path(self, status: str = "off") -> None:
+        self._ideal_positions = []
+        self._ideal_valid_positions = ()
+        self._ideal_hover_candidates = ()
+        self._ideal_path_point_count = 0
+        self._ideal_path_status = status
+        self._ideal_current_position = None
+        self.ideal_path_item.setVisible(False)
+        self.ideal_path_item.setData([], [])
+        self.ideal_current_item.setData([])
+        self.ideal_path_label.setText(self.ideal_path_text())
+        self._sync_hover_and_map_positions()
+
+    def _sync_hover_and_map_positions(self) -> None:
+        self._hover_candidates = self._route_hover_candidates + self._ideal_hover_candidates
+        self._all_positions = self._route_positions + self._ideal_valid_positions
 
     def dispose(self) -> None:
         self._unsubscribe()
@@ -597,6 +692,7 @@ class GPSMapWindow(QtWidgets.QWidget):
         if not self._positions:
             self.current_item.setData([])
             self._current_position = None
+            self._update_ideal_current_position(sample_index)
             return
         clamped = min(max(sample_index, 0), len(self._positions) - 1)
         self._current_position = self._positions[clamped]
@@ -605,6 +701,20 @@ class GPSMapWindow(QtWidgets.QWidget):
         else:
             latitude, longitude = self._current_position
             self.current_item.setData([{"pos": (longitude, latitude)}])
+        self._update_ideal_current_position(sample_index)
+
+    def _update_ideal_current_position(self, sample_index: int) -> None:
+        if not self._ideal_positions:
+            self._ideal_current_position = None
+            self.ideal_current_item.setData([])
+            return
+        clamped = min(max(sample_index, 0), len(self._ideal_positions) - 1)
+        self._ideal_current_position = self._ideal_positions[clamped]
+        if self._ideal_current_position is None:
+            self.ideal_current_item.setData([])
+        else:
+            latitude, longitude = self._ideal_current_position
+            self.ideal_current_item.setData([{"pos": (longitude, latitude)}])
 
     def _refresh_map_background(self) -> None:
         if not self._map_background_enabled:
