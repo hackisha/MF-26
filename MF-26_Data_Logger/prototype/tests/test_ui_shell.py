@@ -562,6 +562,33 @@ def test_visual_settings_update_gps_background_and_time_series_style(qtbot):
     assert new_time_series.curve_style("RPM") == ("#ec7063", 0.75)
 
 
+def test_gps_properties_enable_ideal_path_for_open_and_new_windows(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+    gps_window = window.add_analysis_window("GPS Map").widget()
+
+    assert window.ideal_path_enabled_checkbox.objectName() == "idealPathEnabledCheckbox"
+    assert "steering angle" in [
+        window.ideal_path_steering_channel_combo.itemText(index)
+        for index in range(window.ideal_path_steering_channel_combo.count())
+    ]
+
+    window.ideal_path_steering_channel_combo.setCurrentText("steering angle")
+    window.ideal_path_wheelbase_spin.setValue(1.6)
+    window.ideal_path_steering_ratio_spin.setValue(1.0)
+    window.ideal_path_enabled_checkbox.setChecked(True)
+
+    assert gps_window.ideal_path_visible is True
+    assert gps_window.ideal_path_point_count == window.playback_state.sample_count
+    assert "ready" in gps_window.ideal_path_text()
+
+    new_gps_window = window.add_analysis_window("GPS Map").widget()
+
+    assert new_gps_window.ideal_path_visible is True
+    assert new_gps_window.ideal_path_point_count == window.playback_state.sample_count
+
+
 def test_right_properties_selects_time_series_channels_for_open_and_new_windows(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)

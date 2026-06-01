@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import math
 from pathlib import Path
 import sys
 from typing import Callable, Sequence
@@ -11,6 +12,7 @@ from typing import Callable, Sequence
 from PySide6 import QtCore, QtGui, QtWidgets
 import shiboken6
 
+from mflog_proto.analysis.kinematics import compute_ideal_path
 from mflog_proto.benchmark.metrics import collect_environment
 from mflog_proto.data.column_store import ColumnStore
 from mflog_proto.data.csv_loader import CsvLoadOptions, load_csv
@@ -53,6 +55,14 @@ class VisualizationSettings:
     graph_line_color: str | None = None
     graph_line_width: float = 1.0
     gg_limit_radius: float = 1.0
+
+
+@dataclass(frozen=True)
+class IdealPathSettings:
+    enabled: bool = False
+    wheelbase_m: float = 1.6
+    steering_ratio: float = 1.0
+    steering_channel: str = "Auto"
 
 
 @dataclass(frozen=True)
@@ -417,6 +427,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pending_project_state: ProjectState | None = None
         self.loaded_csv_path: Path | None = None
         self.visualization_settings = VisualizationSettings()
+        self.ideal_path_settings = IdealPathSettings()
         self.sidebar_settings = SidebarSettings()
         self.vehicle_model_path = _root_asset_path("car.glb")
         self.vehicle_model_info = load_glb_info(self.vehicle_model_path)
@@ -430,6 +441,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.session_sampling_interval_ms = 0
         self._syncing_event_marker_selection = False
         self._syncing_time_series_channel_checks = False
+        self._syncing_ideal_path_controls = False
         self.playback_timer = QtCore.QTimer(self)
         self.playback_timer.setInterval(33)
         self.playback_timer.timeout.connect(self._tick_playback_timer)
@@ -715,6 +727,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 latitude=self.sensor_series["latitude"],
                 longitude=self.sensor_series["longitude"],
             )
+        self._apply_ideal_path_to_gps_window(widget)
         return widget
 
     def _build_vehicle_model_window(self) -> VehicleModelWindow:
@@ -872,6 +885,36 @@ class MainWindow(QtWidgets.QMainWindow):
         self.gps_map_background_checkbox.toggled.connect(
             self._update_visualization_settings_from_controls
         )
+        self.ideal_path_enabled_checkbox = QtWidgets.QCheckBox("Show ideal path")
+        self.ideal_path_enabled_checkbox.setObjectName("idealPathEnabledCheckbox")
+        self.ideal_path_enabled_checkbox.setChecked(self.ideal_path_settings.enabled)
+        self.ideal_path_enabled_checkbox.toggled.connect(
+            self._update_ideal_path_settings_from_controls
+        )
+        self.ideal_path_wheelbase_spin = QtWidgets.QDoubleSpinBox()
+        self.ideal_path_wheelbase_spin.setObjectName("idealPathWheelbaseSpin")
+        self.ideal_path_wheelbase_spin.setRange(0.5, 5.0)
+        self.ideal_path_wheelbase_spin.setSingleStep(0.05)
+        self.ideal_path_wheelbase_spin.setDecimals(2)
+        self.ideal_path_wheelbase_spin.setSuffix(" m")
+        self.ideal_path_wheelbase_spin.setValue(self.ideal_path_settings.wheelbase_m)
+        self.ideal_path_wheelbase_spin.valueChanged.connect(
+            self._update_ideal_path_settings_from_controls
+        )
+        self.ideal_path_steering_ratio_spin = QtWidgets.QDoubleSpinBox()
+        self.ideal_path_steering_ratio_spin.setObjectName("idealPathSteeringRatioSpin")
+        self.ideal_path_steering_ratio_spin.setRange(0.1, 30.0)
+        self.ideal_path_steering_ratio_spin.setSingleStep(0.1)
+        self.ideal_path_steering_ratio_spin.setDecimals(2)
+        self.ideal_path_steering_ratio_spin.setValue(self.ideal_path_settings.steering_ratio)
+        self.ideal_path_steering_ratio_spin.valueChanged.connect(
+            self._update_ideal_path_settings_from_controls
+        )
+        self.ideal_path_steering_channel_combo = QtWidgets.QComboBox()
+        self.ideal_path_steering_channel_combo.setObjectName("idealPathSteeringChannelCombo")
+        self.ideal_path_steering_channel_combo.currentTextChanged.connect(
+            self._update_ideal_path_settings_from_controls
+        )
         self.graph_line_color_combo = QtWidgets.QComboBox()
         self.graph_line_color_combo.setObjectName("graphLineColorCombo")
         self.graph_line_color_combo.addItems(("Default", "Yellow", "Blue", "Green", "Red"))
@@ -974,7 +1017,13 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self.gps_properties_page = self._make_properties_page(
             "gpsPropertiesPage",
-            (("GPS", self.gps_map_background_checkbox),),
+            (
+                ("GPS", self.gps_map_background_checkbox),
+                ("Ideal path", self.ideal_path_enabled_checkbox),
+                ("Wheelbase", self.ideal_path_wheelbase_spin),
+                ("Steering ratio", self.ideal_path_steering_ratio_spin),
+                ("Steering channel", self.ideal_path_steering_channel_combo),
+            ),
         )
         self.gg_properties_page = self._make_properties_page(
             "ggPropertiesPage",
@@ -1010,6 +1059,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.properties_panel.setWidget(content)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.properties_panel)
         self._populate_time_series_channel_list()
+        self._populate_ideal_path_steering_channel_combo()
         self._update_properties_for_active_window()
 
     def _make_properties_page(
@@ -1141,6 +1191,33 @@ class MainWindow(QtWidgets.QMainWindow):
         finally:
             self._syncing_time_series_channel_checks = False
 
+    def _populate_ideal_path_steering_channel_combo(self) -> None:
+        if not hasattr(self, "ideal_path_steering_channel_combo"):
+            return
+        options = _steering_channel_options(self.sensor_series)
+        current = self.ideal_path_settings.steering_channel
+        self._syncing_ideal_path_controls = True
+        try:
+            self.ideal_path_steering_channel_combo.clear()
+            self.ideal_path_steering_channel_combo.addItems(options)
+            if current in options:
+                self.ideal_path_steering_channel_combo.setCurrentText(current)
+            elif "Auto" in options:
+                self.ideal_path_steering_channel_combo.setCurrentText("Auto")
+        finally:
+            self._syncing_ideal_path_controls = False
+
+    def _update_ideal_path_settings_from_controls(self, *_args: object) -> None:
+        if self._syncing_ideal_path_controls:
+            return
+        self.ideal_path_settings = IdealPathSettings(
+            enabled=self.ideal_path_enabled_checkbox.isChecked(),
+            wheelbase_m=float(self.ideal_path_wheelbase_spin.value()),
+            steering_ratio=float(self.ideal_path_steering_ratio_spin.value()),
+            steering_channel=self.ideal_path_steering_channel_combo.currentText(),
+        )
+        self._apply_ideal_path_settings_to_open_windows()
+
     def _update_sidebar_settings_from_controls(self, *_args: object) -> None:
         self.sidebar_settings = SidebarSettings(
             search_visible=self.sidebar_search_visible_checkbox.isChecked(),
@@ -1185,8 +1262,49 @@ class MainWindow(QtWidgets.QMainWindow):
                 widget.set_map_background_enabled(
                     self.visualization_settings.gps_map_background_enabled
                 )
+                self._apply_ideal_path_to_gps_window(widget)
             elif isinstance(widget, GGDiagramWindow):
                 widget.set_limit_circle_radius(self.visualization_settings.gg_limit_radius)
+
+    def _apply_ideal_path_settings_to_open_windows(self) -> None:
+        for sub_window in self.workspace.subWindowList():
+            widget = sub_window.widget()
+            if isinstance(widget, GPSMapWindow):
+                self._apply_ideal_path_to_gps_window(widget)
+
+    def _apply_ideal_path_to_gps_window(self, widget: GPSMapWindow) -> None:
+        if not self.ideal_path_settings.enabled:
+            widget.clear_ideal_path()
+            return
+
+        steering_channel = _selected_steering_channel(
+            self.ideal_path_settings.steering_channel,
+            self.sensor_series,
+        )
+        steering_values = self.sensor_series.get(steering_channel, [])
+        result = compute_ideal_path(
+            timestamps=[
+                self.playback_state.seconds_at(index)
+                for index in range(self.playback_state.sample_count)
+            ],
+            speed_kph=self._ideal_path_speed_series(),
+            steering_angle_deg=steering_values,
+            latitude=self.sensor_series.get("latitude", []),
+            longitude=self.sensor_series.get("longitude", []),
+            wheelbase_m=self.ideal_path_settings.wheelbase_m,
+            steering_ratio=self.ideal_path_settings.steering_ratio,
+        )
+        widget.set_ideal_path(
+            latitude=result.latitude,
+            longitude=result.longitude,
+            status=result.status,
+        )
+
+    def _ideal_path_speed_series(self) -> Sequence[float | None]:
+        for channel_id in ("GPS speed", "VSS / GPS speed", "VSS", "VSS_kmh"):
+            if channel_id in self.sensor_series:
+                return self.sensor_series[channel_id]
+        return []
 
     def _apply_time_series_channels_to_open_windows(self) -> None:
         plot_series = self._time_series_plot_series()
@@ -1485,6 +1603,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self.sensor_series = sensor_series
         self._populate_time_series_channel_list()
+        self._populate_ideal_path_steering_channel_combo()
         self._remember_gps_route(csv_path, sensor_series)
         self.playback_events = events
         self.session_sampling_interval_ms = sampling_interval_ms
@@ -1871,6 +1990,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 background: #151a1e;
             }
             QLabel#hoverLabel, QLabel#reliabilityBadge, QLabel#gpsMapBackgroundStatus,
+            QLabel#gpsIdealPathStatus,
             QLabel#vehicleCameraStatus, QLabel#vehicleQualitativeNote,
             QLabel#vehicleAttitudeStatus, QLabel#dataAnalysisSummary,
             QLabel#documentsSummary, QLabel#benchmarkSummaryText {
@@ -1910,6 +2030,9 @@ def _demo_sensor_series(sample_count: int) -> dict[str, list[float]]:
         "roll rate": [index * 0.05 for index in range(sample_count)],
         "pitch rate": [index * -0.03 for index in range(sample_count)],
         "yaw rate": [index * 0.1 for index in range(sample_count)],
+        "steering angle": [
+            8.0 * math.sin(index / 12.0) for index in range(sample_count)
+        ],
         "latitude": [37.0 + index * 0.00001 for index in range(sample_count)],
         "longitude": [127.0 + index * 0.000015 for index in range(sample_count)],
     }
@@ -1939,6 +2062,7 @@ def _blank_sensor_series(sample_count: int) -> dict[str, list[float]]:
         "roll rate",
         "pitch rate",
         "yaw rate",
+        "steering angle",
         "latitude",
         "longitude",
     )
@@ -1990,6 +2114,16 @@ def _sensor_series_from_store(store: ColumnStore, sample_count: int) -> dict[str
         "roll rate": _numeric_series(store, sample_count, "gx_dps", "roll rate"),
         "pitch rate": _numeric_series(store, sample_count, "gy_dps", "pitch rate"),
         "yaw rate": _numeric_series(store, sample_count, "gz_dps", "yaw rate"),
+        "steering angle": _numeric_series(
+            store,
+            sample_count,
+            "Steering_Angle_deg",
+            "STEERING_ANGLE_DEG",
+            "steering angle",
+            "SteeringAngle",
+            "Steering",
+            "SAS_Angle",
+        ),
         "latitude": _numeric_series(store, sample_count, "Latitude", "latitude"),
         "longitude": _numeric_series(store, sample_count, "Longitude", "longitude"),
     }
@@ -2072,6 +2206,7 @@ def _time_series_channel_options(sensor_series: dict[str, list[float]]) -> list[
         "roll rate",
         "pitch rate",
         "yaw rate",
+        "steering angle",
     )
     options: list[str] = []
     for channel_id in preferred:
@@ -2083,6 +2218,46 @@ def _time_series_channel_options(sensor_series: dict[str, list[float]]) -> list[
         if channel_id not in options:
             options.append(channel_id)
     return options
+
+
+def _steering_channel_options(sensor_series: dict[str, list[float]]) -> list[str]:
+    preferred = (
+        "Auto",
+        "steering angle",
+        "Steering_Angle_deg",
+        "STEERING_ANGLE_DEG",
+        "SteeringAngle",
+        "Steering",
+        "SAS_Angle",
+    )
+    options: list[str] = []
+    for channel_id in preferred:
+        if channel_id == "Auto" or channel_id in sensor_series:
+            if channel_id not in options:
+                options.append(channel_id)
+    for channel_id in _time_series_channel_options(sensor_series):
+        if channel_id not in options:
+            options.append(channel_id)
+    return options
+
+
+def _selected_steering_channel(
+    selected_channel: str,
+    sensor_series: dict[str, list[float]],
+) -> str:
+    if selected_channel and selected_channel != "Auto" and selected_channel in sensor_series:
+        return selected_channel
+    for candidate in (
+        "steering angle",
+        "Steering_Angle_deg",
+        "STEERING_ANGLE_DEG",
+        "SteeringAngle",
+        "Steering",
+        "SAS_Angle",
+    ):
+        if candidate in sensor_series:
+            return candidate
+    return ""
 
 
 def _store_values(store: ColumnStore, *candidates: str) -> list[str] | None:

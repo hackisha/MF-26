@@ -244,6 +244,28 @@ def test_gps_map_draws_all_routes_and_highlights_active_hover(qtbot):
     assert window.last_tooltip_text == "GPS | 0.100 s | lat 37.000100 | lon 127.000200"
 
 
+def test_gps_map_draws_ideal_path_overlay_from_playback(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
+    window = GPSMapWindow(playback)
+    qtbot.addWidget(window)
+
+    window.set_track(
+        latitude=[37.0, 37.0001, 37.0002],
+        longitude=[127.0, 127.0002, 127.0004],
+    )
+    window.set_ideal_path(
+        latitude=[37.0, 37.00005, 37.00015],
+        longitude=[127.0, 127.00018, 127.00038],
+        status="ready",
+    )
+    playback.set_sample(2)
+
+    assert window.ideal_path_visible is True
+    assert window.ideal_path_point_count == 3
+    assert window.ideal_current_position == pytest.approx((37.00015, 127.00038))
+    assert window.ideal_path_text() == "Ideal path: ready | 3 points"
+
+
 def test_gps_map_toggles_real_map_background(qtbot):
     playback = PlaybackState(timestamps=[0.0, 0.1])
     tile_provider = FakeMapTileProvider()
