@@ -472,17 +472,40 @@ def test_vehicle_model_window_exposes_axis_and_attitude_arrow_overlays(qtbot):
 
     assert window.axis_labels == ("X", "Y", "Z")
     assert window.attitude_arrow_labels == ("Roll", "Pitch", "Yaw")
-    assert window.overlay_status_text() == "Axes: X/Y/Z | Arrows: Roll/Pitch/Yaw"
+    assert window.axis_origin_text() == "Axes origin: vehicle center"
+    assert window.attitude_overlay_text() == "Roll 0.0 deg | Pitch 0.0 deg | Yaw 0.0 deg"
+    assert window.overlay_status_text() == (
+        "Axes: vehicle-center X/Y/Z | Attitude HUD: Roll/Pitch/Yaw"
+    )
+
+    compact_rect = QtCore.QRect(18, 18, 284, 124)
+    axis_origin = window.viewport.vehicle_axis_origin_for_rect(compact_rect)
+
+    assert axis_origin is not None
+    assert compact_rect.left() + 90 < axis_origin.x() < compact_rect.right() - 90
+    assert compact_rect.top() + 30 < axis_origin.y() < compact_rect.bottom() - 30
 
     window.show()
     qtbot.waitExposed(window)
     image = window.viewport.grab().toImage()
 
     axis_pixels = 0
-    for y in range(max(0, image.height() - 70), image.height()):
-        for x in range(0, min(140, image.width())):
+    center_x = image.width() // 2
+    center_y = image.height() // 2
+    for y in range(max(0, center_y - 45), min(image.height(), center_y + 45)):
+        for x in range(max(0, center_x - 70), min(image.width(), center_x + 70)):
             color = image.pixelColor(x, y)
             if color.red() > 150 and color.green() < 140 and color.blue() < 140:
                 axis_pixels += 1
 
     assert axis_pixels > 0
+
+
+def test_vehicle_model_window_compact_overlay_shows_numeric_attitude(qtbot):
+    info = load_glb_info(PROJECT_ROOT / "car.glb")
+    window = VehicleModelWindow(info)
+    qtbot.addWidget(window)
+
+    window.viewport.set_attitude(roll_degrees=4.5, pitch_degrees=-2.0, yaw_degrees=12.25)
+
+    assert window.attitude_overlay_text() == "Roll 4.5 deg | Pitch -2.0 deg | Yaw 12.2 deg"
