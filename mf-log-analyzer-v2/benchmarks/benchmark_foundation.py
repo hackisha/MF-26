@@ -6,6 +6,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
+SYNTHETIC_LOG_PATH = PROJECT_ROOT / "benchmarks" / "artifacts" / "synthetic_300k.csv"
 for import_path in (PROJECT_ROOT, SRC_ROOT):
     path_text = str(import_path)
     if path_text not in sys.path:
@@ -17,7 +18,7 @@ from mf_log_analyzer_v2.core.default_profiles import mf_default_profile  # noqa:
 
 
 def main() -> int:
-    output = PROJECT_ROOT / "synthetic_300k.csv"
+    output = SYNTHETIC_LOG_PATH
     if not output.exists():
         generate_synthetic_log(output)
 

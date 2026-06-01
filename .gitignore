@@ -8,3 +8,5 @@ playwright-report/
 .pytest_cache/
 __pycache__/
 *.pyc
+mf-log-analyzer-v2/benchmarks/artifacts/
+mf-log-analyzer-v2/synthetic_300k.csv
