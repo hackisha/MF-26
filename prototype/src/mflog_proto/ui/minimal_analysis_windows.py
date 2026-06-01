@@ -8,7 +8,7 @@ import math
 from pathlib import Path
 import struct
 import tempfile
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Callable, Mapping, Protocol, Sequence
 import urllib.error
 import urllib.request
 
@@ -960,11 +960,22 @@ class VehicleModelViewport(QtWidgets.QWidget):
         super().__init__(parent)
         self.setObjectName("vehicleModelViewport")
         self._model_info = model_info
+        self._roll_degrees = 0.0
+        self._pitch_degrees = 0.0
         self.setMinimumHeight(160)
 
     def set_model_info(self, model_info: GlbModelInfo) -> None:
         self._model_info = model_info
         self.update()
+
+    def set_attitude(self, *, roll_degrees: float, pitch_degrees: float) -> None:
+        self._roll_degrees = float(roll_degrees)
+        self._pitch_degrees = float(pitch_degrees)
+        self.update()
+
+    @property
+    def attitude_degrees(self) -> tuple[float, float]:
+        return self._roll_degrees, self._pitch_degrees
 
     @property
     def has_rendered_model(self) -> bool:
@@ -1008,22 +1019,33 @@ class VehicleModelViewport(QtWidgets.QWidget):
         span = max(max_x - min_x, max_y - min_y, max_z - min_z, 1e-6)
         scale = min(rect.width(), rect.height()) / span * 0.72
         origin = QtCore.QPointF(rect.center().x(), rect.center().y())
+        model_roll = math.radians(self._roll_degrees)
+        model_pitch = math.radians(self._pitch_degrees)
+        cos_roll = math.cos(model_roll)
+        sin_roll = math.sin(model_roll)
+        cos_model_pitch = math.cos(model_pitch)
+        sin_model_pitch = math.sin(model_pitch)
         yaw = math.radians(-36)
-        pitch = math.radians(24)
+        camera_pitch = math.radians(24)
         cos_yaw = math.cos(yaw)
         sin_yaw = math.sin(yaw)
-        cos_pitch = math.cos(pitch)
-        sin_pitch = math.sin(pitch)
+        cos_camera_pitch = math.cos(camera_pitch)
+        sin_camera_pitch = math.sin(camera_pitch)
 
         def project(point: tuple[float, float, float]) -> tuple[QtCore.QPointF, float]:
             x, y, z = point
             x -= center_x
             y -= center_y
             z -= center_z
+            pitched_y = y * cos_model_pitch - z * sin_model_pitch
+            pitched_z = y * sin_model_pitch + z * cos_model_pitch
+            rolled_x = x * cos_roll - pitched_y * sin_roll
+            rolled_y = x * sin_roll + pitched_y * cos_roll
+            x, y, z = rolled_x, rolled_y, pitched_z
             view_x = x * cos_yaw + z * sin_yaw
             view_z = -x * sin_yaw + z * cos_yaw
-            view_y = y * cos_pitch - view_z * sin_pitch
-            depth = y * sin_pitch + view_z * cos_pitch
+            view_y = y * cos_camera_pitch - view_z * sin_camera_pitch
+            depth = y * sin_camera_pitch + view_z * cos_camera_pitch
             screen = QtCore.QPointF(
                 origin.x() + view_x * scale,
                 origin.y() - view_y * scale,
@@ -1069,11 +1091,23 @@ class VehicleModelViewport(QtWidgets.QWidget):
 
 
 class VehicleModelWindow(QtWidgets.QWidget):
-    def __init__(self, model_info: GlbModelInfo, parent: QtWidgets.QWidget | None = None) -> None:
+    def __init__(
+        self,
+        model_info: GlbModelInfo,
+        parent: QtWidgets.QWidget | None = None,
+        *,
+        playback_state: PlaybackState | None = None,
+        ax_corrected: Sequence[float | None] = (),
+        ay_corrected: Sequence[float | None] = (),
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("vehicleModelWindow")
         self._model_info = model_info
         self._rendering_enabled = True
+        self._playback_state = playback_state
+        self._ax_corrected = list(ax_corrected)
+        self._ay_corrected = list(ay_corrected)
+        self._unsubscribe: Callable[[], None] | None = None
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -1088,6 +1122,8 @@ class VehicleModelWindow(QtWidgets.QWidget):
         viewport_layout.addStretch(1)
         self.camera_label = QtWidgets.QLabel(self.camera_status_text())
         self.camera_label.setObjectName("vehicleCameraStatus")
+        self.attitude_label = QtWidgets.QLabel(self.attitude_text())
+        self.attitude_label.setObjectName("vehicleAttitudeStatus")
         self.qualitative_note = QtWidgets.QLabel(self.qualitative_note_text())
         self.qualitative_note.setObjectName("vehicleQualitativeNote")
         self.reliability_badge = QtWidgets.QLabel("Reliability: info")
@@ -1095,8 +1131,12 @@ class VehicleModelWindow(QtWidgets.QWidget):
         layout.addWidget(self.model_label)
         layout.addWidget(self.viewport, 1)
         layout.addWidget(self.camera_label)
+        layout.addWidget(self.attitude_label)
         layout.addWidget(self.qualitative_note)
         layout.addWidget(self.reliability_badge)
+        if self._playback_state is not None:
+            self._unsubscribe = self._playback_state.subscribe(self._handle_cursor_event)
+            self._update_attitude(self._playback_state.current_sample)
 
     def set_model_info(self, model_info: GlbModelInfo) -> None:
         self._model_info = model_info
@@ -1104,6 +1144,25 @@ class VehicleModelWindow(QtWidgets.QWidget):
         self.model_label.setText(self.model_status_text())
         self.geometry_label.setText(self.model_geometry_text())
         self.camera_label.setText(self.camera_status_text())
+
+    def set_acceleration(
+        self,
+        *,
+        ax_corrected: Sequence[float | None],
+        ay_corrected: Sequence[float | None],
+    ) -> None:
+        self._ax_corrected = list(ax_corrected)
+        self._ay_corrected = list(ay_corrected)
+        sample_index = 0 if self._playback_state is None else self._playback_state.current_sample
+        self._update_attitude(sample_index)
+
+    @property
+    def attitude_degrees(self) -> tuple[float, float]:
+        return self.viewport.attitude_degrees
+
+    def attitude_text(self) -> str:
+        roll, pitch = self.attitude_degrees
+        return f"Attitude: roll {roll:.1f} deg | pitch {pitch:.1f} deg"
 
     @property
     def is_rendering_enabled(self) -> bool:
@@ -1165,6 +1224,15 @@ class VehicleModelWindow(QtWidgets.QWidget):
     def reliability_text(self) -> str:
         return self.reliability_badge.text()
 
+    def dispose(self) -> None:
+        if self._unsubscribe is not None:
+            self._unsubscribe()
+            self._unsubscribe = None
+
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
+        self.dispose()
+        super().closeEvent(event)
+
     def showEvent(self, event: QtGui.QShowEvent) -> None:  # noqa: N802
         self._rendering_enabled = True
         self.camera_label.setText(self.camera_status_text())
@@ -1174,6 +1242,19 @@ class VehicleModelWindow(QtWidgets.QWidget):
         self._rendering_enabled = False
         self.camera_label.setText(self.camera_status_text())
         super().hideEvent(event)
+
+    def _handle_cursor_event(self, event: CursorEvent) -> None:
+        if event.kind is CursorKind.PLAYBACK:
+            self._update_attitude(event.sample_index)
+
+    def _update_attitude(self, sample_index: int) -> None:
+        ax = _sequence_value(self._ax_corrected, sample_index)
+        ay = _sequence_value(self._ay_corrected, sample_index)
+        roll = _clamp(ay * 12.0, -18.0, 18.0)
+        pitch = _clamp(-ax * 12.0, -18.0, 18.0)
+        self.viewport.set_attitude(roll_degrees=roll, pitch_degrees=pitch)
+        if hasattr(self, "attitude_label"):
+            self.attitude_label.setText(self.attitude_text())
 
 
 def load_glb_info(path: Path) -> GlbModelInfo:
@@ -1396,6 +1477,24 @@ def _qimage_to_rgba_array(image: QtGui.QImage) -> np.ndarray:
     bytes_per_line = rgba.bytesPerLine()
     rows = np.frombuffer(buffer, dtype=np.uint8).reshape(height, bytes_per_line)
     return np.flipud(rows[:, : width * 4].reshape(height, width, 4)).copy()
+
+
+def _sequence_value(values: Sequence[float | None], index: int) -> float:
+    if not values:
+        return 0.0
+    clamped_index = min(max(index, 0), len(values) - 1)
+    value = values[clamped_index]
+    if value is None:
+        return 0.0
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return numeric if math.isfinite(numeric) else 0.0
+
+
+def _clamp(value: float, minimum: float, maximum: float) -> float:
+    return min(max(value, minimum), maximum)
 
 
 def _event_fields(event: object) -> tuple[str, str, int, str]:

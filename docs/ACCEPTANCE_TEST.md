@@ -19,7 +19,7 @@ crashes.
 ```
 
 Expected result: all tests pass without a `python.exe` native error dialog.
-The current expected count is `132 passed`.
+The current expected count is `135 passed`.
 
 ## 2. Generate Target CSV
 
@@ -107,9 +107,9 @@ Check that:
   layer. When network/cache access is available, a high-resolution
   OpenStreetMap tile mosaic is drawn behind the full route with GPS points
   aligned to latitude/longitude; if tiles are unavailable, playback, route, and
-  current point remain usable. The same panel can adjust time-series line color
-  and thickness, plus the G-G limit-circle radius, for existing and newly opened
-  windows.
+  current point remain usable. The same panel can choose visible time-series
+  channels, adjust time-series line color and thickness, plus the G-G
+  limit-circle radius, for existing and newly opened windows.
 - GPS map draws all loaded CSV route plots faintly in the background, highlights
   the currently playing CSV route, and shows a hover marker/label for the nearest
   route point under the mouse.
@@ -124,9 +124,11 @@ Check that:
 - Autosave warnings do not block the current CSV session or playback controls.
 - `3D Vehicle Model` loads the root `car.glb` fixture, parses the renderable
   mesh vertices/triangles, shows the actual GLB mesh in the viewport, and labels
-  the view as qualitative visualization. The right properties panel can load a
-  different GLB model and applies it to open and newly created 3D vehicle windows.
-  The selected GLB path is preserved in `.mflogproj` save/open flows.
+  the view as qualitative visualization. During playback, the model tilts from
+  the current corrected `ax`/`ay` acceleration and shows the roll/pitch attitude
+  text. The right properties panel can load a different GLB model and applies it
+  to open and newly created 3D vehicle windows. The selected GLB path is
+  preserved in `.mflogproj` save/open flows.
 
 ## 6. Windows EXE Build Smoke
 

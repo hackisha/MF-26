@@ -508,6 +508,43 @@ def test_visual_settings_update_gps_background_and_time_series_style(qtbot):
     assert new_time_series.curve_style("RPM") == ("#ec7063", 0.75)
 
 
+def test_right_properties_selects_time_series_channels_for_open_and_new_windows(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+    time_series = window.workspace.subWindowList()[0].widget()
+
+    _check_time_series_channels(window, ("AX_CORRECTED_G", "AY_CORRECTED_G"))
+
+    assert window.selected_channels == ["AX_CORRECTED_G", "AY_CORRECTED_G"]
+    assert time_series.channel_ids == ("AX_CORRECTED_G", "AY_CORRECTED_G")
+
+    new_time_series = window.add_analysis_window("Time-Series Graph").widget()
+
+    assert new_time_series.channel_ids == ("AX_CORRECTED_G", "AY_CORRECTED_G")
+
+
+def test_csv_raw_numeric_channels_are_available_for_time_series_selection(tmp_path, qtbot):
+    csv_path = tmp_path / "emu.csv"
+    csv_path.write_text(
+        "Timestamp,RPM,TPS_percent,Susp_FL_mm,Susp_FR_mm,Mode\n"
+        "0.0,1000,10,20.5,21.5,launch\n"
+        "0.1,2000,20,22.5,23.5,run\n",
+        encoding="utf-8",
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.load_csv_session(csv_path)
+    time_series = window.workspace.subWindowList()[0].widget()
+    _check_time_series_channels(window, ("Susp_FL_mm", "Susp_FR_mm"))
+
+    assert "Susp_FL_mm" in _time_series_channel_options(window)
+    assert "Susp_FR_mm" in _time_series_channel_options(window)
+    assert "Mode" not in _time_series_channel_options(window)
+    assert time_series.channel_ids == ("Susp_FL_mm", "Susp_FR_mm")
+
+
 def test_right_properties_load_vehicle_model_path_for_open_and_new_windows(qtbot, tmp_path):
     custom_model = tmp_path / "custom-car.glb"
     shutil.copyfile(PROTOTYPE_ROOT.parent / "car.glb", custom_model)
@@ -763,4 +800,24 @@ def _menu_titles(window: QtWidgets.QMainWindow) -> list[str]:
         action.text().replace("&", "")
         for action in window.menuBar().actions()
         if action.menu() is not None
+    ]
+
+
+def _check_time_series_channels(window: MainWindow, channel_ids: tuple[str, ...]) -> None:
+    selected = set(channel_ids)
+    for index in range(window.time_series_channel_list.count()):
+        item = window.time_series_channel_list.item(index)
+        state = (
+            QtCore.Qt.CheckState.Checked
+            if item.text() in selected
+            else QtCore.Qt.CheckState.Unchecked
+        )
+        item.setCheckState(state)
+    QtWidgets.QApplication.processEvents()
+
+
+def _time_series_channel_options(window: MainWindow) -> list[str]:
+    return [
+        window.time_series_channel_list.item(index).text()
+        for index in range(window.time_series_channel_list.count())
     ]

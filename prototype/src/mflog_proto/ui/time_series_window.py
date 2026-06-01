@@ -64,6 +64,10 @@ class TimeSeriesWindow(QtWidgets.QWidget):
     def channel_count(self) -> int:
         return len(self._curves)
 
+    @property
+    def channel_ids(self) -> tuple[str, ...]:
+        return tuple(self._curves)
+
     def set_series(self, series: SeriesMap) -> None:
         prepared_series: list[tuple[str, list[float], list[float]]] = []
         for channel_id, (x_values, y_values) in series.items():

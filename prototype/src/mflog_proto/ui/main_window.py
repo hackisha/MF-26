@@ -229,6 +229,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.session_row_count = 0
         self.session_sampling_interval_ms = 0
         self._syncing_event_marker_selection = False
+        self._syncing_time_series_channel_checks = False
         self.playback_timer = QtCore.QTimer(self)
         self.playback_timer.setInterval(33)
         self.playback_timer.timeout.connect(self._tick_playback_timer)
@@ -365,6 +366,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.channel_mappings = dict(state.channel_mappings)
         self.derived_channel_settings = dict(state.derived_channel_settings)
         self.selected_channels = list(state.selected_channels)
+        self._populate_time_series_channel_list()
         if state.vehicle_model_path is not None:
             self.load_vehicle_model_path(state.vehicle_model_path)
         self._restore_preset_tabs(state)
@@ -461,17 +463,37 @@ class MainWindow(QtWidgets.QMainWindow):
             line_color=self.visualization_settings.graph_line_color,
             line_width=self.visualization_settings.graph_line_width,
         )
+        widget.set_series(self._time_series_plot_series())
+        return widget
+
+    def _time_series_plot_series(self) -> dict[str, tuple[list[float], list[float]]]:
         x_values = [
             self.playback_state.seconds_at(index)
             for index in range(self.playback_state.sample_count)
         ]
-        widget.set_series(
-            {
-                "RPM": (x_values, self.sensor_series["RPM"]),
-                "TPS_percent": (x_values, self.sensor_series["TPS_percent"]),
-            }
-        )
-        return widget
+        return {
+            channel_id: (x_values, self.sensor_series[channel_id])
+            for channel_id in self._selected_time_series_channels()
+            if channel_id in self.sensor_series
+        }
+
+    def _selected_time_series_channels(self) -> tuple[str, ...]:
+        selected = [
+            channel_id
+            for channel_id in self.selected_channels
+            if channel_id in self.sensor_series
+        ]
+        if selected:
+            return tuple(selected)
+
+        defaults = [
+            channel_id
+            for channel_id in ("RPM", "TPS_percent")
+            if channel_id in self.sensor_series
+        ]
+        if defaults:
+            return tuple(defaults)
+        return tuple(_time_series_channel_options(self.sensor_series)[:4])
 
     def _build_gg_diagram_window(self) -> GGDiagramWindow:
         widget = GGDiagramWindow(self.playback_state)
@@ -500,7 +522,12 @@ class MainWindow(QtWidgets.QMainWindow):
         return widget
 
     def _build_vehicle_model_window(self) -> VehicleModelWindow:
-        return VehicleModelWindow(self.vehicle_model_info)
+        return VehicleModelWindow(
+            self.vehicle_model_info,
+            playback_state=self.playback_state,
+            ax_corrected=self.sensor_series["AX_CORRECTED_G"],
+            ay_corrected=self.sensor_series["AY_CORRECTED_G"],
+        )
 
     def _build_current_values_window(self) -> CurrentValuesWindow:
         return CurrentValuesWindow(
@@ -662,6 +689,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.graph_line_width_spin.valueChanged.connect(
             self._update_visualization_settings_from_controls
         )
+        self.time_series_channel_list = QtWidgets.QListWidget()
+        self.time_series_channel_list.setObjectName("timeSeriesChannelList")
+        self.time_series_channel_list.setSelectionMode(
+            QtWidgets.QAbstractItemView.SelectionMode.NoSelection
+        )
+        self.time_series_channel_list.setMaximumHeight(220)
+        self.time_series_channel_list.itemChanged.connect(
+            self._update_time_series_channels_from_controls
+        )
         self.gg_limit_radius_spin = QtWidgets.QDoubleSpinBox()
         self.gg_limit_radius_spin.setObjectName("ggLimitRadiusSpin")
         self.gg_limit_radius_spin.setRange(0.5, 5.0)
@@ -733,6 +769,7 @@ class MainWindow(QtWidgets.QMainWindow):
             (
                 ("그래프 모드", QtWidgets.QLabel("Overlay")),
                 ("단위", QtWidgets.QLabel("프로필 기본값")),
+                ("채널", self.time_series_channel_list),
                 ("선 색상", self.graph_line_color_combo),
                 ("선 굵기", self.graph_line_width_spin),
             ),
@@ -774,6 +811,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.properties_panel.setWidget(content)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.properties_panel)
+        self._populate_time_series_channel_list()
         self._update_properties_for_active_window()
 
     def _make_properties_page(
@@ -833,6 +871,38 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self._apply_visualization_settings_to_open_windows()
 
+    def _update_time_series_channels_from_controls(self, *_args: object) -> None:
+        if self._syncing_time_series_channel_checks:
+            return
+        self.selected_channels = [
+            self.time_series_channel_list.item(index).text()
+            for index in range(self.time_series_channel_list.count())
+            if (
+                self.time_series_channel_list.item(index).checkState()
+                == QtCore.Qt.CheckState.Checked
+            )
+        ]
+        self._apply_time_series_channels_to_open_windows()
+
+    def _populate_time_series_channel_list(self) -> None:
+        if not hasattr(self, "time_series_channel_list"):
+            return
+        selected = set(self._selected_time_series_channels())
+        self._syncing_time_series_channel_checks = True
+        try:
+            self.time_series_channel_list.clear()
+            for channel_id in _time_series_channel_options(self.sensor_series):
+                item = QtWidgets.QListWidgetItem(channel_id)
+                item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(
+                    QtCore.Qt.CheckState.Checked
+                    if channel_id in selected
+                    else QtCore.Qt.CheckState.Unchecked
+                )
+                self.time_series_channel_list.addItem(item)
+        finally:
+            self._syncing_time_series_channel_checks = False
+
     def _update_sidebar_settings_from_controls(self, *_args: object) -> None:
         self.sidebar_settings = SidebarSettings(
             search_visible=self.sidebar_search_visible_checkbox.isChecked(),
@@ -879,6 +949,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 )
             elif isinstance(widget, GGDiagramWindow):
                 widget.set_limit_circle_radius(self.visualization_settings.gg_limit_radius)
+
+    def _apply_time_series_channels_to_open_windows(self) -> None:
+        plot_series = self._time_series_plot_series()
+        for sub_window in self.workspace.subWindowList():
+            widget = sub_window.widget()
+            if isinstance(widget, TimeSeriesWindow):
+                widget.set_series(plot_series)
 
     def _build_playback_dock(self) -> None:
         self.playback_dock = QtWidgets.QDockWidget("CSV Playback", self)
@@ -1169,6 +1246,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._handle_playback_event
         )
         self.sensor_series = sensor_series
+        self._populate_time_series_channel_list()
         self._remember_gps_route(csv_path, sensor_series)
         self.playback_events = events
         self.session_sampling_interval_ms = sampling_interval_ms
@@ -1519,7 +1597,7 @@ def _sensor_series_from_store(store: ColumnStore, sample_count: int) -> dict[str
         "ay_g",
         "ay",
     )
-    return {
+    series = {
         "RPM": _numeric_series(store, sample_count, "RPM"),
         "GPS speed": gps_speed,
         "VSS / GPS speed": gps_speed,
@@ -1537,6 +1615,9 @@ def _sensor_series_from_store(store: ColumnStore, sample_count: int) -> dict[str
         "latitude": _numeric_series(store, sample_count, "Latitude", "latitude"),
         "longitude": _numeric_series(store, sample_count, "Longitude", "longitude"),
     }
+    for channel_id, values in _raw_numeric_sensor_series(store, sample_count).items():
+        series.setdefault(channel_id, values)
+    return series
 
 
 def _derived_or_numeric_series(
@@ -1571,6 +1652,59 @@ def _numeric_series(
     if len(output) < sample_count:
         output.extend(default for _index in range(sample_count - len(output)))
     return output
+
+
+def _raw_numeric_sensor_series(store: ColumnStore, sample_count: int) -> dict[str, list[float]]:
+    output: dict[str, list[float]] = {}
+    for column_id in store.raw_column_names:
+        if column_id.lower() in {"time", "timestamp"}:
+            continue
+        raw_values = _store_values(store, column_id)
+        if raw_values is None:
+            continue
+        values: list[float] = []
+        saw_numeric = False
+        for raw_value in raw_values[:sample_count]:
+            parsed = _parse_float(raw_value)
+            if parsed is None:
+                values.append(0.0)
+            else:
+                values.append(parsed)
+                saw_numeric = True
+        if not saw_numeric:
+            continue
+        if len(values) < sample_count:
+            values.extend(0.0 for _index in range(sample_count - len(values)))
+        output[column_id] = values
+    return output
+
+
+def _time_series_channel_options(sensor_series: dict[str, list[float]]) -> list[str]:
+    preferred = (
+        "RPM",
+        "TPS_percent",
+        "GPS speed",
+        "VSS / GPS speed",
+        "Gear",
+        "Battery voltage",
+        "AX_CORRECTED_G",
+        "AY_CORRECTED_G",
+        "ax",
+        "ay",
+        "roll rate",
+        "pitch rate",
+        "yaw rate",
+    )
+    options: list[str] = []
+    for channel_id in preferred:
+        if channel_id in sensor_series and channel_id not in options:
+            options.append(channel_id)
+    for channel_id in sorted(sensor_series):
+        if channel_id in {"latitude", "longitude"}:
+            continue
+        if channel_id not in options:
+            options.append(channel_id)
+    return options
 
 
 def _store_values(store: ColumnStore, *candidates: str) -> list[str] | None:

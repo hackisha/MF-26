@@ -418,3 +418,24 @@ def test_vehicle_model_window_renders_actual_glb_mesh(qtbot):
     assert window.rendered_vertex_count == info.vertex_count
     assert window.rendered_triangle_count == info.triangle_count
     assert window.preview_status_text() == "Loaded 3D GLB mesh"
+
+
+def test_vehicle_model_window_tilts_from_playback_acceleration(qtbot):
+    info = load_glb_info(PROJECT_ROOT / "car.glb")
+    playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
+    window = VehicleModelWindow(
+        info,
+        playback_state=playback,
+        ax_corrected=[0.0, 0.5, -2.0],
+        ay_corrected=[0.0, -0.25, 2.0],
+    )
+    qtbot.addWidget(window)
+
+    playback.set_sample(1)
+
+    assert window.attitude_degrees == pytest.approx((-3.0, -6.0))
+    assert window.attitude_text() == "Attitude: roll -3.0 deg | pitch -6.0 deg"
+
+    playback.set_sample(2)
+
+    assert window.attitude_degrees == pytest.approx((18.0, 18.0))
