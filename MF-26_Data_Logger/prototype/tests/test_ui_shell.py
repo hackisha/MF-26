@@ -173,11 +173,15 @@ def test_right_properties_panel_uses_grouped_readable_rows(qtbot):
         QtWidgets.QLabel,
         "settingsRowLabel",
     )
+    row_layouts = [row.layout() for row in rows]
     style = window.styleSheet()
 
     assert group is not None
     assert len(rows) >= 5
-    assert all(label.minimumWidth() >= 86 for label in labels)
+    assert all(64 <= label.minimumWidth() <= 78 for label in labels)
+    assert all(layout is not None and layout.spacing() <= 6 for layout in row_layouts)
+    assert group.layout().contentsMargins().left() <= 6
+    assert all(layout.contentsMargins().left() <= 8 for layout in row_layouts if layout is not None)
     for selector in (
         "QDockWidget#propertiesPanel",
         "QWidget#propertiesPanelContent",
@@ -185,10 +189,12 @@ def test_right_properties_panel_uses_grouped_readable_rows(qtbot):
         "QFrame#settingsRow",
         "QLabel#settingsRowLabel",
         "QCheckBox::indicator",
+        "QCheckBox::indicator:unchecked",
         "QComboBox:disabled",
         "QLabel#hoverLabel",
     ):
         assert selector in style
+    assert "background: #26313a;" in style
 
 
 def test_bottom_playback_dock_exposes_required_csv_controls_and_status(qtbot):
