@@ -184,6 +184,9 @@ def test_right_properties_panel_uses_grouped_readable_rows(qtbot):
     assert all(layout.contentsMargins().left() <= 8 for layout in row_layouts if layout is not None)
     for selector in (
         "QDockWidget#propertiesPanel",
+        "QMdiSubWindow::title",
+        "QMdiSubWindow::title:active",
+        "QMdiSubWindow::close-button:hover",
         "QWidget#propertiesPanelContent",
         "QFrame#settingsGroupFrame",
         "QFrame#settingsRow",
@@ -195,6 +198,8 @@ def test_right_properties_panel_uses_grouped_readable_rows(qtbot):
     ):
         assert selector in style
     assert "background: #26313a;" in style
+    assert "background: #334450;" in style
+    assert "background: #405665;" in style
 
 
 def test_bottom_playback_dock_exposes_required_csv_controls_and_status(qtbot):
@@ -489,7 +494,7 @@ def test_time_series_analysis_window_uses_real_pyqtgraph_widget(qtbot):
     assert isinstance(first_subwindow.widget(), TimeSeriesWindow)
 
 
-def test_maximized_analysis_window_keeps_local_window_controls_visible(qtbot):
+def test_analysis_window_uses_colored_custom_title_bar_controls(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.show()
@@ -499,21 +504,30 @@ def test_maximized_analysis_window_keeps_local_window_controls_visible(qtbot):
     sub_window.showMaximized()
     QtWidgets.QApplication.processEvents()
 
-    controls = sub_window.widget().findChild(
+    title_bar = sub_window.findChild(
         QtWidgets.QFrame,
-        "analysisWindowOverlayControls",
+        "analysisWindowTitleBar",
     )
-    restore_button = sub_window.widget().findChild(
+    title_label = sub_window.findChild(
+        QtWidgets.QLabel,
+        "analysisWindowTitleLabel",
+    )
+    restore_button = sub_window.findChild(
         QtWidgets.QToolButton,
         "analysisWindowRestoreButton",
     )
-    close_button = sub_window.widget().findChild(
+    close_button = sub_window.findChild(
         QtWidgets.QToolButton,
         "analysisWindowCloseButton",
     )
 
-    assert controls is not None
-    assert controls.isVisible()
+    assert bool(sub_window.windowFlags() & QtCore.Qt.WindowType.FramelessWindowHint)
+    assert title_bar is not None
+    assert title_bar.isVisible()
+    assert "#334450" in title_bar.styleSheet()
+    assert "#405665" in title_bar.styleSheet()
+    assert title_label is not None
+    assert title_label.text() == "G-G Diagram"
     assert restore_button is not None
     assert restore_button.isVisible()
     assert close_button is not None

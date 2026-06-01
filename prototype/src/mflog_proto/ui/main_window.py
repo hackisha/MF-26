@@ -174,6 +174,206 @@ class _AnalysisWindowOverlayControls(QtCore.QObject):
         return button
 
 
+class _AnalysisTitleBar(QtWidgets.QFrame):
+    def __init__(
+        self,
+        sub_window: QtWidgets.QMdiSubWindow,
+        title: str,
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("analysisWindowTitleBar")
+        self.setProperty("active", False)
+        self.setFixedHeight(28)
+        self._sub_window = sub_window
+        self._drag_offset = QtCore.QPoint()
+        self._dragging = False
+        self.setStyleSheet(
+            """
+            QFrame#analysisWindowTitleBar {
+                background: #334450;
+                border-bottom: 1px solid #6b7d87;
+            }
+            QFrame#analysisWindowTitleBar[active="true"] {
+                background: #405665;
+            }
+            QLabel#analysisWindowTitleLabel {
+                background: transparent;
+                color: #f4f8fb;
+                font-weight: 600;
+                padding-left: 7px;
+            }
+            QToolButton {
+                background: transparent;
+                border: none;
+                color: #f4f8fb;
+                font-weight: 700;
+            }
+            QToolButton:hover {
+                background: #4f6675;
+            }
+            QToolButton#analysisWindowCloseButton:hover {
+                background: #9f4d4d;
+            }
+            """
+        )
+
+        layout = QtWidgets.QHBoxLayout(self)
+        layout.setContentsMargins(6, 0, 4, 0)
+        layout.setSpacing(2)
+
+        self._title_label = QtWidgets.QLabel(title)
+        self._title_label.setObjectName("analysisWindowTitleLabel")
+        self._title_label.setAlignment(
+            QtCore.Qt.AlignmentFlag.AlignVCenter | QtCore.Qt.AlignmentFlag.AlignLeft
+        )
+
+        self._minimize_button = self._make_button(
+            object_name="analysisWindowMinimizeButton",
+            text="-",
+            tooltip="Minimize",
+        )
+        self._restore_button = self._make_button(
+            object_name="analysisWindowRestoreButton",
+            text="[]",
+            tooltip="Maximize / restore",
+        )
+        self._close_button = self._make_button(
+            object_name="analysisWindowCloseButton",
+            text="x",
+            tooltip="Close",
+        )
+
+        layout.addWidget(self._title_label, 1)
+        layout.addWidget(self._minimize_button)
+        layout.addWidget(self._restore_button)
+        layout.addWidget(self._close_button)
+
+        self._minimize_button.clicked.connect(sub_window.showMinimized)
+        self._restore_button.clicked.connect(self._toggle_maximized)
+        self._close_button.clicked.connect(sub_window.close)
+        self.update_restore_button()
+
+    def set_active(self, active: bool) -> None:
+        if self.property("active") == active:
+            return
+        self.setProperty("active", active)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
+    def set_title(self, title: str) -> None:
+        self._title_label.setText(title)
+
+    def update_restore_button(self) -> None:
+        is_maximized = (
+            self._sub_window.isMaximized()
+            or bool(self._sub_window.windowState() & QtCore.Qt.WindowState.WindowMaximized)
+        )
+        self._restore_button.setText("[]" if is_maximized else "[ ]")
+
+    def mouseDoubleClickEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            self._toggle_maximized()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            self._dragging = True
+            self._drag_offset = event.globalPosition().toPoint() - self._sub_window.pos()
+            mdi_area = self._sub_window.mdiArea()
+            if mdi_area is not None:
+                mdi_area.setActiveSubWindow(self._sub_window)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if self._dragging and event.buttons() & QtCore.Qt.MouseButton.LeftButton:
+            if self._sub_window.isMaximized():
+                return
+            self._sub_window.move(event.globalPosition().toPoint() - self._drag_offset)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        self._dragging = False
+        super().mouseReleaseEvent(event)
+
+    def _toggle_maximized(self) -> None:
+        if self._sub_window.isMaximized():
+            self._sub_window.showNormal()
+        else:
+            self._sub_window.showMaximized()
+        self.update_restore_button()
+
+    def _make_button(
+        self,
+        *,
+        object_name: str,
+        text: str,
+        tooltip: str,
+    ) -> QtWidgets.QToolButton:
+        button = QtWidgets.QToolButton(self)
+        button.setObjectName(object_name)
+        button.setText(text)
+        button.setToolTip(tooltip)
+        button.setFixedSize(28, 24)
+        button.setAutoRaise(True)
+        return button
+
+
+class _AnalysisWindowFrame(QtWidgets.QFrame):
+    def __init__(
+        self,
+        sub_window: QtWidgets.QMdiSubWindow,
+        title: str,
+        content: QtWidgets.QWidget,
+    ) -> None:
+        super().__init__()
+        self.setObjectName("analysisWindowFrame")
+        self.title_bar = _AnalysisTitleBar(sub_window, title, self)
+        self.content = content
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self.title_bar)
+        layout.addWidget(content, 1)
+
+
+class _AnalysisSubWindow(QtWidgets.QMdiSubWindow):
+    def __init__(self, content: QtWidgets.QWidget, title: str) -> None:
+        super().__init__()
+        self._analysis_widget = content
+        self._frame = _AnalysisWindowFrame(self, title, content)
+        self.setObjectName("analysisSubWindow")
+        self.setWindowTitle(title)
+        self.setWindowFlag(QtCore.Qt.WindowType.FramelessWindowHint, True)
+        self.setWidget(self._frame)
+
+    def widget(self) -> QtWidgets.QWidget:  # type: ignore[override]
+        return self._analysis_widget
+
+    def frame_widget(self) -> _AnalysisWindowFrame:
+        return self._frame
+
+    def setWindowTitle(self, title: str) -> None:  # noqa: N802
+        super().setWindowTitle(title)
+        if hasattr(self, "_frame"):
+            self._frame.title_bar.set_title(title)
+
+    def set_title_active(self, active: bool) -> None:
+        self._frame.title_bar.set_active(active)
+
+    def changeEvent(self, event: QtCore.QEvent) -> None:  # noqa: N802
+        super().changeEvent(event)
+        if event.type() == QtCore.QEvent.Type.WindowStateChange:
+            self._frame.title_bar.update_restore_button()
+
+
 DEFAULT_PRESET_TABS: tuple[str, ...] = (
     "차량 거동",
     "GPS / LapTime",
@@ -443,14 +643,10 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             widget = self._build_placeholder_window(title)
 
-        sub_window = self.workspace.addSubWindow(widget)
-        sub_window.setWindowTitle(title)
+        sub_window = _AnalysisSubWindow(widget, title)
+        self.workspace.addSubWindow(sub_window)
         sub_window.setWindowFlag(QtCore.Qt.WindowType.WindowMinMaxButtonsHint, True)
         sub_window.setWindowFlag(QtCore.Qt.WindowType.WindowCloseButtonHint, True)
-        sub_window._overlay_controls_controller = _AnalysisWindowOverlayControls(  # type: ignore[attr-defined]
-            sub_window,
-            widget,
-        )
         sub_window.resize(460, 260)
         sub_window.show()
         self.workspace.setActiveSubWindow(sub_window)
@@ -863,13 +1059,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self,
         sub_window: QtWidgets.QMdiSubWindow | None = None,
     ) -> None:
-        if not hasattr(self, "properties_stack"):
-            return
-
         if sub_window is None:
             sub_window = self.workspace.activeSubWindow()
         if sub_window is not None and not shiboken6.isValid(sub_window):
             sub_window = None
+        self._sync_analysis_title_bars(sub_window)
+
+        if not hasattr(self, "properties_stack"):
+            return
 
         selected_title = "작업공간"
         selected_page = self.workspace_properties_page
@@ -892,6 +1089,16 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.properties_selection_label.setText(f"선택 창: {selected_title}")
         self.properties_stack.setCurrentWidget(selected_page)
+
+    def _sync_analysis_title_bars(
+        self,
+        active_sub_window: QtWidgets.QMdiSubWindow | None,
+    ) -> None:
+        if not hasattr(self, "workspace"):
+            return
+        for sub_window in self.workspace.subWindowList():
+            if isinstance(sub_window, _AnalysisSubWindow):
+                sub_window.set_title_active(sub_window is active_sub_window)
 
     def _update_visualization_settings_from_controls(self, *_args: object) -> None:
         self.visualization_settings = VisualizationSettings(
@@ -1488,6 +1695,35 @@ class MainWindow(QtWidgets.QMainWindow):
                 font-family: "Malgun Gothic", "Segoe UI", sans-serif;
                 background: #202326;
                 color: #edf3f7;
+            }
+            QMdiSubWindow {
+                background: #1d2429;
+                border: 1px solid #6b7d87;
+            }
+            QMdiSubWindow::title {
+                background: #334450;
+                color: #f4f8fb;
+                padding: 4px 8px;
+                border-bottom: 1px solid #6b7d87;
+            }
+            QMdiSubWindow::title:active {
+                background: #405665;
+                color: #ffffff;
+            }
+            QMdiSubWindow::close-button,
+            QMdiSubWindow::normal-button,
+            QMdiSubWindow::minimize-button {
+                background: #334450;
+                border: none;
+                width: 22px;
+                height: 20px;
+            }
+            QMdiSubWindow::close-button:hover {
+                background: #9f4d4d;
+            }
+            QMdiSubWindow::normal-button:hover,
+            QMdiSubWindow::minimize-button:hover {
+                background: #4f6675;
             }
             QMenuBar, QMenu, QDockWidget, QStatusBar, QTabBar::tab {
                 font-family: "Malgun Gothic", "Segoe UI", sans-serif;
