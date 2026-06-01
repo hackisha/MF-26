@@ -825,13 +825,13 @@ class MainWindow(QtWidgets.QMainWindow):
         page.setObjectName(object_name)
         page_layout = QtWidgets.QVBoxLayout(page)
         page_layout.setContentsMargins(0, 0, 0, 0)
-        page_layout.setSpacing(10)
+        page_layout.setSpacing(6)
 
         group = QtWidgets.QFrame()
         group.setObjectName("settingsGroupFrame")
         group_layout = QtWidgets.QVBoxLayout(group)
-        group_layout.setContentsMargins(8, 8, 8, 8)
-        group_layout.setSpacing(8)
+        group_layout.setContentsMargins(6, 6, 6, 6)
+        group_layout.setSpacing(6)
         for label, widget in rows:
             if isinstance(widget, QtWidgets.QLabel) and not widget.objectName():
                 widget.setObjectName("settingsValueLabel")
@@ -840,12 +840,13 @@ class MainWindow(QtWidgets.QMainWindow):
             row = QtWidgets.QFrame()
             row.setObjectName("settingsRow")
             row_layout = QtWidgets.QHBoxLayout(row)
-            row_layout.setContentsMargins(10, 8, 10, 8)
-            row_layout.setSpacing(10)
+            row_layout.setContentsMargins(8, 6, 8, 6)
+            row_layout.setSpacing(6)
 
             label_widget = QtWidgets.QLabel(label)
             label_widget.setObjectName("settingsRowLabel")
-            label_widget.setMinimumWidth(90)
+            label_widget.setMinimumWidth(72)
+            label_widget.setMaximumWidth(78)
             label_widget.setAlignment(
                 QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop
             )
@@ -1510,7 +1511,7 @@ class MainWindow(QtWidgets.QMainWindow):
             QLabel#propertiesSelectionLabel {
                 color: #ffffff;
                 font-weight: 700;
-                padding: 6px 8px;
+                padding: 5px 8px;
                 background: #252b30;
                 border: 1px solid #4a5660;
             }
@@ -1571,8 +1572,11 @@ class MainWindow(QtWidgets.QMainWindow):
             QCheckBox::indicator {
                 width: 16px;
                 height: 16px;
-                border: 1px solid #7b8993;
-                background: #11161a;
+                border: 1px solid #91a3ad;
+                border-radius: 4px;
+            }
+            QCheckBox::indicator:unchecked {
+                background: #26313a;
             }
             QCheckBox::indicator:checked {
                 background: #4f8db3;
