@@ -19,7 +19,7 @@ crashes.
 ```
 
 Expected result: all tests pass without a `python.exe` native error dialog.
-The current expected count is `130 passed`.
+The current expected count is `132 passed`.
 
 ## 2. Generate Target CSV
 
@@ -104,10 +104,11 @@ Check that:
 - Maximized analysis windows keep local minimize/restore/close controls visible
   inside the central workspace.
 - `Settings` / right properties controls can toggle the GPS real-map background
-  layer. When network/cache access is available, an OpenStreetMap tile is drawn
-  behind the full route; if tiles are unavailable, playback, route, and current
-  point remain usable. The same panel can adjust time-series line color and
-  thickness, plus the G-G limit-circle radius, for existing and newly opened
+  layer. When network/cache access is available, a high-resolution
+  OpenStreetMap tile mosaic is drawn behind the full route with GPS points
+  aligned to latitude/longitude; if tiles are unavailable, playback, route, and
+  current point remain usable. The same panel can adjust time-series line color
+  and thickness, plus the G-G limit-circle radius, for existing and newly opened
   windows.
 - GPS map draws all loaded CSV route plots faintly in the background, highlights
   the currently playing CSV route, and shows a hover marker/label for the nearest

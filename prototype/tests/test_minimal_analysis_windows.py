@@ -15,7 +15,9 @@ from mflog_proto.ui.minimal_analysis_windows import (
     GlbModelInfo,
     GPSMapWindow,
     MapTileImage,
+    OpenStreetMapTileProvider,
     VehicleModelWindow,
+    _qimage_to_rgba_array,
     load_glb_info,
 )
 
@@ -38,6 +40,45 @@ class FakeMapTileProvider:
             south=min(latitudes) - 0.001,
             north=max(latitudes) + 0.001,
         )
+
+
+class FakeMosaicTileProvider(OpenStreetMapTileProvider):
+    def __init__(self, cache_dir: Path) -> None:
+        super().__init__(cache_dir=cache_dir)
+        self.loaded_tiles: list[tuple[int, int, int]] = []
+
+    def _load_tile(self, zoom: int, tile_x: int, tile_y: int) -> QtGui.QImage | None:
+        self.loaded_tiles.append((zoom, tile_x, tile_y))
+        image = QtGui.QImage(256, 256, QtGui.QImage.Format.Format_RGBA8888)
+        image.fill(QtGui.QColor(tile_x % 255, tile_y % 255, zoom % 255))
+        return image
+
+
+def test_osm_tile_provider_builds_high_resolution_mosaic_for_gps_bounds(tmp_path):
+    provider = FakeMosaicTileProvider(tmp_path)
+    latitudes = [35.2915, 35.2930, 35.2931]
+    longitudes = [126.5740, 126.5748, 126.5750]
+
+    tile = provider.tile_for_bounds(latitudes=latitudes, longitudes=longitudes)
+
+    assert tile is not None
+    assert len(provider.loaded_tiles) > 1
+    assert tile.image.width() > 256 or tile.image.height() > 256
+    assert tile.west <= min(longitudes)
+    assert tile.east >= max(longitudes)
+    assert tile.south <= min(latitudes)
+    assert tile.north >= max(latitudes)
+
+
+def test_qimage_conversion_keeps_map_north_at_higher_latitude():
+    image = QtGui.QImage(1, 2, QtGui.QImage.Format.Format_RGBA8888)
+    image.setPixelColor(0, 0, QtGui.QColor("#ff0000"))
+    image.setPixelColor(0, 1, QtGui.QColor("#0000ff"))
+
+    rgba = _qimage_to_rgba_array(image)
+
+    assert tuple(rgba[0, 0, :3]) == (0, 0, 255)
+    assert tuple(rgba[1, 0, :3]) == (255, 0, 0)
 
 
 def test_gg_diagram_tracks_playback_point_from_corrected_acceleration(qtbot):

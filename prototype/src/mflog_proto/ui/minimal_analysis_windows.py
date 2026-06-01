@@ -104,6 +104,9 @@ class MapTileProvider(Protocol):
 
 
 class OpenStreetMapTileProvider:
+    _tile_pixel_size = 256
+    _max_mosaic_tile_count = 12
+
     def __init__(self, cache_dir: Path | None = None, timeout_seconds: float = 1.5) -> None:
         self._cache_dir = cache_dir if cache_dir is not None else _default_tile_cache_dir()
         self._timeout_seconds = timeout_seconds
@@ -121,17 +124,62 @@ class OpenStreetMapTileProvider:
         north = min(max(latitudes), 85.05112878)
         west = max(min(longitudes), -180.0)
         east = min(max(longitudes), 180.0)
-        center_latitude = (south + north) / 2
-        center_longitude = (west + east) / 2
         zoom = _zoom_for_span(abs(north - south), abs(east - west))
-        tile_x, tile_y = _tile_for_lat_lon(center_latitude, center_longitude, zoom)
-        image = self._load_tile(zoom, tile_x, tile_y)
-        if image is None:
+        tile_range = _tile_range_for_bounds(
+            south=south,
+            north=north,
+            west=west,
+            east=east,
+            zoom=zoom,
+            padding=1,
+        )
+        while (
+            _tile_count_in_range(tile_range) > self._max_mosaic_tile_count
+            and zoom > 6
+        ):
+            zoom -= 1
+            tile_range = _tile_range_for_bounds(
+                south=south,
+                north=north,
+                west=west,
+                east=east,
+                zoom=zoom,
+                padding=1,
+            )
+
+        min_x, max_x, min_y, max_y = tile_range
+        column_count = max_x - min_x + 1
+        row_count = max_y - min_y + 1
+        mosaic = QtGui.QImage(
+            column_count * self._tile_pixel_size,
+            row_count * self._tile_pixel_size,
+            QtGui.QImage.Format.Format_RGBA8888,
+        )
+        mosaic.fill(QtCore.Qt.GlobalColor.transparent)
+        painter = QtGui.QPainter(mosaic)
+        loaded_any_tile = False
+        try:
+            for tile_y in range(min_y, max_y + 1):
+                for tile_x in range(min_x, max_x + 1):
+                    image = self._load_tile(zoom, tile_x, tile_y)
+                    if image is None:
+                        continue
+                    loaded_any_tile = True
+                    painter.drawImage(
+                        (tile_x - min_x) * self._tile_pixel_size,
+                        (tile_y - min_y) * self._tile_pixel_size,
+                        image,
+                    )
+        finally:
+            painter.end()
+
+        if not loaded_any_tile:
             return None
 
-        tile_west, tile_east, tile_south, tile_north = _tile_bounds(tile_x, tile_y, zoom)
+        tile_west, _, _, tile_north = _tile_bounds(min_x, min_y, zoom)
+        _, tile_east, tile_south, _ = _tile_bounds(max_x, max_y, zoom)
         return MapTileImage(
-            image=image,
+            image=mosaic,
             west=tile_west,
             east=tile_east,
             south=tile_south,
@@ -1268,14 +1316,18 @@ def _default_tile_cache_dir() -> Path:
 
 def _zoom_for_span(latitude_span: float, longitude_span: float) -> int:
     span = max(latitude_span, longitude_span)
+    if span <= 0.0025:
+        return 18
+    if span <= 0.005:
+        return 17
     if span <= 0.01:
-        return 15
+        return 16
     if span <= 0.05:
-        return 14
+        return 15
     if span <= 0.1:
-        return 13
+        return 14
     if span <= 0.5:
-        return 11
+        return 12
     if span <= 1.0:
         return 10
     if span <= 5.0:
@@ -1309,6 +1361,33 @@ def _tile_bounds(tile_x: int, tile_y: int, zoom: int) -> tuple[float, float, flo
     return west, east, south, north
 
 
+def _tile_range_for_bounds(
+    *,
+    south: float,
+    north: float,
+    west: float,
+    east: float,
+    zoom: int,
+    padding: int = 0,
+) -> tuple[int, int, int, int]:
+    west_x, north_y = _tile_for_lat_lon(north, west, zoom)
+    east_x, south_y = _tile_for_lat_lon(south, east, zoom)
+    min_x, max_x = sorted((west_x, east_x))
+    min_y, max_y = sorted((north_y, south_y))
+    tile_count = 1 << zoom
+    return (
+        max(0, min_x - padding),
+        min(tile_count - 1, max_x + padding),
+        max(0, min_y - padding),
+        min(tile_count - 1, max_y + padding),
+    )
+
+
+def _tile_count_in_range(tile_range: tuple[int, int, int, int]) -> int:
+    min_x, max_x, min_y, max_y = tile_range
+    return (max_x - min_x + 1) * (max_y - min_y + 1)
+
+
 def _qimage_to_rgba_array(image: QtGui.QImage) -> np.ndarray:
     rgba = image.convertToFormat(QtGui.QImage.Format.Format_RGBA8888)
     width = rgba.width()
@@ -1316,7 +1395,7 @@ def _qimage_to_rgba_array(image: QtGui.QImage) -> np.ndarray:
     buffer = rgba.bits().tobytes()
     bytes_per_line = rgba.bytesPerLine()
     rows = np.frombuffer(buffer, dtype=np.uint8).reshape(height, bytes_per_line)
-    return rows[:, : width * 4].reshape(height, width, 4).copy()
+    return np.flipud(rows[:, : width * 4].reshape(height, width, 4)).copy()
 
 
 def _event_fields(event: object) -> tuple[str, str, int, str]:
