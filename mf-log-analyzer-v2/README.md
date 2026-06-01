@@ -10,3 +10,18 @@ python -m venv .venv
 .\\.venv\\Scripts\\python -m pytest
 .\\.venv\\Scripts\\python -m mf_log_analyzer_v2
 ```
+
+## Foundation Benchmark
+
+Local benchmark target:
+
+- 300,000 rows
+- MF default profile channel mapping
+- column-oriented Polars load
+
+Latest local result:
+
+```text
+rows=300000
+load_seconds=0.405
+```
