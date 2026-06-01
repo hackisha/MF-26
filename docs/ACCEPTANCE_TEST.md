@@ -19,7 +19,7 @@ crashes.
 ```
 
 Expected result: all tests pass without a `python.exe` native error dialog.
-The current expected count is `128 passed`.
+The current expected count is `129 passed`.
 
 ## 2. Generate Target CSV
 
@@ -123,6 +123,7 @@ Check that:
   mesh vertices/triangles, shows the actual GLB mesh in the viewport, and labels
   the view as qualitative visualization. The right properties panel can load a
   different GLB model and applies it to open and newly created 3D vehicle windows.
+  The selected GLB path is preserved in `.mflogproj` save/open flows.
 
 ## 6. Windows EXE Build Smoke
 

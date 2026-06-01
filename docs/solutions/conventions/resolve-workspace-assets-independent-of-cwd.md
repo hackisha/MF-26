@@ -1,7 +1,7 @@
 ---
 title: "Resolve workspace assets independent of cwd"
 date: "2026-05-25"
-last_updated: "2026-05-26"
+last_updated: "2026-06-02"
 track: "knowledge"
 category: "conventions"
 problem_type: "best_practice"
@@ -62,3 +62,8 @@ UI smoke tests often run from the repository root, while app commands, editable 
 ## When to Apply
 
 Apply this whenever the app references project-root fixtures, sample CSVs, bundled model files, storyboard assets, report templates, or benchmark inputs. Prefer explicit project/session paths once persistence exists; use source-derived fallback only for prototype and development fixtures. For PyInstaller, bundle required root assets in the spec and keep `_MEIPASS` as the first lookup candidate.
+
+When a user can select an asset in the UI, store that explicit path in project
+state and restore it before recreating dependent windows. The fallback root asset
+is for first launch only; it should not overwrite a user-selected model, document,
+or template during `.mflogproj` save/open round trips.

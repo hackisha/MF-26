@@ -24,6 +24,7 @@ def test_project_state_round_trips_json(tmp_path):
         playback_seconds=4.2,
         preset_tab_order=("차량 거동", "GPS / LapTime"),
         active_tab_index=1,
+        vehicle_model_path=Path("models/custom-car.glb"),
     )
 
     project_path = tmp_path / "session.mflogproto.json"
@@ -46,3 +47,4 @@ def test_project_state_defaults_optional_sections():
     assert state.csv_path is None
     assert state.open_windows == ()
     assert state.active_profile == "prototype"
+    assert state.vehicle_model_path is None

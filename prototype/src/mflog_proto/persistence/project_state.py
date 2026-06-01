@@ -51,11 +51,15 @@ class ProjectState:
     playback_seconds: float = 0.0
     preset_tab_order: tuple[str, ...] = ()
     active_tab_index: int = 0
+    vehicle_model_path: Path | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "schema_version": self.schema_version,
             "csv_path": None if self.csv_path is None else str(self.csv_path),
+            "vehicle_model_path": (
+                None if self.vehicle_model_path is None else str(self.vehicle_model_path)
+            ),
             "active_profile": self.active_profile,
             "channel_mappings": dict(self.channel_mappings),
             "derived_channel_settings": dict(self.derived_channel_settings),
@@ -73,9 +77,13 @@ class ProjectState:
             raise ValueError(f"Unsupported project schema version: {schema_version}")
 
         csv_path = data.get("csv_path")
+        vehicle_model_path = data.get("vehicle_model_path")
         return cls(
             schema_version=schema_version,
             csv_path=None if csv_path in (None, "") else Path(str(csv_path)),
+            vehicle_model_path=(
+                None if vehicle_model_path in (None, "") else Path(str(vehicle_model_path))
+            ),
             active_profile=str(data.get("active_profile", "prototype")),
             channel_mappings=dict(data.get("channel_mappings", {})),
             derived_channel_settings=dict(data.get("derived_channel_settings", {})),

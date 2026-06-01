@@ -603,6 +603,7 @@ def test_main_window_captures_workspace_project_state(qtbot):
     assert state.channel_mappings == {"RPM": "RPM"}
     assert state.derived_channel_settings == {"AX_CORRECTED_G": {"formula": "ax_g / 8"}}
     assert state.selected_channels == ("RPM", "AX_CORRECTED_G")
+    assert state.vehicle_model_path == window.vehicle_model_path
     assert state.playback_seconds == 3.47
     assert state.active_tab_index == 1
     assert state.preset_tab_order[0] == "GPS / LapTime"
@@ -633,6 +634,25 @@ def test_main_window_restores_workspace_project_state(qtbot):
     assert restored.active_profile == "mf_2026"
     assert restored.playback_state.current_sample == 12
     assert restored.timeline_status.text() == "시간 1.200 s | 샘플 12"
+
+
+def test_main_window_restores_vehicle_model_path_from_project_state(qtbot, tmp_path):
+    custom_model = tmp_path / "project-car.glb"
+    shutil.copyfile(PROTOTYPE_ROOT.parent / "car.glb", custom_model)
+    state = ProjectState(
+        vehicle_model_path=custom_model,
+        open_windows=(WindowState("3D Vehicle Model", x=1, y=2, width=420, height=260),),
+    )
+    restored = MainWindow()
+    qtbot.addWidget(restored)
+
+    restored.restore_project_state(state)
+
+    vehicle_window = restored.workspace.subWindowList()[0].widget()
+    assert restored.vehicle_model_path == custom_model
+    assert restored.vehicle_model_path_edit.text() == str(custom_model)
+    assert isinstance(vehicle_window, VehicleModelWindow)
+    assert vehicle_window.model_status_text().startswith("project-car.glb | GLB v")
 
 
 def test_main_window_queues_project_restore_until_csv_load_completes(qtbot):

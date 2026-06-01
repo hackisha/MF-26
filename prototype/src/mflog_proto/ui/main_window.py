@@ -334,6 +334,7 @@ class MainWindow(QtWidgets.QMainWindow):
             open_windows=tuple(self._capture_window_state()),
             selected_channels=tuple(self.selected_channels),
             playback_seconds=self.playback_state.current_seconds,
+            vehicle_model_path=self.vehicle_model_path,
             preset_tab_order=tuple(
                 self.preset_tabs.tabText(index) for index in range(self.preset_tabs.count())
             ),
@@ -361,6 +362,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.channel_mappings = dict(state.channel_mappings)
         self.derived_channel_settings = dict(state.derived_channel_settings)
         self.selected_channels = list(state.selected_channels)
+        if state.vehicle_model_path is not None:
+            self.load_vehicle_model_path(state.vehicle_model_path)
         self._restore_preset_tabs(state)
         self._clear_workspace()
 

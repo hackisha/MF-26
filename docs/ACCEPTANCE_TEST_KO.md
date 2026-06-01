@@ -23,7 +23,7 @@ Windows에서 `QT_QPA_PLATFORM=minimal` 설정은 의도된 값입니다. 일반
 
 - 전체 테스트가 통과합니다.
 - `python.exe` 응용 프로그램 오류창이 뜨지 않습니다.
-- 최신 검증 기준으로는 `128 passed`가 정상입니다.
+- 최신 검증 기준으로는 `129 passed`가 정상입니다.
 
 ## 2. 300k x 200 합성 CSV 생성
 
@@ -160,6 +160,7 @@ prototype\.generated\acceptance\target_300k_200.html
   강조되고 hover label/tooltip에 시간과 좌표가 표시됩니다.
 - 우측 속성 패널의 `Vehicle GLB` 설정에서 다른 `.glb` 차량 모델을 로드할 수
   있으며, 열린 `3D Vehicle Model` 창과 새로 여는 창에 즉시 반영됩니다.
+- 선택한 차량 GLB 경로는 `.mflogproj` 저장/열기 후에도 유지됩니다.
 
 ## 7. Windows EXE 빌드 스모크
 
