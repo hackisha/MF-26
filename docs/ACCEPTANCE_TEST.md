@@ -19,7 +19,7 @@ crashes.
 ```
 
 Expected result: all tests pass without a `python.exe` native error dialog.
-The current expected count is `139 passed`.
+The current expected count is `140 passed`.
 
 ## 2. Generate Target CSV
 
@@ -153,5 +153,6 @@ Optional handoff archive:
 Compress-Archive -Path .\dist\MF-LOG-ANALYZER-v2 -DestinationPath .\dist\MF-LOG-ANALYZER-v2.zip -Force
 ```
 
-Launch the exe and check that the main window opens, `3D Vehicle Model` can load
-the bundled `car.glb`, and `Documents` lists the bundled storyboard PDF.
+Launch the exe and check that the main window opens with the MuHanZilJu logo as
+the program icon, `3D Vehicle Model` can load the bundled `car.glb`, and
+`Documents` lists the bundled storyboard PDF.

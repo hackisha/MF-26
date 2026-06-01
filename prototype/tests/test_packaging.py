@@ -14,3 +14,5 @@ def test_pyinstaller_spec_declares_entrypoint_and_root_assets():
     assert "MF-LOG-ANALYZER-v2" in spec_text
     assert "car.glb" in spec_text
     assert "데이터분석기 콘티.pdf" in spec_text
+    assert "app_icon.ico" in spec_text
+    assert "icon=str(APP_ICON_ICO_PATH)" in spec_text

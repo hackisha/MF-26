@@ -9,12 +9,17 @@ SPEC_PATH = Path(SPECPATH).resolve()
 PROTOTYPE_ROOT = SPEC_PATH.parent
 PROJECT_ROOT = PROTOTYPE_ROOT.parent
 ENTRYPOINT = "src/mflog_proto/app.py"
+APP_ICON_PNG_PATH = PROTOTYPE_ROOT / "src" / "mflog_proto" / "assets" / "app_icon.png"
+APP_ICON_ICO_PATH = PROTOTYPE_ROOT / "src" / "mflog_proto" / "assets" / "app_icon.ico"
 
 datas = []
 for asset_name in ("car.glb", "데이터분석기 콘티.pdf"):
     asset_path = PROJECT_ROOT / asset_name
     if asset_path.exists():
         datas.append((str(asset_path), "."))
+for app_asset_path in (APP_ICON_PNG_PATH, APP_ICON_ICO_PATH):
+    if app_asset_path.exists():
+        datas.append((str(app_asset_path), "mflog_proto/assets"))
 
 hiddenimports = collect_submodules(
     "pyqtgraph",
@@ -52,6 +57,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=str(APP_ICON_ICO_PATH),
 )
 coll = COLLECT(
     exe,
