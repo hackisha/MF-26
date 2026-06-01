@@ -336,6 +336,92 @@ class _AnalysisTitleBar(QtWidgets.QFrame):
         return button
 
 
+class _AnalysisResizeHandle(QtWidgets.QFrame):
+    HANDLE_SIZE = 8
+    CORNER_SIZE = 14
+
+    def __init__(
+        self,
+        sub_window: QtWidgets.QMdiSubWindow,
+        *,
+        name: str,
+        horizontal: int,
+        vertical: int,
+        cursor_shape: QtCore.Qt.CursorShape,
+        parent: QtWidgets.QWidget,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName(f"analysisWindowResizeHandle{name}")
+        self.setCursor(QtGui.QCursor(cursor_shape))
+        self.setMouseTracking(True)
+        self.setStyleSheet(
+            """
+            QFrame {
+                background: transparent;
+                border: none;
+            }
+            QFrame:hover {
+                background: rgba(244, 201, 93, 55);
+            }
+            """
+        )
+        self._sub_window = sub_window
+        self._horizontal = horizontal
+        self._vertical = vertical
+        self._dragging = False
+        self._press_global_pos = QtCore.QPoint()
+        self._press_geometry = QtCore.QRect()
+
+    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            if self._sub_window.isMaximized():
+                return
+            mdi_area = self._sub_window.mdiArea()
+            if mdi_area is not None:
+                mdi_area.setActiveSubWindow(self._sub_window)
+            self._dragging = True
+            self._press_global_pos = event.globalPosition().toPoint()
+            self._press_geometry = self._sub_window.geometry()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        if not self._dragging:
+            super().mouseMoveEvent(event)
+            return
+        delta = event.globalPosition().toPoint() - self._press_global_pos
+        self._sub_window.setGeometry(self._resized_geometry(delta))
+        event.accept()
+
+    def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        self._dragging = False
+        super().mouseReleaseEvent(event)
+
+    def _resized_geometry(self, delta: QtCore.QPoint) -> QtCore.QRect:
+        geometry = QtCore.QRect(self._press_geometry)
+        min_width = max(self._sub_window.minimumWidth(), 220)
+        min_height = max(self._sub_window.minimumHeight(), 150)
+        fixed_right = self._press_geometry.x() + self._press_geometry.width()
+        fixed_bottom = self._press_geometry.y() + self._press_geometry.height()
+
+        if self._horizontal > 0:
+            geometry.setWidth(max(min_width, self._press_geometry.width() + delta.x()))
+        elif self._horizontal < 0:
+            width = max(min_width, self._press_geometry.width() - delta.x())
+            geometry.setX(fixed_right - width)
+            geometry.setWidth(width)
+
+        if self._vertical > 0:
+            geometry.setHeight(max(min_height, self._press_geometry.height() + delta.y()))
+        elif self._vertical < 0:
+            height = max(min_height, self._press_geometry.height() - delta.y())
+            geometry.setY(fixed_bottom - height)
+            geometry.setHeight(height)
+
+        return geometry
+
+
 class _AnalysisWindowFrame(QtWidgets.QFrame):
     def __init__(
         self,
@@ -347,11 +433,69 @@ class _AnalysisWindowFrame(QtWidgets.QFrame):
         self.setObjectName("analysisWindowFrame")
         self.title_bar = _AnalysisTitleBar(sub_window, title, self)
         self.content = content
+        self._resize_handles = self._make_resize_handles(sub_window)
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self.title_bar)
         layout.addWidget(content, 1)
+        self._update_resize_handle_geometry()
+
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._update_resize_handle_geometry()
+
+    def _make_resize_handles(
+        self,
+        sub_window: QtWidgets.QMdiSubWindow,
+    ) -> dict[str, _AnalysisResizeHandle]:
+        specs: tuple[tuple[str, int, int, QtCore.Qt.CursorShape], ...] = (
+            ("TopLeft", -1, -1, QtCore.Qt.CursorShape.SizeFDiagCursor),
+            ("Top", 0, -1, QtCore.Qt.CursorShape.SizeVerCursor),
+            ("TopRight", 1, -1, QtCore.Qt.CursorShape.SizeBDiagCursor),
+            ("Right", 1, 0, QtCore.Qt.CursorShape.SizeHorCursor),
+            ("BottomRight", 1, 1, QtCore.Qt.CursorShape.SizeFDiagCursor),
+            ("Bottom", 0, 1, QtCore.Qt.CursorShape.SizeVerCursor),
+            ("BottomLeft", -1, 1, QtCore.Qt.CursorShape.SizeBDiagCursor),
+            ("Left", -1, 0, QtCore.Qt.CursorShape.SizeHorCursor),
+        )
+        return {
+            name: _AnalysisResizeHandle(
+                sub_window,
+                name=name,
+                horizontal=horizontal,
+                vertical=vertical,
+                cursor_shape=cursor_shape,
+                parent=self,
+            )
+            for name, horizontal, vertical, cursor_shape in specs
+        }
+
+    def _update_resize_handle_geometry(self) -> None:
+        width = self.width()
+        height = self.height()
+        side = _AnalysisResizeHandle.HANDLE_SIZE
+        corner = _AnalysisResizeHandle.CORNER_SIZE
+        self._resize_handles["TopLeft"].setGeometry(0, 0, corner, corner)
+        self._resize_handles["Top"].setGeometry(corner, 0, max(0, width - corner * 2), side)
+        self._resize_handles["TopRight"].setGeometry(width - corner, 0, corner, corner)
+        self._resize_handles["Right"].setGeometry(width - side, corner, side, max(0, height - corner * 2))
+        self._resize_handles["BottomRight"].setGeometry(
+            width - corner,
+            height - corner,
+            corner,
+            corner,
+        )
+        self._resize_handles["Bottom"].setGeometry(
+            corner,
+            height - side,
+            max(0, width - corner * 2),
+            side,
+        )
+        self._resize_handles["BottomLeft"].setGeometry(0, height - corner, corner, corner)
+        self._resize_handles["Left"].setGeometry(0, corner, side, max(0, height - corner * 2))
+        for handle in self._resize_handles.values():
+            handle.raise_()
 
 
 class _AnalysisSubWindow(QtWidgets.QMdiSubWindow):

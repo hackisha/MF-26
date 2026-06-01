@@ -539,6 +539,47 @@ def test_analysis_window_uses_colored_custom_title_bar_controls(qtbot):
     assert not sub_window.isMaximized()
 
 
+def test_analysis_window_can_resize_by_dragging_border_handle(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitExposed(window)
+    sub_window = window.add_analysis_window("G-G Diagram")
+    sub_window.resize(360, 220)
+    QtWidgets.QApplication.processEvents()
+
+    resize_handle = sub_window.findChild(
+        QtWidgets.QWidget,
+        "analysisWindowResizeHandleBottomRight",
+    )
+    for handle_name in (
+        "TopLeft",
+        "Top",
+        "TopRight",
+        "Right",
+        "BottomRight",
+        "Bottom",
+        "BottomLeft",
+        "Left",
+    ):
+        assert sub_window.findChild(
+            QtWidgets.QWidget,
+            f"analysisWindowResizeHandle{handle_name}",
+        ) is not None
+    initial_size = sub_window.size()
+
+    assert resize_handle is not None
+    assert resize_handle.cursor().shape() == QtCore.Qt.CursorShape.SizeFDiagCursor
+
+    qtbot.mousePress(resize_handle, QtCore.Qt.MouseButton.LeftButton)
+    qtbot.mouseMove(resize_handle, QtCore.QPoint(80, 60))
+    qtbot.mouseRelease(resize_handle, QtCore.Qt.MouseButton.LeftButton)
+    QtWidgets.QApplication.processEvents()
+
+    assert sub_window.width() > initial_size.width()
+    assert sub_window.height() > initial_size.height()
+
+
 def test_visual_settings_update_gps_background_and_time_series_style(qtbot):
     tile_provider = FakeMapTileProvider()
     window = MainWindow(map_tile_provider=tile_provider)
