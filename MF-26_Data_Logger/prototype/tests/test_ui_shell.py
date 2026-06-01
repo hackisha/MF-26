@@ -193,11 +193,22 @@ def test_right_properties_panel_uses_grouped_readable_rows(qtbot):
         "QLabel#settingsRowLabel",
         "QCheckBox::indicator",
         "QCheckBox::indicator:unchecked",
+        "QListWidget::indicator",
+        "QListWidget::indicator:unchecked",
+        "QListWidget::indicator:checked",
+        "QComboBox QAbstractItemView",
+        "QComboBox QAbstractItemView::item",
+        "QComboBox QAbstractItemView::item:selected",
+        "QAbstractItemView::item:selected",
+        "QHeaderView::section",
+        "QMenu::item",
+        "QMenu::item:selected",
         "QComboBox:disabled",
         "QLabel#hoverLabel",
     ):
         assert selector in style
     assert "background: #26313a;" in style
+    assert "selection-background-color: #3d5566;" in style
     assert "background: #334450;" in style
     assert "background: #405665;" in style
 
