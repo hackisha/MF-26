@@ -1993,6 +1993,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 background: #2b2f33;
                 color: #edf3f7;
             }
+            QMenu::item {
+                color: #edf3f7;
+                background: transparent;
+                padding: 5px 24px 5px 18px;
+            }
+            QMenu::item:selected {
+                color: #ffffff;
+                background: #3d5566;
+            }
             QDockWidget#propertiesPanel {
                 background: #1a1f22;
                 color: #f4f8fb;
@@ -2028,6 +2037,16 @@ class MainWindow(QtWidgets.QMainWindow):
                 border: 1px solid #5a6872;
                 padding: 6px;
             }
+            QAbstractItemView::item:selected {
+                background: #3d5566;
+                color: #ffffff;
+            }
+            QHeaderView::section {
+                background: #26313a;
+                color: #f2f6f8;
+                border: 1px solid #5a6872;
+                padding: 5px 6px;
+            }
             QLineEdit:focus, QListWidget:focus, QComboBox:focus, QAbstractSpinBox:focus {
                 border: 1px solid #f4c95d;
             }
@@ -2043,6 +2062,48 @@ class MainWindow(QtWidgets.QMainWindow):
             }
             QListWidget::item:selected, QListWidget::item:hover {
                 background: #314251;
+                color: #ffffff;
+            }
+            QListWidget::indicator {
+                width: 16px;
+                height: 16px;
+                border: 1px solid #91a3ad;
+                border-radius: 4px;
+                margin-left: 2px;
+                background: #26313a;
+            }
+            QListWidget::indicator:unchecked {
+                background: #26313a;
+                border: 1px solid #91a3ad;
+            }
+            QListWidget::indicator:checked {
+                background: #4f8db3;
+                border: 1px solid #f4c95d;
+            }
+            QListWidget::indicator:disabled {
+                background: #2b3034;
+                border: 1px solid #4b555d;
+            }
+            QComboBox QAbstractItemView {
+                background: #10161a;
+                color: #f2f6f8;
+                selection-background-color: #3d5566;
+                selection-color: #ffffff;
+                border: 1px solid #5a6872;
+                outline: 0;
+            }
+            QComboBox QAbstractItemView::item {
+                color: #f2f6f8;
+                background: #10161a;
+                min-height: 26px;
+                padding: 5px 8px;
+            }
+            QComboBox QAbstractItemView::item:hover {
+                background: #314251;
+                color: #ffffff;
+            }
+            QComboBox QAbstractItemView::item:selected {
+                background: #3d5566;
                 color: #ffffff;
             }
             QFrame#settingsGroupFrame {
