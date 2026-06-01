@@ -40,16 +40,22 @@ def load_csv(path: Path, profile: VehicleProfile, on_progress: ProgressCallback 
             needed_sources.append(source)
             seen_sources.add(source)
 
-    raw = pl.read_csv(path, columns=needed_sources, infer_schema_length=10_000)
+    if needed_sources:
+        raw = pl.read_csv(path, columns=needed_sources, infer_schema_length=10_000)
+        row_count = raw.height
+    else:
+        row_counter = pl.read_csv(path, columns=[headers[0]], infer_schema_length=10_000)
+        raw = pl.DataFrame()
+        row_count = row_counter.height
 
-    _emit(on_progress, "calibrating", total_rows=raw.height)
+    _emit(on_progress, "calibrating", total_rows=row_count)
     for channel_id, source in sources_by_channel.items():
         channel = profile.channels[channel_id]
         values = raw[source].cast(pl.Float64, strict=True).to_numpy()
         mapped_columns[channel_id] = pl.Series(channel_id, channel.calibration.apply(values))
 
     if "Timestamp" not in mapped_columns:
-        mapped_columns["Timestamp"] = pl.Series("Timestamp", list(range(raw.height)), dtype=pl.Float64)
+        mapped_columns["Timestamp"] = pl.Series("Timestamp", list(range(row_count)), dtype=pl.Float64)
 
     frame = pl.DataFrame(mapped_columns)
     _emit(on_progress, "complete", processed_rows=frame.height, total_rows=frame.height)

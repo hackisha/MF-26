@@ -7,6 +7,7 @@ from polars.exceptions import ComputeError, InvalidOperationError
 from mf_log_analyzer_v2.core import csv_loader
 from mf_log_analyzer_v2.core.csv_loader import load_csv
 from mf_log_analyzer_v2.core.default_profiles import mf_default_profile
+from mf_log_analyzer_v2.core.models import ChannelDefinition, VehicleProfile
 
 
 def test_load_csv_maps_aliases_and_calibration(tmp_path: Path):
@@ -74,6 +75,48 @@ def test_load_csv_reads_only_mapped_source_columns(tmp_path: Path, monkeypatch: 
 
     assert calls[0]["n_rows"] == 0
     assert calls[1]["columns"] == ["Timestamp", "RPM"]
+
+
+def test_load_csv_uses_synthetic_timestamp_without_reading_all_columns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    csv_path = tmp_path / "sample.csv"
+    csv_path.write_text(
+        "RawA,RawB\n"
+        "first,100\n"
+        "second,200\n",
+        encoding="utf-8",
+    )
+    profile = VehicleProfile(
+        profile_id="unmapped",
+        name="Unmapped",
+        channels={
+            "RPM": ChannelDefinition(
+                channel_id="RPM",
+                display_name={"en": "RPM", "ko": "RPM"},
+                source_columns=("RPM",),
+                unit="rpm",
+                group="Engine",
+            )
+        },
+    )
+    calls: list[dict[str, object]] = []
+    original_read_csv = csv_loader.pl.read_csv
+
+    def spy_read_csv(*args: object, **kwargs: object):
+        calls.append(dict(kwargs))
+        return original_read_csv(*args, **kwargs)
+
+    monkeypatch.setattr(csv_loader.pl, "read_csv", spy_read_csv)
+
+    log = load_csv(csv_path, profile)
+
+    assert log.row_count == 2
+    assert log.frame.columns == ["Timestamp"]
+    np.testing.assert_allclose(log.values("Timestamp"), np.array([0.0, 1.0]))
+    assert calls[0]["n_rows"] == 0
+    assert calls[1]["columns"] == ["RawA"]
 
 
 def test_load_csv_raises_for_malformed_structural_csv(tmp_path: Path):
