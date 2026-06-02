@@ -448,6 +448,7 @@ class _AnalysisWindowFrame(QtWidgets.QFrame):
     ) -> None:
         super().__init__()
         self.setObjectName("analysisWindowFrame")
+        self.setProperty("active", False)
         self.title_bar = _AnalysisTitleBar(sub_window, title, self)
         self.content = content
         self._resize_handles = self._make_resize_handles(sub_window)
@@ -457,6 +458,14 @@ class _AnalysisWindowFrame(QtWidgets.QFrame):
         layout.addWidget(self.title_bar)
         layout.addWidget(content, 1)
         self._update_resize_handle_geometry()
+
+    def set_active(self, active: bool) -> None:
+        if self.property("active") == active:
+            return
+        self.setProperty("active", active)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
 
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -538,6 +547,7 @@ class _AnalysisSubWindow(QtWidgets.QMdiSubWindow):
 
     def set_title_active(self, active: bool) -> None:
         self._frame.title_bar.set_active(active)
+        self._frame.set_active(active)
 
     def changeEvent(self, event: QtCore.QEvent) -> None:  # noqa: N802
         super().changeEvent(event)
@@ -584,6 +594,33 @@ SIDEBAR_GROUPS: dict[str, tuple[str, ...]] = {
     "분석": ("Data Analysis", "Vehicle Dynamics", "Segment Analysis", "Event Review"),
     "리포트": ("Benchmark Summary", "Export Report"),
     "문서": ("Documents",),
+}
+
+
+WORKSPACE_LAYOUT_PRESETS: dict[str, tuple[str, ...]] = {
+    "Drive Review": (
+        "Time-Series Graph",
+        "GPS Map",
+        "G-G Diagram",
+        "Vehicle Dynamics",
+    ),
+    "GPS / Line": (
+        "GPS Map",
+        "Time-Series Graph",
+        "Segment Analysis",
+    ),
+    "Dynamics": (
+        "G-G Diagram",
+        "Vehicle Dynamics",
+        "3D Vehicle Model",
+        "Time-Series Graph",
+    ),
+    "Sensor Debug": (
+        "Time-Series Graph",
+        "Current Values Table",
+        "Data Analysis",
+        "Event Review",
+    ),
 }
 
 
@@ -831,6 +868,35 @@ class MainWindow(QtWidgets.QMainWindow):
             sub_window.hide()
             sub_window.deleteLater()
 
+    def workspace_preset_names(self) -> tuple[str, ...]:
+        return tuple(WORKSPACE_LAYOUT_PRESETS)
+
+    def apply_workspace_preset(self, preset_name: str) -> None:
+        titles = WORKSPACE_LAYOUT_PRESETS.get(preset_name)
+        if titles is None:
+            raise KeyError(preset_name)
+
+        target_windows: list[QtWidgets.QMdiSubWindow] = []
+        for title in titles:
+            sub_window = self._find_analysis_sub_window(title)
+            if sub_window is None:
+                sub_window = self.add_analysis_window(title)
+            target_windows.append(sub_window)
+
+        self._arrange_analysis_windows(target_windows)
+        if target_windows:
+            self.workspace.setActiveSubWindow(target_windows[0])
+            self._update_properties_for_active_window(target_windows[0])
+
+    def tile_analysis_windows(self) -> None:
+        self._arrange_analysis_windows(self.workspace.subWindowList())
+
+    def _find_analysis_sub_window(self, title: str) -> QtWidgets.QMdiSubWindow | None:
+        for sub_window in self.workspace.subWindowList():
+            if sub_window.windowTitle() == title:
+                return sub_window
+        return None
+
     def add_analysis_window(self, title: str) -> QtWidgets.QMdiSubWindow:
         if title == "Time-Series Graph":
             widget = self._build_time_series_window()
@@ -863,11 +929,63 @@ class MainWindow(QtWidgets.QMainWindow):
         self.workspace.addSubWindow(sub_window)
         sub_window.setWindowFlag(QtCore.Qt.WindowType.WindowMinMaxButtonsHint, True)
         sub_window.setWindowFlag(QtCore.Qt.WindowType.WindowCloseButtonHint, True)
-        sub_window.resize(460, 260)
+        sub_window.resize(self._default_analysis_window_size(title))
+        self._position_new_analysis_window(sub_window)
         sub_window.show()
         self.workspace.setActiveSubWindow(sub_window)
         self._update_properties_for_active_window(sub_window)
         return sub_window
+
+    def _position_new_analysis_window(self, sub_window: QtWidgets.QMdiSubWindow) -> None:
+        window_count = max(0, len(self.workspace.subWindowList()) - 1)
+        offset = 26 * (window_count % 8)
+        workspace_rect = self.workspace.viewport().rect()
+        if workspace_rect.width() <= 0 or workspace_rect.height() <= 0:
+            sub_window.move(offset, offset)
+            return
+        max_x = max(0, workspace_rect.width() - sub_window.width() - 12)
+        max_y = max(0, workspace_rect.height() - sub_window.height() - 12)
+        sub_window.move(min(offset, max_x), min(offset, max_y))
+
+    def _default_analysis_window_size(self, title: str) -> QtCore.QSize:
+        if title == "Time-Series Graph":
+            return QtCore.QSize(520, 290)
+        if title in {"GPS Map", "G-G Diagram"}:
+            return QtCore.QSize(560, 340)
+        if title == "3D Vehicle Model":
+            return QtCore.QSize(560, 330)
+        if title == "Vehicle Dynamics":
+            return QtCore.QSize(460, 300)
+        return QtCore.QSize(460, 280)
+
+    def _arrange_analysis_windows(
+        self,
+        sub_windows: Sequence[QtWidgets.QMdiSubWindow],
+    ) -> None:
+        windows = [sub_window for sub_window in sub_windows if shiboken6.isValid(sub_window)]
+        if not windows:
+            return
+
+        viewport = self.workspace.viewport().rect()
+        available_width = viewport.width() if viewport.width() > 0 else 960
+        available_height = viewport.height() if viewport.height() > 0 else 560
+        columns = max(1, math.ceil(math.sqrt(len(windows))))
+        rows = math.ceil(len(windows) / columns)
+        gap = 10
+        tile_width = max(320, int((available_width - gap * (columns + 1)) / columns))
+        tile_height = max(220, int((available_height - gap * (rows + 1)) / rows))
+
+        for index, sub_window in enumerate(windows):
+            if sub_window.isMaximized() or sub_window.isMinimized():
+                sub_window.showNormal()
+            row = index // columns
+            column = index % columns
+            sub_window.setGeometry(
+                gap + column * (tile_width + gap),
+                gap + row * (tile_height + gap),
+                tile_width,
+                tile_height,
+            )
 
     def _build_time_series_window(self) -> TimeSeriesWindow:
         widget = TimeSeriesWindow(
@@ -1115,6 +1233,33 @@ class MainWindow(QtWidgets.QMainWindow):
         for tab_title in DEFAULT_PRESET_TABS:
             self.preset_tabs.addTab(tab_title)
 
+        self.workspace_command_bar = QtWidgets.QFrame()
+        self.workspace_command_bar.setObjectName("workspaceCommandBar")
+        command_layout = QtWidgets.QHBoxLayout(self.workspace_command_bar)
+        command_layout.setContentsMargins(8, 5, 8, 5)
+        command_layout.setSpacing(6)
+        command_label = QtWidgets.QLabel("Layout")
+        command_label.setObjectName("workspaceCommandLabel")
+        command_layout.addWidget(command_label)
+        self.workspace_preset_buttons: dict[str, QtWidgets.QToolButton] = {}
+        for preset_name in WORKSPACE_LAYOUT_PRESETS:
+            button = QtWidgets.QToolButton()
+            button.setObjectName(_object_name(preset_name, suffix="PresetButton"))
+            button.setText(preset_name)
+            button.setToolTip(f"Apply {preset_name} workspace")
+            button.clicked.connect(
+                lambda _checked=False, name=preset_name: self.apply_workspace_preset(name)
+            )
+            command_layout.addWidget(button)
+            self.workspace_preset_buttons[preset_name] = button
+        command_layout.addStretch(1)
+        self.tile_workspace_button = QtWidgets.QToolButton()
+        self.tile_workspace_button.setObjectName("tileWorkspaceButton")
+        self.tile_workspace_button.setText("Tile")
+        self.tile_workspace_button.setToolTip("Tile open analysis windows")
+        self.tile_workspace_button.clicked.connect(self.tile_analysis_windows)
+        command_layout.addWidget(self.tile_workspace_button)
+
         self.workspace = QtWidgets.QMdiArea()
         self.workspace.setObjectName("workspace")
         self.workspace.setViewMode(QtWidgets.QMdiArea.ViewMode.SubWindowView)
@@ -1122,6 +1267,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.workspace.subWindowActivated.connect(self._update_properties_for_active_window)
 
         central_layout.addWidget(self.preset_tabs)
+        central_layout.addWidget(self.workspace_command_bar)
         central_layout.addWidget(self.workspace, 1)
         self.setCentralWidget(central)
 
@@ -1633,7 +1779,11 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(6)
 
-        status_row = QtWidgets.QHBoxLayout()
+        self.playback_status_strip = QtWidgets.QFrame()
+        self.playback_status_strip.setObjectName("playbackStatusStrip")
+        status_row = QtWidgets.QHBoxLayout(self.playback_status_strip)
+        status_row.setContentsMargins(8, 4, 8, 4)
+        status_row.setSpacing(8)
         self.playback_file_label = QtWidgets.QLabel()
         self.playback_file_label.setObjectName("playbackFileLabel")
         self.playback_row_label = QtWidgets.QLabel()
@@ -1657,10 +1807,10 @@ class MainWindow(QtWidgets.QMainWindow):
             status_row.addWidget(label)
         status_row.addStretch(1)
 
-        self.playback_controls_row = QtWidgets.QWidget()
-        self.playback_controls_row.setObjectName("playbackControlsRow")
+        self.playback_controls_row = QtWidgets.QFrame()
+        self.playback_controls_row.setObjectName("playbackTransportStrip")
         control_row = QtWidgets.QHBoxLayout(self.playback_controls_row)
-        control_row.setContentsMargins(0, 0, 0, 0)
+        control_row.setContentsMargins(8, 6, 8, 6)
         control_row.setSpacing(6)
         self.home_button = QtWidgets.QPushButton("처음")
         self.home_button.setObjectName("playbackHomeButton")
@@ -1729,7 +1879,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.playback_warning_label = QtWidgets.QLabel()
         self.playback_warning_label.setObjectName("playbackWarningLabel")
 
-        layout.addLayout(status_row)
+        layout.addWidget(self.playback_status_strip)
         layout.addWidget(self.playback_controls_row)
         layout.addLayout(lower_row)
         layout.addWidget(self.playback_warning_label)
@@ -2331,6 +2481,27 @@ class MainWindow(QtWidgets.QMainWindow):
                 background: #3a4046;
                 color: #f4c95d;
             }
+            QFrame#workspaceCommandBar {
+                background: #242a2f;
+                border-top: 1px solid #38434b;
+                border-bottom: 1px solid #4a5660;
+            }
+            QFrame#workspaceCommandBar QLabel#workspaceCommandLabel {
+                color: #f4c95d;
+                font-weight: 700;
+                padding-right: 4px;
+            }
+            QFrame#workspaceCommandBar QToolButton {
+                background: #303941;
+                color: #f2f6f8;
+                border: 1px solid #56636d;
+                padding: 5px 9px;
+                font-weight: 600;
+            }
+            QFrame#workspaceCommandBar QToolButton:hover {
+                background: #3d5566;
+                border: 1px solid #f4c95d;
+            }
             QLineEdit, QListWidget, QTreeWidget, QComboBox, QAbstractSpinBox, QTableWidget {
                 background: #11161a;
                 color: #f2f6f8;
@@ -2461,7 +2632,19 @@ class MainWindow(QtWidgets.QMainWindow):
                 background: #f4c95d;
                 border: 1px solid #ffffff;
             }
-            QFrame#playbackDockContent, QFrame#sensorCard {
+            QFrame#playbackStatusStrip, QFrame#playbackTransportStrip {
+                background: #1d2429;
+                border: 1px solid #4a5660;
+            }
+            QFrame#playbackStatusStrip QLabel {
+                color: #e8f0f5;
+                font-weight: 600;
+            }
+            QFrame#playbackDockContent {
+                background: #151a1e;
+                border: 1px solid #4a5660;
+            }
+            QFrame#sensorCard {
                 background: #151a1e;
                 border: 1px solid #4a5660;
             }
@@ -2491,7 +2674,7 @@ class MainWindow(QtWidgets.QMainWindow):
             QWidget#timeSeriesWindow, QWidget#ggDiagramWindow, QWidget#gpsMapWindow,
             QWidget#currentValuesWindow, QWidget#dataAnalysisWindow,
             QWidget#documentsWindow, QWidget#benchmarkSummaryWindow,
-            QWidget#vehicleModelWindow {
+            QWidget#vehicleModelWindow, QWidget#vehicleDynamicsWindow {
                 background: #151a1e;
             }
             QLabel#hoverLabel, QLabel#reliabilityBadge, QLabel#gpsMapBackgroundStatus,
@@ -2506,6 +2689,11 @@ class MainWindow(QtWidgets.QMainWindow):
             }
             QFrame#analysisWindowFrame {
                 background: #252a2e;
+                border: 1px solid #4a5660;
+            }
+            QFrame#analysisWindowFrame[active="true"] {
+                background: #262d32;
+                border: 2px solid #f4c95d;
             }
             QLabel#analysisWindowTitle {
                 color: #f4c95d;
