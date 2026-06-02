@@ -219,6 +219,10 @@ def test_right_properties_panel_uses_grouped_readable_rows(qtbot):
         "QFrame#settingsGroupFrame",
         "QFrame#settingsRow",
         "QLabel#settingsRowLabel",
+        "QFrame#workspaceCommandBar",
+        "QFrame#analysisWindowFrame[active=\"true\"]",
+        "QFrame#playbackStatusStrip",
+        "QFrame#playbackTransportStrip",
         "QCheckBox::indicator",
         "QCheckBox::indicator:unchecked",
         "QListWidget::indicator",
@@ -581,6 +585,50 @@ def test_time_series_analysis_window_uses_real_pyqtgraph_widget(qtbot):
     assert isinstance(first_subwindow.widget(), TimeSeriesWindow)
 
 
+def test_workspace_command_bar_exposes_layout_presets(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    assert window.workspace_command_bar.objectName() == "workspaceCommandBar"
+    assert window.workspace_preset_names() == (
+        "Drive Review",
+        "GPS / Line",
+        "Dynamics",
+        "Sensor Debug",
+    )
+    assert window.tile_workspace_button.objectName() == "tileWorkspaceButton"
+
+
+def test_workspace_preset_opens_and_arranges_analysis_windows(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.apply_workspace_preset("Dynamics")
+    titles = [sub.windowTitle() for sub in window.workspace.subWindowList()]
+    geometries = {
+        sub.windowTitle(): sub.geometry()
+        for sub in window.workspace.subWindowList()
+        if sub.windowTitle()
+        in {"Time-Series Graph", "G-G Diagram", "Vehicle Dynamics", "3D Vehicle Model"}
+    }
+
+    assert titles.count("Time-Series Graph") == 1
+    assert {"G-G Diagram", "Vehicle Dynamics", "3D Vehicle Model"}.issubset(titles)
+    assert len({(rect.x(), rect.y()) for rect in geometries.values()}) >= 3
+
+
+def test_new_analysis_windows_are_staggered_in_workspace(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    gps_window = window.add_analysis_window("GPS Map")
+    gg_window = window.add_analysis_window("G-G Diagram")
+
+    assert gps_window.pos() != gg_window.pos()
+    assert gps_window.size().width() >= 420
+    assert gg_window.size().height() >= 260
+
+
 def test_analysis_window_uses_colored_custom_title_bar_controls(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
@@ -624,6 +672,20 @@ def test_analysis_window_uses_colored_custom_title_bar_controls(qtbot):
     QtWidgets.QApplication.processEvents()
 
     assert not sub_window.isMaximized()
+
+
+def test_active_analysis_window_uses_frame_accent(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    first_subwindow = window.workspace.subWindowList()[0]
+    gps_subwindow = window.add_analysis_window("GPS Map")
+
+    window.workspace.setActiveSubWindow(gps_subwindow)
+    QtWidgets.QApplication.processEvents()
+
+    assert gps_subwindow.frame_widget().property("active") is True
+    assert first_subwindow.frame_widget().property("active") is False
+    assert 'QFrame#analysisWindowFrame[active="true"]' in window.styleSheet()
 
 
 def test_analysis_window_can_resize_by_dragging_border_handle(qtbot):

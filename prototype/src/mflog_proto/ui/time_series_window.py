@@ -31,6 +31,13 @@ class TimeSeriesWindow(QtWidgets.QWidget):
         self._series_points: dict[str, tuple[list[float], list[float]]] = {}
         self._line_color = line_color
         self._line_width = float(line_width)
+        self._visual_style = {
+            "plot_background": "#192025",
+            "axis_pen": "#7f8d95",
+            "axis_text": "#c4d1d8",
+            "legend_background": "#1d2429",
+            "cursor": "#f4c95d",
+        }
         self.last_tooltip_text = ""
         self._unsubscribe: Callable[[], None] | None = playback_state.subscribe(
             self._handle_cursor_event
@@ -40,17 +47,25 @@ class TimeSeriesWindow(QtWidgets.QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
-        self.plot = pg.PlotWidget(background="#1f2428")
+        self.plot = pg.PlotWidget(background=self._visual_style["plot_background"])
         self.plot.setObjectName("timeSeriesPlot")
-        self.plot.showGrid(x=True, y=True, alpha=0.25)
-        self.plot.addLegend(offset=(8, 8))
+        self.plot.showGrid(x=True, y=True, alpha=0.18)
+        for axis_name in ("left", "bottom"):
+            axis = self.plot.getAxis(axis_name)
+            axis.setPen(pg.mkPen(self._visual_style["axis_pen"]))
+            axis.setTextPen(pg.mkPen(self._visual_style["axis_text"]))
+        self.legend = self.plot.addLegend(
+            offset=(10, 10),
+            brush=QtGui.QBrush(QtGui.QColor(self._visual_style["legend_background"])),
+            pen=pg.mkPen("#56636d"),
+        )
         self.plot.scene().sigMouseMoved.connect(self._handle_mouse_moved)
         self.plot.scene().sigMouseClicked.connect(self._handle_mouse_clicked)
         self.cursor_line = pg.InfiniteLine(
             pos=playback_state.current_seconds,
             angle=90,
             movable=False,
-            pen=pg.mkPen("#f4c95d", width=2),
+            pen=pg.mkPen(self._visual_style["cursor"], width=2),
         )
         self.plot.addItem(self.cursor_line)
 
@@ -100,6 +115,9 @@ class TimeSeriesWindow(QtWidgets.QWidget):
         curve = self._curves[channel_id]
         pen = curve.opts["pen"]
         return pen.color().name(), pen.widthF()
+
+    def visual_style_summary(self) -> dict[str, str]:
+        return dict(self._visual_style)
 
     def publish_hover(
         self,

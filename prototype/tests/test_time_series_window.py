@@ -40,6 +40,20 @@ def test_time_series_window_applies_configurable_line_style(qtbot):
     assert window.curve_style("RPM") == ("#5dade2", 2.25)
 
 
+def test_time_series_window_uses_readable_plot_chrome(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1])
+    window = TimeSeriesWindow(playback_state=playback)
+    qtbot.addWidget(window)
+
+    assert window.visual_style_summary() == {
+        "plot_background": "#192025",
+        "axis_pen": "#7f8d95",
+        "axis_text": "#c4d1d8",
+        "legend_background": "#1d2429",
+        "cursor": "#f4c95d",
+    }
+
+
 def test_time_series_window_updates_hover_status_from_mouse_sample(qtbot):
     playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
     window = TimeSeriesWindow(playback_state=playback)

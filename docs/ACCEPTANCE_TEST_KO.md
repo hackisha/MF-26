@@ -23,7 +23,7 @@ Windows에서 `QT_QPA_PLATFORM=minimal` 설정은 의도된 값입니다. 일반
 
 - 전체 테스트가 통과합니다.
 - `python.exe` 응용 프로그램 오류창이 뜨지 않습니다.
-- 최신 검증 기준으로는 `169 passed`가 정상입니다.
+- 최신 검증 기준으로는 `174 passed`가 정상입니다.
 
 ## 2. 300k x 200 합성 CSV 생성
 
@@ -152,6 +152,7 @@ prototype\.generated\acceptance\target_300k_200.html
 - 탭을 이동했다가 돌아와도 CSV 세션과 재생 위치가 유지됩니다.
 - Time-Series, GPS, G-G plot hover 시 가장 가까운 샘플의 시간과 plot별 값이
   라벨/tooltip에 표시되고, Time-Series 그래프 클릭 시 해당 시간으로 이동합니다.
+  Time-Series 축, legend, 재생 커서는 어두운 UI에서 대비가 충분해야 하며,
   분석 창의 상태/보조 라벨도 어두운 창 배경 위에서 읽을 수 있어야 합니다.
 - 자동 저장 실패 경고가 표시되어도 현재 CSV 세션과 재생 기능은 유지됩니다.
 - `3D Vehicle Model` 창이 프로젝트 루트의 `car.glb`를 읽고, 렌더링 가능한
@@ -173,6 +174,7 @@ prototype\.generated\acceptance\target_300k_200.html
 추가 통합 UX 확인:
 
 - 좌측 분석 패널은 시각화, 분석, 리포트, 문서 그룹으로 나뉘며 검색, 추가, 정렬, 밀도, 폭 설정을 유지합니다.
+- 중앙 작업공간은 Drive Review, GPS / Line, Dynamics, Sensor Debug 레이아웃 프리셋을 제공하고, 기존 창을 중복 생성하지 않으면서 필요한 창을 열고 타일 배치합니다. 새 창은 겹치지 않게 배치되며 현재 선택된 분석 창은 강조 테두리로 구분됩니다.
 - `Event Review` 창에서 이벤트를 선택하면 해당 시간으로 재생 위치가 이동하고, 미검토/확인/무시 상태와 메모가 `.mflogproj`에 저장 및 복구됩니다.
 - `Vehicle Dynamics` 창에서 최대 횡/종/합성 G, G 한계 사용률과 초과 횟수, 최대 yaw rate, 조향 데이터가 있을 때의 yaw 응답비와 언더/뉴트럴/오버스티어 경향을 확인할 수 있습니다.
 - `Segment Analysis` 창에서 현재 재생 시간을 기준으로 이름 있는 구간을 만들고, 사용 가능한 센서 통계를 표시합니다. 없는 센서는 `-`로 표시하고 분석을 중단하지 않습니다.

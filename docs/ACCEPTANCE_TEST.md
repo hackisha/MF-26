@@ -19,7 +19,7 @@ crashes.
 ```
 
 Expected result: all tests pass without a `python.exe` native error dialog.
-The current expected count is `169 passed`.
+The current expected count is `174 passed`.
 
 ## 2. Generate Target CSV
 
@@ -100,6 +100,10 @@ Check that:
   playback time, tab order, and open analysis windows through `.mflogproj`.
 - The left analysis panel groups windows into Visualization, Analysis, Reports,
   and Documents while preserving search, add, sort, density, and width controls.
+- The central workspace exposes Drive Review, GPS / Line, Dynamics, and Sensor
+  Debug layout presets, opens missing windows without duplicating existing ones,
+  tiles preset windows, staggers newly opened windows, and uses a visible accent
+  border for the active analysis window.
 - `Event Review` opens from the Analysis group, seeks playback to the selected
   event, supports unreviewed/confirmed/ignored states, stores notes, and
   restores review data from `.mflogproj`.
@@ -140,7 +144,8 @@ Check that:
 - Switching tabs preserves the loaded CSV session and playback position.
 - Time-series, GPS, and G-G plots show hover labels/tooltips with the nearest
   sample's time and plot-specific values; time-series graph click seeks to that
-  time. Analysis-window status labels remain readable against the dark window
+  time. Time-series axes, legend, and playback cursor use high-contrast dark UI
+  chrome. Analysis-window status labels remain readable against the dark window
   background.
 - Autosave warnings do not block the current CSV session or playback controls.
 - `3D Vehicle Model` loads the root `car.glb` fixture, parses the renderable
