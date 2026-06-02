@@ -6,6 +6,8 @@ from PySide6 import QtCore, QtGui, QtWidgets
 import pytest
 import shiboken6
 
+from mflog_proto.analysis.event_reviews import EventReviewState
+from mflog_proto.analysis.segments import AnalysisSegment
 from mflog_proto.persistence.project_state import ProjectState, WindowState
 from mflog_proto.ui.main_window import DEFAULT_ANALYSIS_ITEMS, MainWindow, _root_asset_path
 from mflog_proto.ui.minimal_analysis_windows import (
@@ -13,9 +15,12 @@ from mflog_proto.ui.minimal_analysis_windows import (
     CurrentValuesWindow,
     DataAnalysisWindow,
     DocumentsWindow,
+    EventReviewWindow,
+    ExportReportWindow,
     GGDiagramWindow,
     GPSMapWindow,
     MapTileImage,
+    SegmentAnalysisWindow,
     VehicleModelWindow,
 )
 from mflog_proto.ui.time_series_window import TimeSeriesWindow
@@ -89,6 +94,27 @@ def test_left_sidebar_keeps_documents_and_data_analysis_menu_items(qtbot):
 
     assert "Documents" in item_titles
     assert "Data Analysis" in item_titles
+
+
+def test_left_sidebar_groups_analysis_items_by_workflow(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    groups = {
+        window.analysis_tree.topLevelItem(index).text(0)
+        for index in range(window.analysis_tree.topLevelItemCount())
+    }
+
+    assert groups == {"시각화", "분석", "리포트", "문서"}
+    assert window.sidebar_item_titles("분석") == [
+        "Data Analysis",
+        "Segment Analysis",
+        "Event Review",
+    ]
+    assert window.sidebar_item_titles("리포트") == [
+        "Benchmark Summary",
+        "Export Report",
+    ]
 
 
 def test_right_properties_can_configure_left_sidebar_visibility_width_and_density(qtbot):
@@ -231,6 +257,16 @@ def test_bottom_playback_dock_exposes_required_csv_controls_and_status(qtbot):
         "2x",
         "4x",
     ]
+
+
+def test_playback_dock_uses_scrollable_sensor_cards_for_narrow_width(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+
+    assert isinstance(window.sensor_card_scroll_area, QtWidgets.QScrollArea)
+    assert window.sensor_card_scroll_area.widgetResizable()
+    assert window.playback_controls_row.layout().spacing() <= 8
 
 
 def test_bottom_playback_slider_updates_graphs_gg_and_sensor_cards(qtbot):
@@ -800,6 +836,65 @@ def test_main_window_playback_position_moves_time_series_cursor(qtbot):
     assert time_series.cursor_line.value() == 10.0
 
 
+def test_event_review_window_seeks_and_edits_review_state(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+
+    sub_window = window.add_analysis_window("Event Review")
+    review_window = sub_window.widget()
+
+    assert isinstance(review_window, EventReviewWindow)
+    assert review_window.windowTitle() == "Event Review"
+    assert review_window.event_table.rowCount() == 3
+
+    review_window.event_table.selectRow(1)
+    assert window.playback_state.current_time_ms == 5500
+
+    review_window.state_combo.setCurrentText("확인")
+    review_window.note_edit.setPlainText("Driver felt rear slip")
+    review_window.apply_current_review()
+
+    assert window.event_reviews[1].state is EventReviewState.CONFIRMED
+    assert window.event_reviews[1].note == "Driver felt rear slip"
+
+
+def test_segment_analysis_window_creates_segment_from_playback_times(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+
+    sub_window = window.add_analysis_window("Segment Analysis")
+    segment_window = sub_window.widget()
+
+    assert isinstance(segment_window, SegmentAnalysisWindow)
+    window.set_playback_seconds(1.0)
+    segment_window.set_start_from_playback()
+    window.set_playback_seconds(3.0)
+    segment_window.set_end_from_playback()
+    segment_window.name_edit.setText("Corner 1")
+    segment_window.add_segment()
+
+    assert window.analysis_segments[0].name == "Corner 1"
+    assert window.analysis_segments[0].start_ms == 1000
+    assert window.analysis_segments[0].end_ms == 3000
+    assert segment_window.segment_table.rowCount() == 1
+    assert segment_window.segment_table.item(0, 0).text() == "Corner 1"
+
+
+def test_export_report_window_writes_html_report(tmp_path, qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+    output = tmp_path / "report.html"
+
+    window.export_report_file(output)
+
+    html = output.read_text(encoding="utf-8")
+    assert "MF-LOG-ANALYZER v2 Report" in html
+    assert "prototype-demo.csv" in html
+
+
 def test_main_window_captures_workspace_project_state(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
@@ -831,6 +926,25 @@ def test_main_window_captures_workspace_project_state(qtbot):
     ]
 
 
+def test_main_window_captures_integrated_analysis_state(qtbot, tmp_path):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+    window.add_analysis_window("Event Review")
+    window.add_analysis_window("Segment Analysis")
+    window.event_reviews = window.event_reviews[:1]
+    window.analysis_segments = (AnalysisSegment("Corner 1", 1000, 3000),)
+    window.report_output_path = tmp_path / "report.html"
+    window.selected_sidebar_group = "분석"
+
+    state = window.capture_project_state(csv_path="example.csv")
+
+    assert state.event_reviews == window.event_reviews
+    assert state.analysis_segments == window.analysis_segments
+    assert state.report_output_path == tmp_path / "report.html"
+    assert state.selected_sidebar_group == "분석"
+
+
 def test_main_window_restores_workspace_project_state(qtbot):
     source = MainWindow()
     qtbot.addWidget(source)
@@ -851,6 +965,45 @@ def test_main_window_restores_workspace_project_state(qtbot):
     assert restored.active_profile == "mf_2026"
     assert restored.playback_state.current_sample == 12
     assert restored.timeline_status.text() == "시간 1.200 s | 샘플 12"
+
+
+def test_main_window_restores_event_reviews_segments_and_report_path(qtbot, tmp_path):
+    source = MainWindow()
+    qtbot.addWidget(source)
+    source.load_demo_session()
+    source.add_analysis_window("Event Review")
+    source.add_analysis_window("Segment Analysis")
+    source.event_reviews = source.event_reviews[:1]
+    source.analysis_segments = (AnalysisSegment("Corner 1", 1000, 3000),)
+    source.report_output_path = tmp_path / "report.html"
+
+    state = source.capture_project_state(csv_path="example.csv")
+
+    restored = MainWindow()
+    qtbot.addWidget(restored)
+    restored.load_demo_session()
+    restored.restore_project_state(state)
+
+    assert restored.event_reviews == source.event_reviews
+    assert restored.analysis_segments == source.analysis_segments
+    assert restored.report_output_path == source.report_output_path
+    assert "Event Review" in [sub.windowTitle() for sub in restored.workspace.subWindowList()]
+    assert "Segment Analysis" in [sub.windowTitle() for sub in restored.workspace.subWindowList()]
+
+
+def test_add_analysis_window_supports_integrated_ux_windows(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+
+    created = {
+        title: window.add_analysis_window(title).widget()
+        for title in ("Event Review", "Segment Analysis", "Export Report")
+    }
+
+    assert isinstance(created["Event Review"], EventReviewWindow)
+    assert isinstance(created["Segment Analysis"], SegmentAnalysisWindow)
+    assert isinstance(created["Export Report"], ExportReportWindow)
 
 
 def test_main_window_restores_vehicle_model_path_from_project_state(qtbot, tmp_path):

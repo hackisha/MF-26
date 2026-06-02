@@ -16,6 +16,8 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from mflog_proto.analysis.event_reviews import EventReview, EventReviewState
+from mflog_proto.analysis.segments import AnalysisSegment, SegmentSummary
 from mflog_proto.benchmark.metrics import EnvironmentInfo
 from mflog_proto.playback import CursorEvent, CursorKind, PlaybackState
 
@@ -985,6 +987,279 @@ class DataAnalysisWindow(QtWidgets.QWidget):
             self.events_table.setItem(row_index, 3, QtWidgets.QTableWidgetItem(condition))
 
 
+class EventReviewWindow(QtWidgets.QWidget):
+    reviewChanged = QtCore.Signal(int, object)
+
+    def __init__(
+        self,
+        reviews: Sequence[EventReview],
+        seek_to_time_ms: Callable[[int], None],
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("eventReviewWindow")
+        self.setWindowTitle("Event Review")
+        self._reviews = list(reviews)
+        self._seek_to_time_ms = seek_to_time_ms
+        self._syncing_selection = False
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        self.event_table = QtWidgets.QTableWidget(0, 5)
+        self.event_table.setObjectName("eventReviewTable")
+        self.event_table.setHorizontalHeaderLabels(("Time", "Severity", "Event", "Sensor", "State"))
+        self.event_table.horizontalHeader().setStretchLastSection(True)
+        self.event_table.setSelectionBehavior(
+            QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.event_table.setSelectionMode(
+            QtWidgets.QAbstractItemView.SelectionMode.SingleSelection
+        )
+
+        editor = QtWidgets.QFrame()
+        editor.setObjectName("eventReviewEditor")
+        editor_layout = QtWidgets.QVBoxLayout(editor)
+        editor_layout.setContentsMargins(6, 6, 6, 6)
+        editor_layout.setSpacing(6)
+        self.state_combo = QtWidgets.QComboBox()
+        self.state_combo.setObjectName("eventReviewStateCombo")
+        self.state_combo.addItems(("미검토", "확인", "무시"))
+        self.note_edit = QtWidgets.QPlainTextEdit()
+        self.note_edit.setObjectName("eventReviewNoteEdit")
+        self.note_edit.setPlaceholderText("Review note")
+        self.note_edit.setMaximumHeight(72)
+        self.apply_button = QtWidgets.QPushButton("적용")
+        self.apply_button.setObjectName("eventReviewApplyButton")
+        editor_layout.addWidget(self.state_combo)
+        editor_layout.addWidget(self.note_edit)
+        editor_layout.addWidget(self.apply_button)
+
+        self.reliability_badge = QtWidgets.QLabel("Reliability: info")
+        self.reliability_badge.setObjectName("reliabilityBadge")
+
+        layout.addWidget(self.event_table, 1)
+        layout.addWidget(editor)
+        layout.addWidget(self.reliability_badge)
+
+        self.event_table.itemSelectionChanged.connect(self._handle_selection_changed)
+        self.apply_button.clicked.connect(self.apply_current_review)
+        self.refresh_reviews(self._reviews)
+
+    def refresh_reviews(self, reviews: Sequence[EventReview]) -> None:
+        current_row = self.event_table.currentRow()
+        self._reviews = list(reviews)
+        self._syncing_selection = True
+        try:
+            self.event_table.setRowCount(len(self._reviews))
+            for row_index, review in enumerate(self._reviews):
+                values = (
+                    f"{review.time_ms / 1000.0:.3f} s",
+                    review.severity,
+                    review.name,
+                    review.sensor,
+                    self._label_for_state(review.state),
+                )
+                for column_index, value in enumerate(values):
+                    item = QtWidgets.QTableWidgetItem(value)
+                    item.setData(QtCore.Qt.ItemDataRole.UserRole, review.time_ms)
+                    self.event_table.setItem(row_index, column_index, item)
+            if 0 <= current_row < len(self._reviews):
+                self.event_table.selectRow(current_row)
+        finally:
+            self._syncing_selection = False
+
+    def apply_current_review(self) -> None:
+        row = self.event_table.currentRow()
+        if row < 0 or row >= len(self._reviews):
+            return
+        self.reviewChanged.emit(
+            row,
+            {
+                "state": self._state_for_label(self.state_combo.currentText()),
+                "note": self.note_edit.toPlainText(),
+            },
+        )
+
+    def _handle_selection_changed(self) -> None:
+        if self._syncing_selection:
+            return
+        row = self.event_table.currentRow()
+        if row < 0 or row >= len(self._reviews):
+            return
+        review = self._reviews[row]
+        self._seek_to_time_ms(review.time_ms)
+        self.state_combo.setCurrentText(self._label_for_state(review.state))
+        self.note_edit.setPlainText(review.note)
+
+    @staticmethod
+    def _label_for_state(state: EventReviewState) -> str:
+        return {
+            EventReviewState.UNREVIEWED: "미검토",
+            EventReviewState.CONFIRMED: "확인",
+            EventReviewState.IGNORED: "무시",
+        }[state]
+
+    @staticmethod
+    def _state_for_label(label: str) -> EventReviewState:
+        return {
+            "미검토": EventReviewState.UNREVIEWED,
+            "확인": EventReviewState.CONFIRMED,
+            "무시": EventReviewState.IGNORED,
+        }.get(label, EventReviewState.UNREVIEWED)
+
+
+class SegmentAnalysisWindow(QtWidgets.QWidget):
+    segmentAdded = QtCore.Signal(object)
+
+    def __init__(
+        self,
+        playback_state: PlaybackState,
+        summaries: Sequence[SegmentSummary],
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("segmentAnalysisWindow")
+        self.setWindowTitle("Segment Analysis")
+        self._playback_state = playback_state
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        controls = QtWidgets.QFrame()
+        controls.setObjectName("segmentControls")
+        controls_layout = QtWidgets.QGridLayout(controls)
+        controls_layout.setContentsMargins(6, 6, 6, 6)
+        controls_layout.setHorizontalSpacing(6)
+        controls_layout.setVerticalSpacing(6)
+
+        self.name_edit = QtWidgets.QLineEdit("Segment 1")
+        self.name_edit.setObjectName("segmentNameEdit")
+        self.start_ms_spin = QtWidgets.QSpinBox()
+        self.start_ms_spin.setObjectName("segmentStartMsSpin")
+        self.start_ms_spin.setRange(0, 100_000_000)
+        self.start_ms_spin.setSuffix(" ms")
+        self.end_ms_spin = QtWidgets.QSpinBox()
+        self.end_ms_spin.setObjectName("segmentEndMsSpin")
+        self.end_ms_spin.setRange(0, 100_000_000)
+        self.end_ms_spin.setSuffix(" ms")
+        self.start_from_playback_button = QtWidgets.QPushButton("시작=현재")
+        self.end_from_playback_button = QtWidgets.QPushButton("끝=현재")
+        self.add_button = QtWidgets.QPushButton("구간 추가")
+        self.add_button.setObjectName("segmentAddButton")
+
+        controls_layout.addWidget(QtWidgets.QLabel("Name"), 0, 0)
+        controls_layout.addWidget(self.name_edit, 0, 1, 1, 3)
+        controls_layout.addWidget(QtWidgets.QLabel("Start"), 1, 0)
+        controls_layout.addWidget(self.start_ms_spin, 1, 1)
+        controls_layout.addWidget(self.start_from_playback_button, 1, 2)
+        controls_layout.addWidget(QtWidgets.QLabel("End"), 2, 0)
+        controls_layout.addWidget(self.end_ms_spin, 2, 1)
+        controls_layout.addWidget(self.end_from_playback_button, 2, 2)
+        controls_layout.addWidget(self.add_button, 2, 3)
+
+        self.segment_table = QtWidgets.QTableWidget(0, 7)
+        self.segment_table.setObjectName("segmentSummaryTable")
+        self.segment_table.setHorizontalHeaderLabels(
+            ("Name", "Start", "End", "Rows", "Avg Speed", "Max |ay|", "Min Batt")
+        )
+        self.segment_table.horizontalHeader().setStretchLastSection(True)
+
+        self.reliability_badge = QtWidgets.QLabel("Reliability: info")
+        self.reliability_badge.setObjectName("reliabilityBadge")
+
+        layout.addWidget(controls)
+        layout.addWidget(self.segment_table, 1)
+        layout.addWidget(self.reliability_badge)
+
+        self.start_from_playback_button.clicked.connect(self.set_start_from_playback)
+        self.end_from_playback_button.clicked.connect(self.set_end_from_playback)
+        self.add_button.clicked.connect(self.add_segment)
+        self.refresh_summaries(summaries)
+
+    def set_start_from_playback(self) -> None:
+        self.start_ms_spin.setValue(self._playback_state.current_time_ms)
+
+    def set_end_from_playback(self) -> None:
+        self.end_ms_spin.setValue(self._playback_state.current_time_ms)
+
+    def add_segment(self) -> None:
+        self.segmentAdded.emit(
+            AnalysisSegment(
+                name=self.name_edit.text().strip() or "Segment",
+                start_ms=int(self.start_ms_spin.value()),
+                end_ms=int(self.end_ms_spin.value()),
+            )
+        )
+
+    def refresh_summaries(self, summaries: Sequence[SegmentSummary]) -> None:
+        self.segment_table.setRowCount(len(summaries))
+        for row_index, summary in enumerate(summaries):
+            values = (
+                summary.name,
+                f"{summary.start_ms / 1000.0:.3f} s",
+                f"{summary.end_ms / 1000.0:.3f} s",
+                str(summary.row_count),
+                _format_optional_float(summary.average_speed),
+                _format_optional_float(summary.max_abs_ay),
+                _format_optional_float(summary.min_battery_voltage),
+            )
+            for column_index, value in enumerate(values):
+                self.segment_table.setItem(
+                    row_index,
+                    column_index,
+                    QtWidgets.QTableWidgetItem(value),
+                )
+
+
+class ExportReportWindow(QtWidgets.QWidget):
+    exportRequested = QtCore.Signal(object)
+
+    def __init__(
+        self,
+        default_output_path: Path | None,
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("exportReportWindow")
+        self.setWindowTitle("Export Report")
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        self.output_path_edit = QtWidgets.QLineEdit(
+            "" if default_output_path is None else str(default_output_path)
+        )
+        self.output_path_edit.setObjectName("reportOutputPathEdit")
+        self.export_button = QtWidgets.QPushButton("HTML 리포트 저장")
+        self.export_button.setObjectName("reportExportButton")
+        self.status_label = QtWidgets.QLabel("Report: ready")
+        self.status_label.setObjectName("reportStatusLabel")
+        self.reliability_badge = QtWidgets.QLabel("Reliability: info")
+        self.reliability_badge.setObjectName("reliabilityBadge")
+
+        layout.addWidget(QtWidgets.QLabel("Output path"))
+        layout.addWidget(self.output_path_edit)
+        layout.addWidget(self.export_button)
+        layout.addWidget(self.status_label)
+        layout.addStretch(1)
+        layout.addWidget(self.reliability_badge)
+
+        self.export_button.clicked.connect(self._emit_export_requested)
+
+    def set_output_path(self, path: Path) -> None:
+        self.output_path_edit.setText(str(path))
+        self.status_label.setText(f"Report saved: {path.name}")
+
+    def _emit_export_requested(self) -> None:
+        text = self.output_path_edit.text().strip()
+        if text:
+            self.exportRequested.emit(Path(text))
+
+
 class DocumentsWindow(QtWidgets.QWidget):
     def __init__(self, document_paths: Sequence[Path], parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
@@ -1744,6 +2019,10 @@ def load_glb_info(path: Path) -> GlbModelInfo:
 
 def _format_kib(byte_length: int) -> str:
     return f"{byte_length / 1024:.1f} KB"
+
+
+def _format_optional_float(value: float | None) -> str:
+    return "-" if value is None else f"{value:.3f}"
 
 
 def _single_scene_point(scene_pos: object) -> QtCore.QPointF | None:
