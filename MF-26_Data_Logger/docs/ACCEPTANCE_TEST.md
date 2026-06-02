@@ -19,7 +19,7 @@ crashes.
 ```
 
 Expected result: all tests pass without a `python.exe` native error dialog.
-The current expected count is `166 passed`.
+The current expected count is `169 passed`.
 
 ## 2. Generate Target CSV
 

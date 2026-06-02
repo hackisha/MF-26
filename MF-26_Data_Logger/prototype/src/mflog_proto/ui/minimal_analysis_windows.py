@@ -1021,6 +1021,16 @@ class VehicleDynamicsWindow(QtWidgets.QWidget):
         layout.addWidget(self.reliability_badge)
         self._populate_metrics()
 
+    def set_summary(self, summary: DynamicsSummary) -> None:
+        self._summary = summary
+        self.summary_label.setText(
+            f"Samples: {summary.sample_count} | G limit: {summary.g_limit_radius:.2f} G"
+        )
+        self._populate_metrics()
+
+    def summary_text(self) -> str:
+        return self.summary_label.text()
+
     def metric_value(self, metric_name: str) -> str:
         for row_index in range(self.metrics_table.rowCount()):
             if self.metrics_table.item(row_index, 0).text() == metric_name:

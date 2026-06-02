@@ -493,6 +493,44 @@ def test_main_window_uses_corrected_adxl_acceleration_for_uploaded_csv(tmp_path,
     assert window.sensor_card_value("ay") == "-1.000"
 
 
+def test_vehicle_dynamics_uses_steering_angle_alias_from_csv(tmp_path, qtbot):
+    csv_path = tmp_path / "steering.csv"
+    csv_path.write_text(
+        "Timestamp,GPS_Speed_KPH,SteeringAngle_deg,gz_dps,ax_g,ay_g\n"
+        "0.0,36,10,90,0,2\n"
+        "0.1,36,10,90,0,2\n"
+        "0.2,36,10,90,0,2\n",
+        encoding="utf-8",
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.load_csv_session(csv_path)
+    dynamics_window = window.add_analysis_window("Vehicle Dynamics").widget()
+
+    assert dynamics_window.metric_value("Yaw response ratio") != "-"
+    assert dynamics_window.metric_value("Handling balance") == "oversteer tendency"
+
+
+def test_vehicle_dynamics_marks_missing_acceleration_unavailable(tmp_path, qtbot):
+    csv_path = tmp_path / "minimal.csv"
+    csv_path.write_text(
+        "Timestamp,RPM\n"
+        "0.0,1000\n"
+        "0.1,1100\n",
+        encoding="utf-8",
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.load_csv_session(csv_path)
+    dynamics_window = window.add_analysis_window("Vehicle Dynamics").widget()
+
+    assert dynamics_window.metric_value("Peak lateral G") == "-"
+    assert dynamics_window.metric_value("Peak combined G") == "-"
+    assert dynamics_window.metric_value("G utilization") == "-"
+
+
 def test_main_window_reports_csv_malformed_row_diagnostics(tmp_path, qtbot):
     csv_path = tmp_path / "malformed.csv"
     csv_path.write_text(
@@ -635,6 +673,7 @@ def test_visual_settings_update_gps_background_and_time_series_style(qtbot):
     qtbot.addWidget(window)
     window.load_demo_session()
     gps_window = window.add_analysis_window("GPS Map").widget()
+    dynamics_window = window.add_analysis_window("Vehicle Dynamics").widget()
     time_series = window.workspace.subWindowList()[0].widget()
 
     window.gps_map_background_checkbox.setChecked(True)
@@ -647,6 +686,7 @@ def test_visual_settings_update_gps_background_and_time_series_style(qtbot):
     assert tile_provider.request_count == 1
     assert time_series.curve_style("RPM") == ("#ec7063", 0.75)
     assert window.add_analysis_window("G-G Diagram").widget().limit_circle_radius == 2.25
+    assert dynamics_window.summary_text() == "Samples: 101 | G limit: 2.25 G"
 
     new_time_series = window.add_analysis_window("Time-Series Graph").widget()
     assert new_time_series.curve_style("RPM") == ("#ec7063", 0.75)
