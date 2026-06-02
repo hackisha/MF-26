@@ -12,6 +12,7 @@ from typing import Callable, Sequence
 from PySide6 import QtCore, QtGui, QtWidgets
 import shiboken6
 
+from mflog_proto.analysis.dynamics import compute_dynamics_summary
 from mflog_proto.analysis.event_reviews import (
     EventReview,
     EventReviewState,
@@ -48,6 +49,7 @@ from mflog_proto.ui.minimal_analysis_windows import (
     GPSRouteLayer,
     MapTileProvider,
     SegmentAnalysisWindow,
+    VehicleDynamicsWindow,
     VehicleModelWindow,
     load_glb_info,
 )
@@ -559,6 +561,7 @@ DEFAULT_PRESET_TABS: tuple[str, ...] = (
 DEFAULT_ANALYSIS_ITEMS: tuple[str, ...] = (
     "Time-Series Graph",
     "Data Analysis",
+    "Vehicle Dynamics",
     "Segment Analysis",
     "Event Review",
     "GPS Map",
@@ -578,7 +581,7 @@ SIDEBAR_GROUPS: dict[str, tuple[str, ...]] = {
         "3D Vehicle Model",
         "Current Values Table",
     ),
-    "분석": ("Data Analysis", "Segment Analysis", "Event Review"),
+    "분석": ("Data Analysis", "Vehicle Dynamics", "Segment Analysis", "Event Review"),
     "리포트": ("Benchmark Summary", "Export Report"),
     "문서": ("Documents",),
 }
@@ -832,6 +835,8 @@ class MainWindow(QtWidgets.QMainWindow):
             widget = self._build_time_series_window()
         elif title == "Data Analysis":
             widget = self._build_data_analysis_window()
+        elif title == "Vehicle Dynamics":
+            widget = self._build_vehicle_dynamics_window()
         elif title == "Segment Analysis":
             widget = self._build_segment_analysis_window()
         elif title == "Event Review":
@@ -958,6 +963,21 @@ class MainWindow(QtWidgets.QMainWindow):
             sensor_series=self.sensor_series,
             events=self.playback_events,
         )
+
+    def _build_vehicle_dynamics_window(self) -> VehicleDynamicsWindow:
+        timestamps = [
+            self.playback_state.seconds_at(index)
+            for index in range(self.playback_state.sample_count)
+        ]
+        summary = compute_dynamics_summary(
+            timestamps_seconds=timestamps,
+            sensors=self.sensor_series,
+            g_limit_radius=self.visualization_settings.gg_limit_radius,
+            wheelbase_m=self.ideal_path_settings.wheelbase_m,
+            steering_ratio=self.ideal_path_settings.steering_ratio,
+            steering_channel=self.ideal_path_settings.steering_channel,
+        )
+        return VehicleDynamicsWindow(summary)
 
     def _build_event_review_window(self) -> EventReviewWindow:
         widget = EventReviewWindow(self.event_reviews, self.seek_to_time_ms)

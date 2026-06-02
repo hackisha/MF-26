@@ -19,7 +19,7 @@ crashes.
 ```
 
 Expected result: all tests pass without a `python.exe` native error dialog.
-The current expected count is `140 passed`.
+The current expected count is `166 passed`.
 
 ## 2. Generate Target CSV
 
@@ -103,6 +103,10 @@ Check that:
 - `Event Review` opens from the Analysis group, seeks playback to the selected
   event, supports unreviewed/confirmed/ignored states, stores notes, and
   restores review data from `.mflogproj`.
+- `Vehicle Dynamics` opens from the Analysis group and summarizes peak lateral
+  G, peak longitudinal G, peak combined G, G-limit utilization/exceedance, max
+  yaw rate, and steering-aware yaw response/handling tendency when steering
+  data is available.
 - `Segment Analysis` can create named time ranges from the current playback
   time and displays available sensor statistics without failing on missing
   channels.

@@ -21,6 +21,7 @@ from mflog_proto.ui.minimal_analysis_windows import (
     GPSMapWindow,
     MapTileImage,
     SegmentAnalysisWindow,
+    VehicleDynamicsWindow,
     VehicleModelWindow,
 )
 from mflog_proto.ui.time_series_window import TimeSeriesWindow
@@ -108,6 +109,7 @@ def test_left_sidebar_groups_analysis_items_by_workflow(qtbot):
     assert groups == {"시각화", "분석", "리포트", "문서"}
     assert window.sidebar_item_titles("분석") == [
         "Data Analysis",
+        "Vehicle Dynamics",
         "Segment Analysis",
         "Event Review",
     ]
@@ -998,11 +1000,12 @@ def test_add_analysis_window_supports_integrated_ux_windows(qtbot):
 
     created = {
         title: window.add_analysis_window(title).widget()
-        for title in ("Event Review", "Segment Analysis", "Export Report")
+        for title in ("Event Review", "Segment Analysis", "Vehicle Dynamics", "Export Report")
     }
 
     assert isinstance(created["Event Review"], EventReviewWindow)
     assert isinstance(created["Segment Analysis"], SegmentAnalysisWindow)
+    assert isinstance(created["Vehicle Dynamics"], VehicleDynamicsWindow)
     assert isinstance(created["Export Report"], ExportReportWindow)
 
 
