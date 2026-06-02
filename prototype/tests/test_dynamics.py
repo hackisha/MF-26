@@ -55,3 +55,20 @@ def test_compute_dynamics_summary_handles_missing_steering_as_optional():
 
     assert summary.yaw_response_ratio is None
     assert summary.balance_label == "steering data unavailable"
+
+
+def test_compute_dynamics_summary_marks_unavailable_acceleration_as_missing():
+    summary = compute_dynamics_summary(
+        timestamps_seconds=[0.0, 0.1],
+        sensors={
+            "AX_CORRECTED_G": [0.0, 0.0],
+            "AY_CORRECTED_G": [0.0, 0.0],
+        },
+        available_channels=set(),
+    )
+
+    assert summary.peak_lateral_g is None
+    assert summary.peak_longitudinal_g is None
+    assert summary.peak_combined_g is None
+    assert summary.g_utilization_percent is None
+    assert summary.g_limit_exceedance_count == 0

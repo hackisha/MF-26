@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Mapping, Sequence
+from typing import AbstractSet, Mapping, Sequence
 
 import numpy as np
 
@@ -31,15 +31,31 @@ def compute_dynamics_summary(
     wheelbase_m: float = 1.6,
     steering_ratio: float = 1.0,
     steering_channel: str = "Auto",
+    available_channels: AbstractSet[str] | None = None,
 ) -> DynamicsSummary:
     sample_count = len(timestamps_seconds)
-    ax = _series(sensors, ("AX_CORRECTED_G", "ax"), sample_count)
-    ay = _series(sensors, ("AY_CORRECTED_G", "ay"), sample_count)
-    yaw_rate = _series(sensors, ("yaw rate", "gz_dps", "GZ_RAW_DPS"), sample_count)
-    speed_kph = _series(sensors, ("VSS / GPS speed", "GPS speed", "VSS", "VSS_kmh"), sample_count)
-    steering = _steering_series(sensors, steering_channel, sample_count)
+    ax = _series(sensors, ("AX_CORRECTED_G", "ax"), sample_count, available_channels)
+    ay = _series(sensors, ("AY_CORRECTED_G", "ay"), sample_count, available_channels)
+    yaw_rate = _series(
+        sensors,
+        ("yaw rate", "gz_dps", "GZ_RAW_DPS"),
+        sample_count,
+        available_channels,
+    )
+    speed_kph = _series(
+        sensors,
+        ("VSS / GPS speed", "GPS speed", "VSS", "VSS_kmh"),
+        sample_count,
+        available_channels,
+    )
+    steering = _steering_series(sensors, steering_channel, sample_count, available_channels)
 
-    combined = np.sqrt(np.square(_nan_to_zero(ax)) + np.square(_nan_to_zero(ay)))
+    valid_acceleration = np.isfinite(ax) | np.isfinite(ay)
+    combined = np.full(sample_count, np.nan)
+    combined[valid_acceleration] = np.sqrt(
+        np.square(_nan_to_zero(ax[valid_acceleration]))
+        + np.square(_nan_to_zero(ay[valid_acceleration]))
+    )
     finite_combined = combined[np.isfinite(combined)]
     peak_combined = _max_or_none(finite_combined)
     limit = max(float(g_limit_radius), 0.1)
@@ -73,8 +89,11 @@ def _series(
     sensors: Mapping[str, Sequence[float | None]],
     names: tuple[str, ...],
     sample_count: int,
+    available_channels: AbstractSet[str] | None = None,
 ) -> np.ndarray:
     for name in names:
+        if available_channels is not None and name not in available_channels:
+            continue
         if name in sensors:
             return _as_float_array(sensors[name], sample_count)
     return np.full(sample_count, np.nan)
@@ -84,26 +103,45 @@ def _steering_series(
     sensors: Mapping[str, Sequence[float | None]],
     steering_channel: str,
     sample_count: int,
+    available_channels: AbstractSet[str] | None = None,
 ) -> np.ndarray:
-    if steering_channel != "Auto" and steering_channel in sensors:
+    if (
+        steering_channel != "Auto"
+        and steering_channel in sensors
+        and _is_available(steering_channel, available_channels)
+    ):
         return _as_float_array(sensors[steering_channel], sample_count)
 
     direct_names = (
         "steering angle",
         "Steering angle",
         "STEERING_ANGLE",
+        "STEERING_ANGLE_DEG",
         "STR_ANGLE",
         "SAS_Angle",
+        "SteeringAngle_deg",
+        "Steering_Angle_deg",
+        "SteeringAngle",
     )
     for name in direct_names:
-        if name in sensors:
+        if name in sensors and _is_available(name, available_channels):
             return _as_float_array(sensors[name], sample_count)
 
     for name, values in sensors.items():
         lowered = name.lower()
-        if "steer" in lowered or "str_angle" in lowered:
+        if (
+            ("steer" in lowered or "str_angle" in lowered)
+            and _is_available(name, available_channels)
+        ):
             return _as_float_array(values, sample_count)
     return np.full(sample_count, np.nan)
+
+
+def _is_available(
+    channel_id: str,
+    available_channels: AbstractSet[str] | None,
+) -> bool:
+    return available_channels is None or channel_id in available_channels
 
 
 def _as_float_array(values: Sequence[float | None], sample_count: int) -> np.ndarray:

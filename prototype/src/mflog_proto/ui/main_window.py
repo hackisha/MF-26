@@ -614,6 +614,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._map_tile_provider = map_tile_provider
         self.playback_state = PlaybackState([0.0])
         self.sensor_series = _blank_sensor_series(self.playback_state.sample_count)
+        self.available_sensor_channels: set[str] = set()
         self.playback_events: tuple[PlaybackMarker, ...] = ()
         self.event_reviews: tuple[EventReview, ...] = ()
         self.analysis_segments: tuple[AnalysisSegment, ...] = ()
@@ -965,19 +966,22 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     def _build_vehicle_dynamics_window(self) -> VehicleDynamicsWindow:
+        return VehicleDynamicsWindow(self._vehicle_dynamics_summary())
+
+    def _vehicle_dynamics_summary(self):
         timestamps = [
             self.playback_state.seconds_at(index)
             for index in range(self.playback_state.sample_count)
         ]
-        summary = compute_dynamics_summary(
+        return compute_dynamics_summary(
             timestamps_seconds=timestamps,
             sensors=self.sensor_series,
             g_limit_radius=self.visualization_settings.gg_limit_radius,
             wheelbase_m=self.ideal_path_settings.wheelbase_m,
             steering_ratio=self.ideal_path_settings.steering_ratio,
             steering_channel=self.ideal_path_settings.steering_channel,
+            available_channels=self.available_sensor_channels,
         )
-        return VehicleDynamicsWindow(summary)
 
     def _build_event_review_window(self) -> EventReviewWindow:
         widget = EventReviewWindow(self.event_reviews, self.seek_to_time_ms)
@@ -1565,12 +1569,16 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._apply_ideal_path_to_gps_window(widget)
             elif isinstance(widget, GGDiagramWindow):
                 widget.set_limit_circle_radius(self.visualization_settings.gg_limit_radius)
+            elif isinstance(widget, VehicleDynamicsWindow):
+                widget.set_summary(self._vehicle_dynamics_summary())
 
     def _apply_ideal_path_settings_to_open_windows(self) -> None:
         for sub_window in self.workspace.subWindowList():
             widget = sub_window.widget()
             if isinstance(widget, GPSMapWindow):
                 self._apply_ideal_path_to_gps_window(widget)
+            elif isinstance(widget, VehicleDynamicsWindow):
+                widget.set_summary(self._vehicle_dynamics_summary())
 
     def _apply_ideal_path_to_gps_window(self, widget: GPSMapWindow) -> None:
         if not self.ideal_path_settings.enabled:
@@ -2002,6 +2010,7 @@ class MainWindow(QtWidgets.QMainWindow):
             csv_path=csv_path,
             timestamps=timestamps,
             sensor_series=_sensor_series_from_store(result.store, sample_count),
+            available_sensor_channels=_available_sensor_channels_from_store(result.store),
             events=_detect_playback_markers(result.store, timestamps),
             row_count=result.store.row_count,
             sampling_interval_ms=_estimate_sampling_interval_ms(timestamps),
@@ -2017,6 +2026,7 @@ class MainWindow(QtWidgets.QMainWindow):
         events: tuple[PlaybackMarker, ...],
         row_count: int,
         sampling_interval_ms: int,
+        available_sensor_channels: set[str] | None = None,
         autosave_warning: str = "",
     ) -> None:
         window_states = self._capture_window_state()
@@ -2029,6 +2039,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self._handle_playback_event
         )
         self.sensor_series = sensor_series
+        self.available_sensor_channels = (
+            set(sensor_series)
+            if available_sensor_channels is None
+            else set(available_sensor_channels)
+        )
         self._populate_time_series_channel_list()
         self._populate_ideal_path_steering_channel_combo()
         self._remember_gps_route(csv_path, sensor_series)
@@ -2607,6 +2622,7 @@ def _sensor_series_from_store(store: ColumnStore, sample_count: int) -> dict[str
         "steering angle": _numeric_series(
             store,
             sample_count,
+            "SteeringAngle_deg",
             "Steering_Angle_deg",
             "STEERING_ANGLE_DEG",
             "steering angle",
@@ -2620,6 +2636,37 @@ def _sensor_series_from_store(store: ColumnStore, sample_count: int) -> dict[str
     for channel_id, values in _raw_numeric_sensor_series(store, sample_count).items():
         series.setdefault(channel_id, values)
     return series
+
+
+def _available_sensor_channels_from_store(store: ColumnStore) -> set[str]:
+    available = set(store.raw_column_names)
+    available.update(store.standard_sources)
+    available.update(compute_basic_derived_channels(store))
+
+    if _store_values(store, "GPS_Speed_KPH", "VSS_kmh", "VSS", "GPS speed") is not None:
+        available.update({"GPS speed", "VSS / GPS speed"})
+    if _store_values(store, "AX_CORRECTED_G", "AX_RAW_G", "ax_g", "ax") is not None:
+        available.update({"AX_CORRECTED_G", "ax"})
+    if _store_values(store, "AY_CORRECTED_G", "AY_RAW_G", "ay_g", "ay") is not None:
+        available.update({"AY_CORRECTED_G", "ay"})
+    if _store_values(store, "gz_dps", "yaw rate") is not None:
+        available.add("yaw rate")
+    if (
+        _store_values(
+            store,
+            "SteeringAngle_deg",
+            "Steering_Angle_deg",
+            "STEERING_ANGLE_DEG",
+            "steering angle",
+            "SteeringAngle",
+            "Steering",
+            "SAS_Angle",
+        )
+        is not None
+    ):
+        available.add("steering angle")
+
+    return available
 
 
 def _derived_or_numeric_series(
@@ -2714,6 +2761,7 @@ def _steering_channel_options(sensor_series: dict[str, list[float]]) -> list[str
     preferred = (
         "Auto",
         "steering angle",
+        "SteeringAngle_deg",
         "Steering_Angle_deg",
         "STEERING_ANGLE_DEG",
         "SteeringAngle",
@@ -2739,6 +2787,7 @@ def _selected_steering_channel(
         return selected_channel
     for candidate in (
         "steering angle",
+        "SteeringAngle_deg",
         "Steering_Angle_deg",
         "STEERING_ANGLE_DEG",
         "SteeringAngle",
