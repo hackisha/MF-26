@@ -2,6 +2,8 @@ from pathlib import Path
 
 import pytest
 
+from mflog_proto.analysis.event_reviews import EventReview, EventReviewState
+from mflog_proto.analysis.segments import AnalysisSegment
 from mflog_proto.persistence.project_state import (
     ProjectState,
     WindowState,
@@ -48,3 +50,49 @@ def test_project_state_defaults_optional_sections():
     assert state.open_windows == ()
     assert state.active_profile == "prototype"
     assert state.vehicle_model_path is None
+
+
+def test_project_state_v2_round_trips_event_reviews_and_segments(tmp_path):
+    state = ProjectState(
+        event_reviews=(
+            EventReview(
+                name="Battery low",
+                time_ms=18320,
+                severity="warning",
+                sensor="Battery voltage",
+                value=13.878,
+                condition="value < 14.0",
+                state=EventReviewState.CONFIRMED,
+                note="Check alternator",
+            ),
+        ),
+        analysis_segments=(AnalysisSegment("Corner 1", 1000, 3500),),
+        selected_sidebar_group="분석",
+        report_output_path=tmp_path / "report.html",
+    )
+
+    project_path = tmp_path / "session.mflogproj"
+    save_project_state(project_path, state)
+    restored = load_project_state(project_path)
+
+    assert restored.schema_version == 2
+    assert restored.event_reviews == state.event_reviews
+    assert restored.analysis_segments == state.analysis_segments
+    assert restored.selected_sidebar_group == "분석"
+    assert restored.report_output_path == tmp_path / "report.html"
+
+
+def test_project_state_loads_v1_files_with_empty_integrated_ux_fields(tmp_path):
+    project_path = tmp_path / "v1.mflogproj"
+    project_path.write_text(
+        '{"schema_version": 1, "active_profile": "prototype", "open_windows": []}',
+        encoding="utf-8",
+    )
+
+    restored = load_project_state(project_path)
+
+    assert restored.schema_version == 2
+    assert restored.event_reviews == ()
+    assert restored.analysis_segments == ()
+    assert restored.selected_sidebar_group == "시각화"
+    assert restored.report_output_path is None

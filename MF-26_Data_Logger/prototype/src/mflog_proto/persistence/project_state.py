@@ -7,8 +7,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+from mflog_proto.analysis.event_reviews import EventReview
+from mflog_proto.analysis.segments import AnalysisSegment
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+SUPPORTED_SCHEMA_VERSIONS = {1, 2}
 
 
 @dataclass(frozen=True)
@@ -52,6 +55,10 @@ class ProjectState:
     preset_tab_order: tuple[str, ...] = ()
     active_tab_index: int = 0
     vehicle_model_path: Path | None = None
+    event_reviews: tuple[EventReview, ...] = ()
+    analysis_segments: tuple[AnalysisSegment, ...] = ()
+    selected_sidebar_group: str = "시각화"
+    report_output_path: Path | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -68,21 +75,31 @@ class ProjectState:
             "playback_seconds": self.playback_seconds,
             "preset_tab_order": list(self.preset_tab_order),
             "active_tab_index": self.active_tab_index,
+            "event_reviews": [review.to_dict() for review in self.event_reviews],
+            "analysis_segments": [segment.to_dict() for segment in self.analysis_segments],
+            "selected_sidebar_group": self.selected_sidebar_group,
+            "report_output_path": (
+                None if self.report_output_path is None else str(self.report_output_path)
+            ),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ProjectState:
         schema_version = int(data.get("schema_version", SCHEMA_VERSION))
-        if schema_version != SCHEMA_VERSION:
+        if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
             raise ValueError(f"Unsupported project schema version: {schema_version}")
 
         csv_path = data.get("csv_path")
         vehicle_model_path = data.get("vehicle_model_path")
+        report_output_path = data.get("report_output_path")
         return cls(
-            schema_version=schema_version,
+            schema_version=SCHEMA_VERSION,
             csv_path=None if csv_path in (None, "") else Path(str(csv_path)),
             vehicle_model_path=(
                 None if vehicle_model_path in (None, "") else Path(str(vehicle_model_path))
+            ),
+            report_output_path=(
+                None if report_output_path in (None, "") else Path(str(report_output_path))
             ),
             active_profile=str(data.get("active_profile", "prototype")),
             channel_mappings=dict(data.get("channel_mappings", {})),
@@ -94,6 +111,13 @@ class ProjectState:
             playback_seconds=float(data.get("playback_seconds", 0.0)),
             preset_tab_order=tuple(str(item) for item in data.get("preset_tab_order", [])),
             active_tab_index=int(data.get("active_tab_index", 0)),
+            event_reviews=tuple(
+                EventReview.from_dict(item) for item in data.get("event_reviews", [])
+            ),
+            analysis_segments=tuple(
+                AnalysisSegment.from_dict(item) for item in data.get("analysis_segments", [])
+            ),
+            selected_sidebar_group=str(data.get("selected_sidebar_group", "시각화")),
         )
 
 

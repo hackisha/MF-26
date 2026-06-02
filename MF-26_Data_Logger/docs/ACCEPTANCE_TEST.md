@@ -98,6 +98,20 @@ Check that:
 - CSV malformed-row diagnostics appear as warnings without blocking playback.
 - `File > Save Project` and `File > Open Project` round-trip the CSV path,
   playback time, tab order, and open analysis windows through `.mflogproj`.
+- The left analysis panel groups windows into Visualization, Analysis, Reports,
+  and Documents while preserving search, add, sort, density, and width controls.
+- `Event Review` opens from the Analysis group, seeks playback to the selected
+  event, supports unreviewed/confirmed/ignored states, stores notes, and
+  restores review data from `.mflogproj`.
+- `Segment Analysis` can create named time ranges from the current playback
+  time and displays available sensor statistics without failing on missing
+  channels.
+- `Export Report` writes an HTML report with session summary, selected
+  channels, event review notes, and segment summaries.
+- The playback dock keeps sensor cards in a horizontal scroll area so narrow
+  windows do not overlap controls.
+- Save/open/export failures are logged under the local app-data log directory
+  and shown as warnings without blocking the active session.
 - Play/pause, home, end, previous/next event, speed selection, timeline slider,
   arrow-key seek, and Space play/pause work.
 - Moving the timeline updates the time-series cursor line, GPS current point,

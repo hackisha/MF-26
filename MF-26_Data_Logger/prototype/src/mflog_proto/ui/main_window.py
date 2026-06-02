@@ -12,11 +12,22 @@ from typing import Callable, Sequence
 from PySide6 import QtCore, QtGui, QtWidgets
 import shiboken6
 
+from mflog_proto.analysis.event_reviews import (
+    EventReview,
+    EventReviewState,
+    build_event_reviews,
+)
 from mflog_proto.analysis.kinematics import compute_ideal_path
+from mflog_proto.analysis.segments import (
+    AnalysisSegment,
+    SegmentSummary,
+    compute_segment_summary,
+)
 from mflog_proto.benchmark.metrics import collect_environment
 from mflog_proto.data.column_store import ColumnStore
 from mflog_proto.data.csv_loader import CsvLoadOptions, load_csv
 from mflog_proto.data.derived import compute_basic_derived_channels
+from mflog_proto.diagnostics.app_logging import log_exception
 from mflog_proto.persistence.project_state import (
     ProjectState,
     WindowState,
@@ -24,15 +35,19 @@ from mflog_proto.persistence.project_state import (
     save_project_state,
 )
 from mflog_proto.playback import CursorEvent, CursorKind, PlaybackState
+from mflog_proto.reporting.html_report import render_html_report, write_html_report
 from mflog_proto.ui.minimal_analysis_windows import (
     BenchmarkSummaryWindow,
     CurrentValuesWindow,
     DataAnalysisWindow,
     DocumentsWindow,
+    EventReviewWindow,
+    ExportReportWindow,
     GGDiagramWindow,
     GPSMapWindow,
     GPSRouteLayer,
     MapTileProvider,
+    SegmentAnalysisWindow,
     VehicleModelWindow,
     load_glb_info,
 )
@@ -544,13 +559,29 @@ DEFAULT_PRESET_TABS: tuple[str, ...] = (
 DEFAULT_ANALYSIS_ITEMS: tuple[str, ...] = (
     "Time-Series Graph",
     "Data Analysis",
+    "Segment Analysis",
+    "Event Review",
     "GPS Map",
     "G-G Diagram",
     "3D Vehicle Model",
     "Current Values Table",
     "Benchmark Summary",
+    "Export Report",
     "Documents",
 )
+
+SIDEBAR_GROUPS: dict[str, tuple[str, ...]] = {
+    "시각화": (
+        "Time-Series Graph",
+        "GPS Map",
+        "G-G Diagram",
+        "3D Vehicle Model",
+        "Current Values Table",
+    ),
+    "분석": ("Data Analysis", "Segment Analysis", "Event Review"),
+    "리포트": ("Benchmark Summary", "Export Report"),
+    "문서": ("Documents",),
+}
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -581,6 +612,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.playback_state = PlaybackState([0.0])
         self.sensor_series = _blank_sensor_series(self.playback_state.sample_count)
         self.playback_events: tuple[PlaybackMarker, ...] = ()
+        self.event_reviews: tuple[EventReview, ...] = ()
+        self.analysis_segments: tuple[AnalysisSegment, ...] = ()
+        self.report_output_path: Path | None = None
+        self.selected_sidebar_group = "시각화"
         self.session_row_count = 0
         self.session_sampling_interval_ms = 0
         self._syncing_event_marker_selection = False
@@ -695,6 +730,10 @@ class MainWindow(QtWidgets.QMainWindow):
             selected_channels=tuple(self.selected_channels),
             playback_seconds=self.playback_state.current_seconds,
             vehicle_model_path=self.vehicle_model_path,
+            event_reviews=self.event_reviews,
+            analysis_segments=self.analysis_segments,
+            selected_sidebar_group=self.selected_sidebar_group,
+            report_output_path=self.report_output_path,
             preset_tab_order=tuple(
                 self.preset_tabs.tabText(index) for index in range(self.preset_tabs.count())
             ),
@@ -722,9 +761,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.channel_mappings = dict(state.channel_mappings)
         self.derived_channel_settings = dict(state.derived_channel_settings)
         self.selected_channels = list(state.selected_channels)
+        self.event_reviews = (
+            state.event_reviews
+            if state.event_reviews
+            else _event_reviews_from_markers(self.playback_events)
+        )
+        self.analysis_segments = state.analysis_segments
+        self.selected_sidebar_group = state.selected_sidebar_group
+        self.report_output_path = state.report_output_path
         self._populate_time_series_channel_list()
         if state.vehicle_model_path is not None:
             self.load_vehicle_model_path(state.vehicle_model_path)
+        self._select_sidebar_group(self.selected_sidebar_group)
         self._restore_preset_tabs(state)
         self._clear_workspace()
 
@@ -784,6 +832,12 @@ class MainWindow(QtWidgets.QMainWindow):
             widget = self._build_time_series_window()
         elif title == "Data Analysis":
             widget = self._build_data_analysis_window()
+        elif title == "Segment Analysis":
+            widget = self._build_segment_analysis_window()
+        elif title == "Event Review":
+            widget = self._build_event_review_window()
+        elif title == "Export Report":
+            widget = self._build_export_report_window()
         elif title == "Documents":
             widget = self._build_documents_window()
         elif title == "G-G Diagram":
@@ -905,8 +959,82 @@ class MainWindow(QtWidgets.QMainWindow):
             events=self.playback_events,
         )
 
+    def _build_event_review_window(self) -> EventReviewWindow:
+        widget = EventReviewWindow(self.event_reviews, self.seek_to_time_ms)
+        widget.reviewChanged.connect(self._update_event_review)
+        return widget
+
+    def _build_segment_analysis_window(self) -> SegmentAnalysisWindow:
+        widget = SegmentAnalysisWindow(
+            self.playback_state,
+            self._segment_summaries(),
+        )
+        widget.segmentAdded.connect(self._add_analysis_segment)
+        return widget
+
+    def _build_export_report_window(self) -> ExportReportWindow:
+        widget = ExportReportWindow(self.report_output_path)
+        widget.exportRequested.connect(self.export_report_file)
+        return widget
+
     def _build_documents_window(self) -> DocumentsWindow:
         return DocumentsWindow(_project_document_paths())
+
+    def _update_event_review(self, row_index: int, patch: object) -> None:
+        if not isinstance(patch, dict):
+            return
+        if row_index < 0 or row_index >= len(self.event_reviews):
+            return
+        review = self.event_reviews[row_index]
+        state = patch.get("state", review.state)
+        if not isinstance(state, EventReviewState):
+            try:
+                state = EventReviewState(str(state))
+            except ValueError:
+                state = EventReviewState.UNREVIEWED
+        updated = EventReview(
+            name=review.name,
+            time_ms=review.time_ms,
+            severity=review.severity,
+            sensor=review.sensor,
+            value=review.value,
+            condition=review.condition,
+            state=state,
+            note=str(patch.get("note", review.note)),
+        )
+        reviews = list(self.event_reviews)
+        reviews[row_index] = updated
+        self.event_reviews = tuple(reviews)
+        self._refresh_event_review_windows()
+
+    def _refresh_event_review_windows(self) -> None:
+        for sub_window in self.workspace.subWindowList():
+            widget = sub_window.widget()
+            if isinstance(widget, EventReviewWindow):
+                widget.refresh_reviews(self.event_reviews)
+
+    def _add_analysis_segment(self, segment: object) -> None:
+        if not isinstance(segment, AnalysisSegment):
+            return
+        self.analysis_segments = (*self.analysis_segments, segment.normalized())
+        self._refresh_segment_analysis_windows()
+
+    def _refresh_segment_analysis_windows(self) -> None:
+        summaries = self._segment_summaries()
+        for sub_window in self.workspace.subWindowList():
+            widget = sub_window.widget()
+            if isinstance(widget, SegmentAnalysisWindow):
+                widget.refresh_summaries(summaries)
+
+    def _segment_summaries(self) -> tuple[SegmentSummary, ...]:
+        timestamps = [
+            self.playback_state.seconds_at(index)
+            for index in range(self.playback_state.sample_count)
+        ]
+        return tuple(
+            compute_segment_summary(segment, timestamps, self.sensor_series)
+            for segment in self.analysis_segments
+        )
 
     def _build_placeholder_window(self, title: str) -> QtWidgets.QFrame:
         widget = QtWidgets.QFrame()
@@ -947,6 +1075,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     action.triggered.connect(self._open_project_dialog)
                 elif action_title == "Save Project":
                     action.triggered.connect(self._save_project_dialog)
+                elif action_title == "Export Report":
+                    action.triggered.connect(self._export_report_dialog)
 
     def _build_central_workspace(self) -> None:
         central = QtWidgets.QWidget()
@@ -988,16 +1118,22 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.analysis_list = QtWidgets.QListWidget()
         self.analysis_list.setObjectName("analysisList")
+        self.analysis_list.hide()
         self.analysis_list.itemDoubleClicked.connect(
             lambda item: self.add_analysis_window(item.text())
         )
+
+        self.analysis_tree = QtWidgets.QTreeWidget()
+        self.analysis_tree.setObjectName("analysisTree")
+        self.analysis_tree.setHeaderHidden(True)
+        self.analysis_tree.itemDoubleClicked.connect(self._handle_sidebar_tree_item_activated)
 
         self.add_window_button = QtWidgets.QPushButton("추가")
         self.add_window_button.setObjectName("addWindowButton")
         self.add_window_button.clicked.connect(self._add_selected_analysis_window)
 
         layout.addWidget(self.sidebar_search)
-        layout.addWidget(self.analysis_list, 1)
+        layout.addWidget(self.analysis_tree, 1)
         layout.addWidget(self.add_window_button)
         sidebar.setWidget(content)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.LeftDockWidgetArea, sidebar)
@@ -1493,7 +1629,10 @@ class MainWindow(QtWidgets.QMainWindow):
             status_row.addWidget(label)
         status_row.addStretch(1)
 
-        control_row = QtWidgets.QHBoxLayout()
+        self.playback_controls_row = QtWidgets.QWidget()
+        self.playback_controls_row.setObjectName("playbackControlsRow")
+        control_row = QtWidgets.QHBoxLayout(self.playback_controls_row)
+        control_row.setContentsMargins(0, 0, 0, 0)
         control_row.setSpacing(6)
         self.home_button = QtWidgets.QPushButton("처음")
         self.home_button.setObjectName("playbackHomeButton")
@@ -1545,14 +1684,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self.sensor_card_layout.setSpacing(6)
         self.sensor_card_value_labels: dict[str, QtWidgets.QLabel] = {}
         self._build_sensor_cards()
+        self.sensor_card_scroll_area = QtWidgets.QScrollArea()
+        self.sensor_card_scroll_area.setObjectName("sensorCardScrollArea")
+        self.sensor_card_scroll_area.setWidgetResizable(True)
+        self.sensor_card_scroll_area.setHorizontalScrollBarPolicy(
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.sensor_card_scroll_area.setVerticalScrollBarPolicy(
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.sensor_card_scroll_area.setMinimumHeight(82)
+        self.sensor_card_scroll_area.setWidget(self.sensor_card_container)
         lower_row.addWidget(self.event_marker_list, 1)
-        lower_row.addWidget(self.sensor_card_container, 2)
+        lower_row.addWidget(self.sensor_card_scroll_area, 2)
 
         self.playback_warning_label = QtWidgets.QLabel()
         self.playback_warning_label.setObjectName("playbackWarningLabel")
 
         layout.addLayout(status_row)
-        layout.addLayout(control_row)
+        layout.addWidget(self.playback_controls_row)
         layout.addLayout(lower_row)
         layout.addWidget(self.playback_warning_label)
         self.playback_dock.setWidget(content)
@@ -1603,8 +1753,68 @@ class MainWindow(QtWidgets.QMainWindow):
         self.analysis_list.clear()
         for item in items:
             self.analysis_list.addItem(item)
+        self._populate_analysis_tree(set(items))
+
+    def _populate_analysis_tree(self, visible_items: set[str]) -> None:
+        if not hasattr(self, "analysis_tree"):
+            return
+        self.analysis_tree.clear()
+        for group_name, group_items in SIDEBAR_GROUPS.items():
+            children = [item for item in group_items if item in visible_items]
+            if not children:
+                continue
+            group_item = QtWidgets.QTreeWidgetItem([group_name])
+            group_item.setData(0, QtCore.Qt.ItemDataRole.UserRole, "")
+            group_item.setExpanded(True)
+            self.analysis_tree.addTopLevelItem(group_item)
+            for title in children:
+                child = QtWidgets.QTreeWidgetItem([title])
+                child.setData(0, QtCore.Qt.ItemDataRole.UserRole, title)
+                group_item.addChild(child)
+
+    def sidebar_item_titles(self, group_name: str) -> list[str]:
+        for index in range(self.analysis_tree.topLevelItemCount()):
+            group_item = self.analysis_tree.topLevelItem(index)
+            if group_item.text(0) == group_name:
+                return [
+                    group_item.child(child_index).text(0)
+                    for child_index in range(group_item.childCount())
+                ]
+        return []
+
+    def _handle_sidebar_tree_item_activated(
+        self,
+        item: QtWidgets.QTreeWidgetItem,
+        _column: int,
+    ) -> None:
+        title = str(item.data(0, QtCore.Qt.ItemDataRole.UserRole))
+        if title:
+            parent = item.parent()
+            if parent is not None:
+                self.selected_sidebar_group = parent.text(0)
+            self.add_analysis_window(title)
+
+    def _select_sidebar_group(self, group_name: str) -> None:
+        if not hasattr(self, "analysis_tree"):
+            return
+        for index in range(self.analysis_tree.topLevelItemCount()):
+            group_item = self.analysis_tree.topLevelItem(index)
+            if group_item.text(0) == group_name:
+                self.analysis_tree.setCurrentItem(group_item)
+                self.selected_sidebar_group = group_name
+                return
 
     def _add_selected_analysis_window(self) -> None:
+        tree_item = self.analysis_tree.currentItem() if hasattr(self, "analysis_tree") else None
+        if tree_item is not None:
+            title = str(tree_item.data(0, QtCore.Qt.ItemDataRole.UserRole))
+            if title:
+                parent = tree_item.parent()
+                if parent is not None:
+                    self.selected_sidebar_group = parent.text(0)
+                self.add_analysis_window(title)
+                return
+
         item = self.analysis_list.currentItem()
         if item is None and self.analysis_list.count() > 0:
             item = self.analysis_list.item(0)
@@ -1671,14 +1881,35 @@ class MainWindow(QtWidgets.QMainWindow):
         if path:
             self.save_project_file(Path(path))
 
+    def _export_report_dialog(self) -> None:
+        default_path = self.report_output_path or Path.cwd() / "mflog-report.html"
+        path, _selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Export Report",
+            str(default_path),
+            "HTML Report (*.html);;All files (*.*)",
+        )
+        if path:
+            self.export_report_file(Path(path))
+
     def save_project_file(self, project_path: Path) -> ProjectState:
-        state = self.capture_project_state(csv_path=self.loaded_csv_path)
-        save_project_state(project_path, state)
+        try:
+            state = self.capture_project_state(csv_path=self.loaded_csv_path)
+            save_project_state(project_path, state)
+        except OSError as exc:
+            log_path = log_exception(exc, context=f"save project: {project_path}")
+            self.playback_warning_label.setText(f"Project save failed. Log: {log_path.name}")
+            raise
         self.statusBar().showMessage(f"Project saved: {project_path.name}")
         return state
 
     def open_project_file(self, project_path: Path) -> bool:
-        state = load_project_state(project_path)
+        try:
+            state = load_project_state(project_path)
+        except (OSError, ValueError) as exc:
+            log_path = log_exception(exc, context=f"open project: {project_path}")
+            self.playback_warning_label.setText(f"Project open failed. Log: {log_path.name}")
+            raise
         loaded_csv = False
         if state.csv_path is not None and state.csv_path.exists():
             self.load_csv_session(state.csv_path)
@@ -1692,6 +1923,38 @@ class MainWindow(QtWidgets.QMainWindow):
             )
         self.statusBar().showMessage(f"Project opened: {project_path.name}")
         return loaded_csv
+
+    def export_report_file(self, output_path: Path) -> None:
+        try:
+            html = render_html_report(
+                session={
+                    "file_name": (
+                        self.loaded_csv_path.name
+                        if self.loaded_csv_path is not None
+                        else "No CSV"
+                    ),
+                    "row_count": self.session_row_count,
+                    "duration_seconds": self.playback_state.total_time_ms / 1000.0,
+                    "sample_ms": self.session_sampling_interval_ms,
+                    "event_count": len(self.playback_events),
+                },
+                selected_channels=tuple(self._selected_time_series_channels()),
+                event_reviews=self.event_reviews,
+                segment_summaries=self._segment_summaries(),
+                generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            )
+            write_html_report(output_path, html)
+        except OSError as exc:
+            log_path = log_exception(exc, context=f"export report: {output_path}")
+            self.playback_warning_label.setText(f"Report export failed. Log: {log_path.name}")
+            raise
+
+        self.report_output_path = output_path
+        for sub_window in self.workspace.subWindowList():
+            widget = sub_window.widget()
+            if isinstance(widget, ExportReportWindow):
+                widget.set_output_path(output_path)
+        self.statusBar().showMessage(f"Report exported: {output_path.name}")
 
     def load_demo_session(self) -> None:
         sample_count = 101
@@ -1750,6 +2013,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._populate_ideal_path_steering_channel_combo()
         self._remember_gps_route(csv_path, sensor_series)
         self.playback_events = events
+        self.event_reviews = _event_reviews_from_markers(events)
+        self.analysis_segments = ()
         self.session_sampling_interval_ms = sampling_interval_ms
         self.set_csv_session(csv_path, row_count=row_count, autosave_warning=autosave_warning)
         self._restore_analysis_windows(window_states)
@@ -2031,7 +2296,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 background: #3a4046;
                 color: #f4c95d;
             }
-            QLineEdit, QListWidget, QComboBox, QAbstractSpinBox, QTableWidget {
+            QLineEdit, QListWidget, QTreeWidget, QComboBox, QAbstractSpinBox, QTableWidget {
                 background: #11161a;
                 color: #f2f6f8;
                 border: 1px solid #5a6872;
@@ -2047,10 +2312,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 border: 1px solid #5a6872;
                 padding: 5px 6px;
             }
-            QLineEdit:focus, QListWidget:focus, QComboBox:focus, QAbstractSpinBox:focus {
+            QLineEdit:focus, QListWidget:focus, QTreeWidget:focus, QComboBox:focus, QAbstractSpinBox:focus {
                 border: 1px solid #f4c95d;
             }
-            QLineEdit:disabled, QListWidget:disabled, QComboBox:disabled,
+            QLineEdit:disabled, QListWidget:disabled, QTreeWidget:disabled, QComboBox:disabled,
             QAbstractSpinBox:disabled, QPushButton:disabled {
                 background: #2d3338;
                 color: #b8c3ca;
@@ -2556,6 +2821,20 @@ def _detect_playback_markers(
         )
 
     return tuple(markers)
+
+
+def _event_reviews_from_markers(markers: Sequence[PlaybackMarker]) -> tuple[EventReview, ...]:
+    return build_event_reviews(
+        {
+            "name": marker.name,
+            "time_ms": marker.time_ms,
+            "severity": marker.severity,
+            "sensor": marker.sensor,
+            "value": marker.value,
+            "condition": marker.condition,
+        }
+        for marker in markers
+    )
 
 
 def _is_abnormal_sensor_value(channel_id: str, value: float) -> bool:
