@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from PySide6 import QtCore, QtGui
 
+from mflog_proto.analysis.dynamics import DynamicsSummary
 from mflog_proto.benchmark.metrics import DependencyInfo, EnvironmentInfo
 from mflog_proto.playback import PlaybackState
 from mflog_proto.ui.minimal_analysis_windows import (
@@ -16,6 +17,7 @@ from mflog_proto.ui.minimal_analysis_windows import (
     GPSMapWindow,
     MapTileImage,
     OpenStreetMapTileProvider,
+    VehicleDynamicsWindow,
     VehicleModelWindow,
     _qimage_to_rgba_array,
     load_glb_info,
@@ -330,6 +332,29 @@ def test_data_analysis_window_summarizes_session_metrics_and_events(qtbot):
     assert window.metric_for("TPS", "Max") == "30.000"
     assert window.event_count == 1
     assert window.event_name_at(0) == "Battery low"
+
+
+def test_vehicle_dynamics_window_displays_summary_metrics(qtbot):
+    window = VehicleDynamicsWindow(
+        DynamicsSummary(
+            sample_count=3,
+            peak_lateral_g=1.2,
+            peak_longitudinal_g=0.8,
+            peak_combined_g=1.204,
+            g_limit_radius=1.0,
+            g_limit_exceedance_count=2,
+            g_utilization_percent=120.4,
+            max_abs_yaw_rate_dps=20.0,
+            yaw_response_ratio=1.42,
+            balance_label="oversteer tendency",
+        )
+    )
+    qtbot.addWidget(window)
+
+    assert window.metric_value("Peak lateral G") == "1.200 G"
+    assert window.metric_value("G utilization") == "120.4 %"
+    assert window.metric_value("Yaw response ratio") == "1.420"
+    assert window.metric_value("Handling balance") == "oversteer tendency"
 
 
 def test_documents_window_lists_project_reference_files(qtbot):

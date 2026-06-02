@@ -16,6 +16,7 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from mflog_proto.analysis.dynamics import DynamicsSummary
 from mflog_proto.analysis.event_reviews import EventReview, EventReviewState
 from mflog_proto.analysis.segments import AnalysisSegment, SegmentSummary
 from mflog_proto.benchmark.metrics import EnvironmentInfo
@@ -985,6 +986,65 @@ class DataAnalysisWindow(QtWidgets.QWidget):
                 QtWidgets.QTableWidgetItem(f"{time_ms / 1000:.3f} s"),
             )
             self.events_table.setItem(row_index, 3, QtWidgets.QTableWidgetItem(condition))
+
+
+class VehicleDynamicsWindow(QtWidgets.QWidget):
+    def __init__(
+        self,
+        summary: DynamicsSummary,
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("vehicleDynamicsWindow")
+        self.setWindowTitle("Vehicle Dynamics")
+        self._summary = summary
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        self.summary_label = QtWidgets.QLabel(
+            f"Samples: {summary.sample_count} | G limit: {summary.g_limit_radius:.2f} G"
+        )
+        self.summary_label.setObjectName("vehicleDynamicsSummary")
+
+        self.metrics_table = QtWidgets.QTableWidget(0, 2)
+        self.metrics_table.setObjectName("vehicleDynamicsMetricsTable")
+        self.metrics_table.setHorizontalHeaderLabels(("Metric", "Value"))
+        self.metrics_table.horizontalHeader().setStretchLastSection(True)
+
+        self.reliability_badge = QtWidgets.QLabel("Reliability: info")
+        self.reliability_badge.setObjectName("reliabilityBadge")
+
+        layout.addWidget(self.summary_label)
+        layout.addWidget(self.metrics_table, 1)
+        layout.addWidget(self.reliability_badge)
+        self._populate_metrics()
+
+    def metric_value(self, metric_name: str) -> str:
+        for row_index in range(self.metrics_table.rowCount()):
+            if self.metrics_table.item(row_index, 0).text() == metric_name:
+                return self.metrics_table.item(row_index, 1).text()
+        raise KeyError(metric_name)
+
+    def reliability_text(self) -> str:
+        return self.reliability_badge.text()
+
+    def _populate_metrics(self) -> None:
+        rows = (
+            ("Peak lateral G", _format_g(self._summary.peak_lateral_g)),
+            ("Peak longitudinal G", _format_g(self._summary.peak_longitudinal_g)),
+            ("Peak combined G", _format_g(self._summary.peak_combined_g)),
+            ("G utilization", _format_percent(self._summary.g_utilization_percent)),
+            ("G limit exceedance", str(self._summary.g_limit_exceedance_count)),
+            ("Max yaw rate", _format_degrees_per_second(self._summary.max_abs_yaw_rate_dps)),
+            ("Yaw response ratio", _format_optional_float(self._summary.yaw_response_ratio)),
+            ("Handling balance", self._summary.balance_label),
+        )
+        self.metrics_table.setRowCount(len(rows))
+        for row_index, (metric, value) in enumerate(rows):
+            self.metrics_table.setItem(row_index, 0, QtWidgets.QTableWidgetItem(metric))
+            self.metrics_table.setItem(row_index, 1, QtWidgets.QTableWidgetItem(value))
 
 
 class EventReviewWindow(QtWidgets.QWidget):
@@ -2023,6 +2083,18 @@ def _format_kib(byte_length: int) -> str:
 
 def _format_optional_float(value: float | None) -> str:
     return "-" if value is None else f"{value:.3f}"
+
+
+def _format_g(value: float | None) -> str:
+    return "-" if value is None else f"{value:.3f} G"
+
+
+def _format_percent(value: float | None) -> str:
+    return "-" if value is None else f"{value:.1f} %"
+
+
+def _format_degrees_per_second(value: float | None) -> str:
+    return "-" if value is None else f"{value:.3f} deg/s"
 
 
 def _single_scene_point(scene_pos: object) -> QtCore.QPointF | None:
