@@ -54,6 +54,77 @@ def test_reference_route_rejects_invalid_coordinates(tmp_path: Path) -> None:
         load_reference_route(path)
 
 
+def test_reference_route_point_rejects_invalid_latitude() -> None:
+    with pytest.raises(ValueError, match="latitude"):
+        ReferenceRoutePoint(latitude=91.0, longitude=126.0)
+
+
+def test_reference_route_rejects_null_points(tmp_path: Path) -> None:
+    path = tmp_path / "null-points.mflogroute"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "name": "bad",
+                "created_at": "2026-06-03T00:00:00+09:00",
+                "points": None,
+                "metadata": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="points"):
+        load_reference_route(path)
+
+
+def test_reference_route_rejects_point_missing_latitude(tmp_path: Path) -> None:
+    path = tmp_path / "missing-latitude.mflogroute"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "name": "bad",
+                "created_at": "2026-06-03T00:00:00+09:00",
+                "points": [{"longitude": 126.0}],
+                "metadata": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="latitude"):
+        load_reference_route(path)
+
+
+def test_reference_route_rejects_non_object_metadata(tmp_path: Path) -> None:
+    path = tmp_path / "bad-metadata.mflogroute"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "name": "bad",
+                "created_at": "2026-06-03T00:00:00+09:00",
+                "points": [],
+                "metadata": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="metadata"):
+        load_reference_route(path)
+
+
+def test_reference_route_copies_metadata_on_construction() -> None:
+    metadata = {"source": "manual"}
+    route = ReferenceRoute(name="route", points=(), metadata=metadata)
+
+    metadata["source"] = "mutated"
+
+    assert route.to_dict()["metadata"] == {"source": "manual"}
+
+
 def test_reference_route_rejects_unsupported_schema(tmp_path: Path) -> None:
     path = tmp_path / "future.mflogroute"
     path.write_text(

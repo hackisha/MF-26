@@ -16,6 +16,12 @@ class ReferenceRoutePoint:
     latitude: float
     longitude: float
 
+    def __post_init__(self) -> None:
+        latitude = _coordinate_value(self.latitude, "latitude")
+        longitude = _coordinate_value(self.longitude, "longitude")
+        object.__setattr__(self, "latitude", latitude)
+        object.__setattr__(self, "longitude", longitude)
+
 
 @dataclass(frozen=True)
 class ReferenceRoute:
@@ -28,6 +34,9 @@ class ReferenceRoute:
     )
     metadata: dict[str, str] = field(default_factory=dict)
     source_path: Path | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "metadata", _metadata_from_dict(self.metadata))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -51,11 +60,12 @@ class ReferenceRoute:
         schema_version = int(data.get("schema_version", SCHEMA_VERSION))
         if schema_version != SCHEMA_VERSION:
             raise ValueError(f"Unsupported reference route schema: {schema_version}")
-        points = tuple(_point_from_dict(item) for item in data.get("points", ()))
+        points_data = data.get("points", ())
+        if points_data is None:
+            raise ValueError("Reference route points must be a JSON array")
+        points = tuple(_point_from_dict(item) for item in points_data)
         name = str(data.get("name", "")).strip() or _default_route_name(source_path)
-        metadata = {
-            str(key): str(value) for key, value in dict(data.get("metadata", {})).items()
-        }
+        metadata = _metadata_from_dict(data.get("metadata", {}))
         created_at = str(data.get("created_at", "")).strip()
         return cls(
             name=name,
@@ -84,13 +94,33 @@ def load_reference_route(path: Path) -> ReferenceRoute:
 def _point_from_dict(data: Any) -> ReferenceRoutePoint:
     if not isinstance(data, dict):
         raise ValueError("Reference route point must be a JSON object")
-    latitude = float(data["latitude"])
-    longitude = float(data["longitude"])
-    if latitude < -90.0 or latitude > 90.0:
-        raise ValueError(f"Invalid latitude: {latitude}")
-    if longitude < -180.0 or longitude > 180.0:
-        raise ValueError(f"Invalid longitude: {longitude}")
-    return ReferenceRoutePoint(latitude=latitude, longitude=longitude)
+    if "latitude" not in data:
+        raise ValueError("Reference route point missing latitude")
+    if "longitude" not in data:
+        raise ValueError("Reference route point missing longitude")
+    return ReferenceRoutePoint(latitude=data["latitude"], longitude=data["longitude"])
+
+
+def _coordinate_value(value: Any, name: str) -> float:
+    try:
+        coordinate = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid {name}: {value!r}") from exc
+    if name == "latitude":
+        lower = -90.0
+        upper = 90.0
+    else:
+        lower = -180.0
+        upper = 180.0
+    if coordinate < lower or coordinate > upper:
+        raise ValueError(f"Invalid {name}: {coordinate}")
+    return coordinate
+
+
+def _metadata_from_dict(data: Any) -> dict[str, str]:
+    if not isinstance(data, dict):
+        raise ValueError("Reference route metadata must be a JSON object")
+    return {str(key): str(value) for key, value in data.items()}
 
 
 def _default_route_name(source_path: Path | None) -> str:
