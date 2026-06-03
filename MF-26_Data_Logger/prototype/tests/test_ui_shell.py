@@ -7,9 +7,15 @@ import pytest
 import shiboken6
 
 from mflog_proto.analysis.event_reviews import EventReviewState
+from mflog_proto.analysis.reference_route import ReferenceRoute, ReferenceRoutePoint
 from mflog_proto.analysis.segments import AnalysisSegment
 from mflog_proto.persistence.project_state import ProjectState, WindowState
-from mflog_proto.ui.main_window import DEFAULT_ANALYSIS_ITEMS, MainWindow, _root_asset_path
+from mflog_proto.ui.main_window import (
+    DEFAULT_ANALYSIS_ITEMS,
+    SIDEBAR_GROUPS,
+    MainWindow,
+    _root_asset_path,
+)
 from mflog_proto.ui.minimal_analysis_windows import (
     BenchmarkSummaryWindow,
     CurrentValuesWindow,
@@ -17,10 +23,12 @@ from mflog_proto.ui.minimal_analysis_windows import (
     DocumentsWindow,
     EventReviewWindow,
     ExportReportWindow,
+    GaugeIndicatorsWindow,
     GGDiagramWindow,
     GPSMapWindow,
     MapTileImage,
     SegmentAnalysisWindow,
+    TireTemperatureWindow,
     VehicleDynamicsWindow,
     VehicleModelWindow,
 )
@@ -117,6 +125,34 @@ def test_left_sidebar_groups_analysis_items_by_workflow(qtbot):
         "Benchmark Summary",
         "Export Report",
     ]
+
+def test_left_sidebar_adds_gauge_indicators_window(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+
+    gauge_window = window.add_analysis_window("Gauge Indicators").widget()
+    window.set_playback_position(10)
+
+    assert "Gauge Indicators" in window.sidebar_item_titles("시각화")
+    assert isinstance(gauge_window, GaugeIndicatorsWindow)
+    assert gauge_window.gauge_value("RPM") == pytest.approx(window.sensor_series["RPM"][10])
+
+
+def test_left_sidebar_adds_tire_temperature_window(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    tire_window = window.add_analysis_window("Tire Temperature").widget()
+
+    visualization_group = next(
+        group_name
+        for group_name, titles in SIDEBAR_GROUPS.items()
+        if "Tire Temperature" in titles
+    )
+    assert "Tire Temperature" in window.sidebar_item_titles(visualization_group)
+    assert isinstance(tire_window, TireTemperatureWindow)
+    assert tire_window.temperature_text("FL") == "-"
 
 
 def test_right_properties_can_configure_left_sidebar_visibility_width_and_density(qtbot):
@@ -840,6 +876,148 @@ def test_gps_properties_enable_ideal_path_for_open_and_new_windows(qtbot):
 
     assert new_gps_window.ideal_path_visible is True
     assert new_gps_window.ideal_path_point_count == window.playback_state.sample_count
+
+
+def test_gps_properties_control_reference_route_for_open_and_new_windows(qtbot, tmp_path):
+    route_path = tmp_path / "reference.mflogroute"
+    window = MainWindow()
+    qtbot.addWidget(window)
+    gps_window = window.add_analysis_window("GPS Map").widget()
+
+    assert window.reference_route_edit_checkbox.objectName() == "referenceRouteEditCheckbox"
+    assert window.reference_route_points_label.text() == "0 points"
+
+    window.reference_route_name_edit.setText("Reference A")
+    window.reference_route_edit_checkbox.setChecked(True)
+    window.set_reference_route(
+        ReferenceRoute(
+            name="Reference A",
+            points=(ReferenceRoutePoint(35.0, 126.0), ReferenceRoutePoint(35.1, 126.1)),
+            created_at="2026-06-03T00:00:00+09:00",
+        )
+    )
+
+    assert gps_window.reference_route_name == "Reference A"
+    assert gps_window.reference_route_point_count == 2
+    assert window.reference_route_points_label.text() == "2 points"
+
+    assert window.save_reference_route_path(route_path) is True
+    window.clear_reference_route()
+    assert gps_window.reference_route_point_count == 0
+
+    assert window.load_reference_route_path(route_path) is True
+    new_gps_window = window.add_analysis_window("GPS Map").widget()
+    assert new_gps_window.reference_route_name == "Reference A"
+    assert new_gps_window.reference_route_point_count == 2
+
+
+def test_main_window_updates_reference_route_from_gps_map_edit_signal(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    gps_window = window.add_analysis_window("GPS Map").widget()
+    gps_window.set_reference_route(
+        ReferenceRoute(name="Edited", points=(ReferenceRoutePoint(35.0, 126.0),))
+    )
+    assert window.reference_route.name == "Edited"
+    assert len(window.reference_route.points) == 1
+    assert window.reference_route_points_label.text() == "1 points"
+
+
+def test_restore_project_state_replaces_missing_reference_route_with_empty_route(
+    qtbot, tmp_path
+):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    gps_window = window.add_analysis_window("GPS Map").widget()
+    window.set_reference_route(
+        ReferenceRoute(
+            name="Old Route",
+            points=(ReferenceRoutePoint(35.0, 126.0), ReferenceRoutePoint(35.1, 126.1)),
+        )
+    )
+
+    window.restore_project_state(
+        ProjectState(
+            reference_route_name="Empty Project",
+            reference_route_path=tmp_path / "missing.mflogroute",
+        )
+    )
+
+    assert window.reference_route.name == "Empty Project"
+    assert len(window.reference_route.points) == 0
+    assert window.reference_route.source_path is None
+    assert window.reference_route_path is None
+    assert window.reference_route_points_label.text() == "0 points"
+    assert gps_window.reference_route_name == "Empty Project"
+    assert gps_window.reference_route_point_count == 0
+    assert window.add_analysis_window("GPS Map").widget().reference_route_point_count == 0
+
+
+def test_restore_project_state_without_reference_route_uses_default_empty_route(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    gps_window = window.add_analysis_window("GPS Map").widget()
+    window.set_reference_route(
+        ReferenceRoute(name="Old Route", points=(ReferenceRoutePoint(35.0, 126.0),))
+    )
+
+    window.restore_project_state(ProjectState())
+
+    assert window.reference_route.name == "Reference route"
+    assert len(window.reference_route.points) == 0
+    assert window.reference_route.source_path is None
+    assert window.reference_route_points_label.text() == "0 points"
+    assert gps_window.reference_route_name == "Reference route"
+    assert gps_window.reference_route_point_count == 0
+
+
+def test_restore_project_state_replaces_corrupt_reference_route_with_empty_route(
+    qtbot, tmp_path
+):
+    bad_path = tmp_path / "corrupt.mflogroute"
+    bad_path.write_text("{not json", encoding="utf-8")
+    window = MainWindow()
+    qtbot.addWidget(window)
+    gps_window = window.add_analysis_window("GPS Map").widget()
+    window.set_reference_route(
+        ReferenceRoute(
+            name="Old Route",
+            points=(ReferenceRoutePoint(35.0, 126.0), ReferenceRoutePoint(35.1, 126.1)),
+        )
+    )
+
+    window.restore_project_state(
+        ProjectState(reference_route_path=bad_path, reference_route_name="Corrupt Route")
+    )
+
+    assert window.reference_route.name == "Corrupt Route"
+    assert len(window.reference_route.points) == 0
+    assert window.reference_route.source_path is None
+    assert window.reference_route_path is None
+    assert window.reference_route_points_label.text() == "0 points"
+    assert gps_window.reference_route_name == "Corrupt Route"
+    assert gps_window.reference_route_point_count == 0
+    assert window.add_analysis_window("GPS Map").widget().reference_route_point_count == 0
+
+
+def test_reference_route_edit_signal_syncs_multiple_open_gps_windows(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    gps_a = window.add_analysis_window("GPS Map").widget()
+    gps_b = window.add_analysis_window("GPS Map").widget()
+
+    gps_a.set_reference_route(
+        ReferenceRoute(
+            name="Edited",
+            points=(ReferenceRoutePoint(35.0, 126.0), ReferenceRoutePoint(35.1, 126.1)),
+        )
+    )
+
+    assert window.reference_route.name == "Edited"
+    assert len(window.reference_route.points) == 2
+    assert gps_b.reference_route_name == "Edited"
+    assert gps_b.reference_route_point_count == 2
+    assert window.reference_route_points_label.text() == "2 points"
 
 
 def test_right_properties_selects_time_series_channels_for_open_and_new_windows(qtbot):

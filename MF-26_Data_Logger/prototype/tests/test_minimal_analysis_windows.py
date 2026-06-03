@@ -4,6 +4,7 @@ import pytest
 from PySide6 import QtCore, QtGui
 
 from mflog_proto.analysis.dynamics import DynamicsSummary
+from mflog_proto.analysis.reference_route import ReferenceRoute, ReferenceRoutePoint
 from mflog_proto.benchmark.metrics import DependencyInfo, EnvironmentInfo
 from mflog_proto.playback import PlaybackState
 from mflog_proto.ui.minimal_analysis_windows import (
@@ -11,12 +12,14 @@ from mflog_proto.ui.minimal_analysis_windows import (
     CurrentValuesWindow,
     DataAnalysisWindow,
     DocumentsWindow,
+    GaugeIndicatorsWindow,
     GGDiagramWindow,
     GlbMeshPrimitive,
     GlbModelInfo,
     GPSMapWindow,
     MapTileImage,
     OpenStreetMapTileProvider,
+    TireTemperatureWindow,
     VehicleDynamicsWindow,
     VehicleModelWindow,
     _qimage_to_rgba_array,
@@ -54,6 +57,27 @@ class FakeMosaicTileProvider(OpenStreetMapTileProvider):
         image = QtGui.QImage(256, 256, QtGui.QImage.Format.Format_RGBA8888)
         image.fill(QtGui.QColor(tile_x % 255, tile_y % 255, zoom % 255))
         return image
+
+
+class FakeClick:
+    def __init__(
+        self,
+        scene_pos=None,
+        *,
+        button=QtCore.Qt.MouseButton.LeftButton,
+    ):
+        self._scene_pos = scene_pos
+        self._button = button
+        self.accepted = False
+
+    def scenePos(self):
+        return self._scene_pos
+
+    def button(self):
+        return self._button
+
+    def accept(self):
+        self.accepted = True
 
 
 def test_osm_tile_provider_builds_high_resolution_mosaic_for_gps_bounds(tmp_path):
@@ -268,6 +292,121 @@ def test_gps_map_draws_ideal_path_overlay_from_playback(qtbot):
     assert window.ideal_path_text() == "Ideal path: ready | 3 points"
 
 
+def test_gps_map_draws_reference_route_with_start_and_end(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1])
+    window = GPSMapWindow(playback)
+    qtbot.addWidget(window)
+
+    route = ReferenceRoute(
+        name="Reference A",
+        points=(
+            ReferenceRoutePoint(37.0, 127.0),
+            ReferenceRoutePoint(37.0001, 127.0002),
+            ReferenceRoutePoint(37.0003, 127.0004),
+        ),
+        created_at="2026-06-03T00:00:00+09:00",
+    )
+    window.set_reference_route(route)
+
+    assert window.reference_route_name == "Reference A"
+    assert window.reference_route_point_count == 3
+    assert window.reference_route_start == pytest.approx((37.0, 127.0))
+    assert window.reference_route_end == pytest.approx((37.0003, 127.0004))
+    assert window.reference_route_visible is True
+
+
+def test_gps_map_edit_mode_click_adds_reference_points(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1])
+    window = GPSMapWindow(playback)
+    qtbot.addWidget(window)
+    window.resize(640, 360)
+    window.show()
+    window.plot.setXRange(126.999, 127.001)
+    window.plot.setYRange(36.999, 37.001)
+    qtbot.waitExposed(window)
+
+    scene_pos = window.plot.plotItem.vb.mapViewToScene(QtCore.QPointF(127.0, 37.0))
+    ignored_click = FakeClick(scene_pos)
+    window._handle_mouse_clicked(ignored_click)
+
+    assert ignored_click.accepted is False
+    assert window.reference_route_point_count == 0
+
+    window.set_reference_route_edit_enabled(True)
+    click = FakeClick(scene_pos)
+    window._handle_mouse_clicked(click)
+
+    assert click.accepted is True
+    assert window.reference_route_point_count == 1
+    assert window.reference_route_start == pytest.approx((37.0, 127.0))
+    assert window.reference_route_end == pytest.approx((37.0, 127.0))
+
+
+def test_gps_map_edit_mode_ignores_non_left_and_out_of_bounds_clicks(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1])
+    window = GPSMapWindow(playback)
+    qtbot.addWidget(window)
+    window.resize(640, 360)
+    window.show()
+    window.plot.setXRange(126.999, 127.001)
+    window.plot.setYRange(36.999, 37.001)
+    qtbot.waitExposed(window)
+    window.set_reference_route_edit_enabled(True)
+
+    scene_pos = window.plot.plotItem.vb.mapViewToScene(QtCore.QPointF(127.0, 37.0))
+    right_click = FakeClick(scene_pos, button=QtCore.Qt.MouseButton.RightButton)
+    window._handle_mouse_clicked(right_click)
+
+    assert right_click.accepted is False
+    assert window.reference_route_point_count == 0
+
+    outside_pos = window.plot.plotItem.vb.sceneBoundingRect().bottomRight() + QtCore.QPointF(
+        20.0,
+        20.0,
+    )
+    outside_click = FakeClick(outside_pos)
+    window._handle_mouse_clicked(outside_click)
+
+    assert outside_click.accepted is False
+    assert window.reference_route_point_count == 0
+
+
+def test_gps_map_emits_reference_route_changed_for_route_updates(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1])
+    window = GPSMapWindow(playback)
+    qtbot.addWidget(window)
+    emitted_routes = []
+    window.referenceRouteChanged.connect(emitted_routes.append)
+
+    route = ReferenceRoute(
+        name="Reference A",
+        points=(ReferenceRoutePoint(37.0, 127.0),),
+        created_at="2026-06-03T00:00:00+09:00",
+    )
+    window.set_reference_route(route)
+
+    assert emitted_routes[-1] is route
+
+    window.rename_reference_route("Renamed")
+
+    assert emitted_routes[-1].name == "Renamed"
+    assert emitted_routes[-1].points == route.points
+
+    scene_pos = window.plot.plotItem.vb.mapViewToScene(QtCore.QPointF(127.0002, 37.0001))
+    window.add_reference_point_from_scene(scene_pos)
+
+    assert emitted_routes[-1].name == "Renamed"
+    assert len(emitted_routes[-1].points) == 2
+    assert emitted_routes[-1].points[-1].latitude == pytest.approx(37.0001)
+    assert emitted_routes[-1].points[-1].longitude == pytest.approx(127.0002)
+
+    window.clear_reference_route()
+
+    assert emitted_routes[-1].name == "Renamed"
+    assert emitted_routes[-1].points == ()
+    assert len(emitted_routes) == 4
+
+
 def test_gps_map_toggles_real_map_background(qtbot):
     playback = PlaybackState(timestamps=[0.0, 0.1])
     tile_provider = FakeMapTileProvider()
@@ -311,6 +450,61 @@ def test_current_values_table_updates_from_playback_state(qtbot):
     assert window.value_for("RPM") == "2500.000"
     assert window.value_for("TPS_percent") == "30.000"
     assert window.reliability_text() == "Reliability: info"
+
+
+def test_gauge_indicators_update_rpm_and_speed_from_playback(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
+    window = GaugeIndicatorsWindow(
+        playback,
+        {
+            "RPM": [1000.0, 4500.0, 8000.0],
+            "GPS speed": [10.0, 55.5, 100.0],
+        },
+    )
+    qtbot.addWidget(window)
+
+    playback.set_sample(1)
+
+    assert window.gauge_value("RPM") == pytest.approx(4500.0)
+    assert window.gauge_text("RPM") == "4500 rpm"
+    assert window.gauge_value("Speed") == pytest.approx(55.5)
+    assert window.gauge_text("Speed") == "55.5 km/h"
+
+
+def test_gauge_indicators_use_vss_alias_for_speed(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
+    window = GaugeIndicatorsWindow(
+        playback,
+        {
+            "RPM": [1000.0, 4500.0, 8000.0],
+            "VSS": [10.0, 55.5, 100.0],
+        },
+    )
+    qtbot.addWidget(window)
+
+    playback.set_sample(1)
+
+    assert window.gauge_value("Speed") == pytest.approx(55.5)
+    assert window.gauge_text("Speed") == "55.5 km/h"
+
+
+def test_tire_temperature_window_maps_channels_and_empty_states(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1])
+    window = TireTemperatureWindow(
+        playback,
+        {
+            "Tire_FL_C": [45.0, 55.0],
+            "FR_TireTemp_C": [46.0, 56.0],
+        },
+    )
+    qtbot.addWidget(window)
+
+    playback.set_sample(1)
+
+    assert window.temperature_text("FL") == "55.0 C"
+    assert window.temperature_text("FR") == "56.0 C"
+    assert window.temperature_text("RL") == "-"
+    assert window.temperature_text("RR") == "-"
 
 
 def test_data_analysis_window_summarizes_session_metrics_and_events(qtbot):

@@ -18,6 +18,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from mflog_proto.analysis.dynamics import DynamicsSummary
 from mflog_proto.analysis.event_reviews import EventReview, EventReviewState
+from mflog_proto.analysis.reference_route import ReferenceRoute, ReferenceRoutePoint
 from mflog_proto.analysis.segments import AnalysisSegment, SegmentSummary
 from mflog_proto.benchmark.metrics import EnvironmentInfo
 from mflog_proto.playback import CursorEvent, CursorKind, PlaybackState
@@ -364,6 +365,8 @@ class GGDiagramWindow(QtWidgets.QWidget):
 
 
 class GPSMapWindow(QtWidgets.QWidget):
+    referenceRouteChanged = QtCore.Signal(object)
+
     def __init__(
         self,
         playback_state: PlaybackState,
@@ -395,6 +398,10 @@ class GPSMapWindow(QtWidgets.QWidget):
         self._ideal_path_point_count = 0
         self._ideal_path_status = "off"
         self._ideal_current_position: tuple[float, float] | None = None
+        self._reference_route = ReferenceRoute(name="Reference route", points=())
+        self._reference_route_positions: tuple[tuple[float, float], ...] = ()
+        self._reference_hover_candidates: tuple[_GPSHoverCandidate, ...] = ()
+        self._reference_route_edit_enabled = False
         self._map_background_enabled = False
         self._map_tile_loaded = False
         self._map_background_status = "off"
@@ -409,12 +416,26 @@ class GPSMapWindow(QtWidgets.QWidget):
         self.plot.setLabel("bottom", "Longitude")
         self.plot.setLabel("left", "Latitude")
         self.plot.scene().sigMouseMoved.connect(self._handle_mouse_moved)
+        self.plot.scene().sigMouseClicked.connect(self._handle_mouse_clicked)
         self.map_tile_item = pg.ImageItem(axisOrder="row-major")
         self.route_background_item = pg.PlotDataItem(
             pen=pg.mkPen(QtGui.QColor(93, 173, 226, 45), width=2)
         )
         self.ideal_path_item = pg.PlotDataItem(
             pen=pg.mkPen(QtGui.QColor(244, 201, 93, 210), width=2, style=QtCore.Qt.PenStyle.DashLine)
+        )
+        self.reference_route_item = pg.PlotDataItem(
+            pen=pg.mkPen(QtGui.QColor(72, 201, 176, 220), width=2.5)
+        )
+        self.reference_start_item = pg.ScatterPlotItem(
+            pen=pg.mkPen("#ffffff", width=2),
+            brush=pg.mkBrush("#2ecc71"),
+            size=12,
+        )
+        self.reference_end_item = pg.ScatterPlotItem(
+            pen=pg.mkPen("#ffffff", width=2),
+            brush=pg.mkBrush("#e74c3c"),
+            size=12,
         )
         self.track_item = pg.PlotDataItem(pen=pg.mkPen("#5dade2", width=3))
         self.current_item = pg.ScatterPlotItem(
@@ -437,6 +458,9 @@ class GPSMapWindow(QtWidgets.QWidget):
         self.map_tile_item.setVisible(False)
         self.route_background_item.setZValue(0)
         self.ideal_path_item.setZValue(6)
+        self.reference_route_item.setZValue(7)
+        self.reference_start_item.setZValue(13)
+        self.reference_end_item.setZValue(13)
         self.track_item.setZValue(5)
         self.current_item.setZValue(10)
         self.ideal_current_item.setZValue(11)
@@ -444,6 +468,9 @@ class GPSMapWindow(QtWidgets.QWidget):
         self.plot.addItem(self.map_tile_item)
         self.plot.addItem(self.route_background_item)
         self.plot.addItem(self.ideal_path_item)
+        self.plot.addItem(self.reference_route_item)
+        self.plot.addItem(self.reference_start_item)
+        self.plot.addItem(self.reference_end_item)
         self.plot.addItem(self.track_item)
         self.plot.addItem(self.current_item)
         self.plot.addItem(self.ideal_current_item)
@@ -513,6 +540,70 @@ class GPSMapWindow(QtWidgets.QWidget):
     @property
     def ideal_current_position(self) -> tuple[float, float] | None:
         return self._ideal_current_position
+
+    @property
+    def reference_route_name(self) -> str:
+        return self._reference_route.name
+
+    @property
+    def reference_route_point_count(self) -> int:
+        return len(self._reference_route.points)
+
+    @property
+    def reference_route_visible(self) -> bool:
+        return self.reference_route_item.isVisible() and self.reference_route_point_count > 0
+
+    @property
+    def reference_route_start(self) -> tuple[float, float] | None:
+        return self._reference_route_positions[0] if self._reference_route_positions else None
+
+    @property
+    def reference_route_end(self) -> tuple[float, float] | None:
+        return self._reference_route_positions[-1] if self._reference_route_positions else None
+
+    @property
+    def reference_route(self) -> ReferenceRoute:
+        return self._reference_route
+
+    @property
+    def reference_route_edit_enabled(self) -> bool:
+        return self._reference_route_edit_enabled
+
+    def set_reference_route(self, route: ReferenceRoute) -> None:
+        self._reference_route = route
+        self._refresh_reference_route_items()
+        self.referenceRouteChanged.emit(self._reference_route)
+
+    def clear_reference_route(self) -> None:
+        self.set_reference_route(ReferenceRoute(name=self._reference_route.name, points=()))
+
+    def set_reference_route_edit_enabled(self, enabled: bool) -> None:
+        self._reference_route_edit_enabled = bool(enabled)
+
+    def rename_reference_route(self, name: str) -> None:
+        cleaned = name.strip() or "Reference route"
+        self.set_reference_route(
+            ReferenceRoute(
+                name=cleaned,
+                points=self._reference_route.points,
+                created_at=self._reference_route.created_at,
+                metadata=dict(self._reference_route.metadata),
+                source_path=self._reference_route.source_path,
+            )
+        )
+
+    def add_reference_point_from_scene(self, scene_pos: QtCore.QPointF) -> None:
+        view_point = self.plot.plotItem.vb.mapSceneToView(scene_pos)
+        point = ReferenceRoutePoint(latitude=float(view_point.y()), longitude=float(view_point.x()))
+        self.set_reference_route(
+            ReferenceRoute(
+                name=self._reference_route.name,
+                points=(*self._reference_route.points, point),
+                created_at=self._reference_route.created_at,
+                metadata=dict(self._reference_route.metadata),
+                source_path=self._reference_route.source_path,
+            )
+        )
 
     def set_map_background_enabled(self, enabled: bool) -> None:
         enabled = bool(enabled)
@@ -676,9 +767,44 @@ class GPSMapWindow(QtWidgets.QWidget):
         self.ideal_path_label.setText(self.ideal_path_text())
         self._sync_hover_and_map_positions()
 
+    def _refresh_reference_route_items(self) -> None:
+        positions = tuple(
+            (point.latitude, point.longitude) for point in self._reference_route.points
+        )
+        self._reference_route_positions = positions
+        longitudes = tuple(position[1] for position in positions)
+        latitudes = tuple(position[0] for position in positions)
+        self.reference_route_item.setData(longitudes, latitudes)
+        self.reference_route_item.setVisible(bool(positions))
+        if positions:
+            self.reference_start_item.setData([{"pos": (positions[0][1], positions[0][0])}])
+            self.reference_end_item.setData([{"pos": (positions[-1][1], positions[-1][0])}])
+        else:
+            self.reference_start_item.setData([])
+            self.reference_end_item.setData([])
+        self._reference_hover_candidates = tuple(
+            _GPSHoverCandidate(
+                route_name=f"Reference: {self._reference_route.name}",
+                sample_index=index,
+                latitude=position[0],
+                longitude=position[1],
+            )
+            for index, position in enumerate(positions)
+        )
+        self._sync_hover_and_map_positions()
+        self._refresh_map_background()
+
     def _sync_hover_and_map_positions(self) -> None:
-        self._hover_candidates = self._route_hover_candidates + self._ideal_hover_candidates
-        self._all_positions = self._route_positions + self._ideal_valid_positions
+        self._hover_candidates = (
+            self._route_hover_candidates
+            + self._ideal_hover_candidates
+            + self._reference_hover_candidates
+        )
+        self._all_positions = (
+            self._route_positions
+            + self._ideal_valid_positions
+            + self._reference_route_positions
+        )
 
     def dispose(self) -> None:
         self._unsubscribe()
@@ -761,6 +887,22 @@ class GPSMapWindow(QtWidgets.QWidget):
         self._map_tile_loaded = False
         self._map_background_status = status
         self.map_background_label.setText(self.map_background_text())
+
+    def _handle_mouse_clicked(self, mouse_event: object) -> None:
+        if not self._reference_route_edit_enabled:
+            return
+        if not hasattr(mouse_event, "button") or not hasattr(mouse_event, "scenePos"):
+            return
+        if mouse_event.button() != QtCore.Qt.MouseButton.LeftButton:
+            return
+        scene_pos = mouse_event.scenePos()
+        if not isinstance(scene_pos, QtCore.QPointF):
+            return
+        if not self.plot.plotItem.vb.sceneBoundingRect().contains(scene_pos):
+            return
+        self.add_reference_point_from_scene(scene_pos)
+        if hasattr(mouse_event, "accept"):
+            mouse_event.accept()
 
     def _handle_mouse_moved(self, scene_pos: object) -> None:
         scene_pos = _single_scene_point(scene_pos)
@@ -881,6 +1023,269 @@ class CurrentValuesWindow(QtWidgets.QWidget):
             value = values[clamped]
             text = "-" if value is None else f"{float(value):.3f}"
             self.table.item(row_index, 1).setText(text)
+
+
+class _GaugeWidget(QtWidgets.QWidget):
+    def __init__(
+        self,
+        title: str,
+        unit: str,
+        maximum: float,
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.title = title
+        self.unit = unit
+        self.maximum = float(maximum)
+        self.value: float | None = None
+        self.setMinimumSize(170, 140)
+
+    def set_value(self, value: float | None) -> None:
+        self.value = None if value is None else float(value)
+        self.update()
+
+    def value_text(self) -> str:
+        if self.value is None:
+            return "-"
+        if self.unit == "rpm":
+            return f"{self.value:.0f} rpm"
+        return f"{self.value:.1f} {self.unit}"
+
+    def paintEvent(self, event: QtGui.QPaintEvent) -> None:  # noqa: N802
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        rect = self.rect().adjusted(12, 12, -12, -12)
+        center = QtCore.QPointF(rect.center().x(), rect.bottom() - 18)
+        radius = min(rect.width() / 2.0, rect.height() - 38)
+        arc_rect = QtCore.QRectF(
+            center.x() - radius,
+            center.y() - radius,
+            radius * 2,
+            radius * 2,
+        )
+        painter.setPen(QtGui.QPen(QtGui.QColor("#41505a"), 8))
+        painter.drawArc(arc_rect, 30 * 16, 120 * 16)
+        ratio = 0.0 if self.value is None else min(max(self.value / self.maximum, 0.0), 1.0)
+        painter.setPen(QtGui.QPen(QtGui.QColor("#f4c95d"), 8))
+        painter.drawArc(arc_rect, 150 * 16, int(-120 * ratio * 16))
+        angle = math.radians(150 - 120 * ratio)
+        needle_end = QtCore.QPointF(
+            center.x() + math.cos(angle) * radius * 0.78,
+            center.y() - math.sin(angle) * radius * 0.78,
+        )
+        painter.setPen(QtGui.QPen(QtGui.QColor("#e8f1f5"), 3))
+        painter.drawLine(center, needle_end)
+        painter.setPen(QtGui.QColor("#ffffff"))
+        painter.drawText(
+            rect,
+            QtCore.Qt.AlignmentFlag.AlignTop | QtCore.Qt.AlignmentFlag.AlignHCenter,
+            self.title,
+        )
+        painter.setPen(QtGui.QColor("#f4c95d"))
+        painter.drawText(
+            rect,
+            QtCore.Qt.AlignmentFlag.AlignBottom | QtCore.Qt.AlignmentFlag.AlignHCenter,
+            self.value_text(),
+        )
+
+
+class GaugeIndicatorsWindow(QtWidgets.QWidget):
+    def __init__(
+        self,
+        playback_state: PlaybackState,
+        series: dict[str, Sequence[float | None]],
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("gaugeIndicatorsWindow")
+        self._playback_state = playback_state
+        self._series = series
+        self._speed_channel = _first_existing_channel(
+            series,
+            ("GPS speed", "VSS / GPS speed", "GPS_SPEED_KPH", "GPS_Speed_KPH", "VSS_kmh", "VSS"),
+        )
+        self._gauges = {
+            "RPM": _GaugeWidget("RPM", "rpm", 9000.0),
+            "Speed": _GaugeWidget("Speed", "km/h", 180.0),
+        }
+        self._unsubscribe = playback_state.subscribe(self._handle_cursor_event)
+        layout = QtWidgets.QHBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(10)
+        for gauge in self._gauges.values():
+            layout.addWidget(gauge, 1)
+        self._update_values(self._playback_state.current_sample)
+
+    def gauge_value(self, name: str) -> float | None:
+        return self._gauges[name].value
+
+    def gauge_text(self, name: str) -> str:
+        return self._gauges[name].value_text()
+
+    def dispose(self) -> None:
+        self._unsubscribe()
+
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
+        self.dispose()
+        super().closeEvent(event)
+
+    def _handle_cursor_event(self, event: CursorEvent) -> None:
+        if event.kind is CursorKind.PLAYBACK:
+            self._update_values(event.sample_index)
+
+    def _update_values(self, sample_index: int) -> None:
+        self._gauges["RPM"].set_value(_sample_value(self._series.get("RPM"), sample_index))
+        self._gauges["Speed"].set_value(
+            _sample_value(self._series.get(self._speed_channel, ()), sample_index)
+        )
+
+
+class _TireTemperaturePanel(QtWidgets.QWidget):
+    def __init__(self, corner: str, parent: QtWidgets.QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.corner = corner
+        self.temperature: float | None = None
+        self.setMinimumSize(150, 135)
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Expanding,
+        )
+
+    def set_temperature(self, value: float | None) -> None:
+        self.temperature = value
+        self.update()
+
+    def temperature_text(self) -> str:
+        return "-" if self.temperature is None else f"{self.temperature:.1f} C"
+
+    def paintEvent(self, event: QtGui.QPaintEvent) -> None:  # noqa: N802
+        super().paintEvent(event)
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+        rect = self.rect().adjusted(10, 10, -10, -10)
+
+        painter.setPen(QtGui.QPen(QtGui.QColor("#34424a"), 1))
+        painter.setBrush(QtGui.QColor("#1c2327"))
+        painter.drawRoundedRect(rect, 6, 6)
+
+        label_rect = QtCore.QRect(rect.left() + 12, rect.top() + 8, 48, 26)
+        painter.setPen(QtGui.QColor("#f2f5f7"))
+        label_font = painter.font()
+        label_font.setBold(True)
+        label_font.setPointSize(11)
+        painter.setFont(label_font)
+        painter.drawText(label_rect, QtCore.Qt.AlignmentFlag.AlignLeft, self.corner)
+
+        bar_rect = QtCore.QRect(
+            rect.right() - 34,
+            rect.top() + 24,
+            14,
+            max(54, rect.height() - 54),
+        )
+        gradient = QtGui.QLinearGradient(bar_rect.bottomLeft(), bar_rect.topLeft())
+        gradient.setColorAt(0.0, QtGui.QColor("#4aa3ff"))
+        gradient.setColorAt(0.55, QtGui.QColor("#f4c95d"))
+        gradient.setColorAt(1.0, QtGui.QColor("#ec7063"))
+        painter.setPen(QtGui.QPen(QtGui.QColor("#7a8a94"), 1))
+        painter.setBrush(gradient)
+        painter.drawRoundedRect(bar_rect, 4, 4)
+
+        tire_rect = QtCore.QRectF(
+            rect.left() + 30,
+            rect.top() + 35,
+            max(48, rect.width() - 88),
+            max(58, rect.height() - 74),
+        )
+        painter.setPen(QtGui.QPen(QtGui.QColor("#6f7d85"), 2))
+        painter.setBrush(QtGui.QColor("#273039"))
+        painter.drawRoundedRect(tire_rect, 22, 22)
+
+        inner = tire_rect.adjusted(12, 12, -12, -12)
+        painter.setPen(QtGui.QPen(QtGui.QColor("#11161a"), 2))
+        painter.setBrush(QtGui.QColor("#151b20"))
+        painter.drawRoundedRect(inner, 14, 14)
+
+        if self.temperature is not None:
+            ratio = _clamp((self.temperature - 20.0) / 100.0, 0.0, 1.0)
+            fill_height = tire_rect.height() * ratio
+            heat_rect = QtCore.QRectF(
+                tire_rect.left(),
+                tire_rect.bottom() - fill_height,
+                tire_rect.width(),
+                fill_height,
+            )
+            heat_color = QtGui.QColor.fromRgbF(ratio, 0.25 + (1.0 - ratio) * 0.35, 1.0 - ratio)
+            heat_color.setAlpha(70)
+            painter.setPen(QtCore.Qt.PenStyle.NoPen)
+            painter.setBrush(heat_color)
+            painter.drawRoundedRect(heat_rect, 18, 18)
+
+        value_rect = QtCore.QRect(rect.left() + 12, rect.bottom() - 32, rect.width() - 24, 24)
+        value_font = painter.font()
+        value_font.setBold(True)
+        value_font.setPointSize(12)
+        painter.setFont(value_font)
+        painter.setPen(QtGui.QColor("#f4c95d" if self.temperature is not None else "#9aa7af"))
+        painter.drawText(
+            value_rect,
+            QtCore.Qt.AlignmentFlag.AlignCenter,
+            self.temperature_text(),
+        )
+
+
+class TireTemperatureWindow(QtWidgets.QWidget):
+    _ALIASES: Mapping[str, tuple[str, ...]] = {
+        "FL": ("Tire_FL_C", "FL_TireTemp_C", "TireTemp_FL", "FL_temp"),
+        "FR": ("Tire_FR_C", "FR_TireTemp_C", "TireTemp_FR", "FR_temp"),
+        "RL": ("Tire_RL_C", "RL_TireTemp_C", "TireTemp_RL", "RL_temp"),
+        "RR": ("Tire_RR_C", "RR_TireTemp_C", "TireTemp_RR", "RR_temp"),
+    }
+
+    def __init__(
+        self,
+        playback_state: PlaybackState,
+        series: dict[str, Sequence[float | None]],
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("tireTemperatureWindow")
+        self._playback_state = playback_state
+        self._series = series
+        self._channels = {
+            corner: _first_existing_channel(series, aliases)
+            for corner, aliases in self._ALIASES.items()
+        }
+        self._panels = {
+            corner: _TireTemperaturePanel(corner)
+            for corner in ("FL", "FR", "RL", "RR")
+        }
+        self._unsubscribe = playback_state.subscribe(self._handle_cursor_event)
+
+        layout = QtWidgets.QGridLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
+        for index, corner in enumerate(("FL", "FR", "RL", "RR")):
+            layout.addWidget(self._panels[corner], index // 2, index % 2)
+        self._update_values(self._playback_state.current_sample)
+
+    def temperature_text(self, corner: str) -> str:
+        return self._panels[corner].temperature_text()
+
+    def dispose(self) -> None:
+        self._unsubscribe()
+
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
+        self.dispose()
+        super().closeEvent(event)
+
+    def _handle_cursor_event(self, event: CursorEvent) -> None:
+        if event.kind is CursorKind.PLAYBACK:
+            self._update_values(event.sample_index)
+
+    def _update_values(self, sample_index: int) -> None:
+        for corner, panel in self._panels.items():
+            channel = self._channels[corner]
+            panel.set_temperature(_sample_value(self._series.get(channel), sample_index))
 
 
 class DataAnalysisWindow(QtWidgets.QWidget):
@@ -2089,6 +2494,24 @@ def load_glb_info(path: Path) -> GlbModelInfo:
 
 def _format_kib(byte_length: int) -> str:
     return f"{byte_length / 1024:.1f} KB"
+
+
+def _first_existing_channel(
+    series: Mapping[str, Sequence[float | None]],
+    names: Sequence[str],
+) -> str:
+    for name in names:
+        if name in series:
+            return name
+    return ""
+
+
+def _sample_value(values: Sequence[float | None] | None, sample_index: int) -> float | None:
+    if not values:
+        return None
+    clamped = min(max(sample_index, 0), len(values) - 1)
+    value = values[clamped]
+    return None if value is None else float(value)
 
 
 def _format_optional_float(value: float | None) -> str:

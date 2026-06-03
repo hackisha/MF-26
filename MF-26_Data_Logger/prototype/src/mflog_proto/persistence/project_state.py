@@ -55,6 +55,8 @@ class ProjectState:
     preset_tab_order: tuple[str, ...] = ()
     active_tab_index: int = 0
     vehicle_model_path: Path | None = None
+    reference_route_path: Path | None = None
+    reference_route_name: str = ""
     event_reviews: tuple[EventReview, ...] = ()
     analysis_segments: tuple[AnalysisSegment, ...] = ()
     selected_sidebar_group: str = "시각화"
@@ -67,6 +69,10 @@ class ProjectState:
             "vehicle_model_path": (
                 None if self.vehicle_model_path is None else str(self.vehicle_model_path)
             ),
+            "reference_route_path": (
+                None if self.reference_route_path is None else str(self.reference_route_path)
+            ),
+            "reference_route_name": self.reference_route_name,
             "active_profile": self.active_profile,
             "channel_mappings": dict(self.channel_mappings),
             "derived_channel_settings": dict(self.derived_channel_settings),
@@ -91,6 +97,7 @@ class ProjectState:
 
         csv_path = data.get("csv_path")
         vehicle_model_path = data.get("vehicle_model_path")
+        reference_route_path = data.get("reference_route_path")
         report_output_path = data.get("report_output_path")
         return cls(
             schema_version=SCHEMA_VERSION,
@@ -98,6 +105,10 @@ class ProjectState:
             vehicle_model_path=(
                 None if vehicle_model_path in (None, "") else Path(str(vehicle_model_path))
             ),
+            reference_route_path=(
+                None if reference_route_path in (None, "") else Path(str(reference_route_path))
+            ),
+            reference_route_name=str(data.get("reference_route_name", "")),
             report_output_path=(
                 None if report_output_path in (None, "") else Path(str(report_output_path))
             ),
