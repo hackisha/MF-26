@@ -55,6 +55,15 @@ def test_project_state_rejects_unknown_schema_version(tmp_path):
         load_project_state(project_path)
 
 
+@pytest.mark.parametrize("video_muted", ["false", 0, 1, None])
+def test_project_state_rejects_non_bool_video_muted(video_muted):
+    data = ProjectState().to_dict()
+    data["video_muted"] = video_muted
+
+    with pytest.raises(ValueError, match="video_muted"):
+        ProjectState.from_dict(data)
+
+
 def test_project_state_defaults_optional_sections():
     state = ProjectState.from_dict({"schema_version": 1})
 

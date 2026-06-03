@@ -118,7 +118,7 @@ class ProjectState:
             reference_route_name=str(data.get("reference_route_name", "")),
             video_path=None if video_path in (None, "") else Path(str(video_path)),
             video_offset_ms=int(data.get("video_offset_ms", 0)),
-            video_muted=bool(data.get("video_muted", True)),
+            video_muted=_optional_bool(data, "video_muted", default=True),
             report_output_path=(
                 None if report_output_path in (None, "") else Path(str(report_output_path))
             ),
@@ -152,3 +152,12 @@ def save_project_state(path: Path, state: ProjectState) -> None:
 
 def load_project_state(path: Path) -> ProjectState:
     return ProjectState.from_dict(json.loads(path.read_text(encoding="utf-8")))
+
+
+def _optional_bool(data: dict[str, Any], key: str, *, default: bool) -> bool:
+    if key not in data:
+        return default
+    value = data[key]
+    if not isinstance(value, bool):
+        raise ValueError(f"{key} must be a boolean")
+    return value
