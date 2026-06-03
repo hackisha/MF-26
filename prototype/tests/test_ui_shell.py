@@ -18,6 +18,7 @@ from mflog_proto.ui.minimal_analysis_windows import (
     DocumentsWindow,
     EventReviewWindow,
     ExportReportWindow,
+    GaugeIndicatorsWindow,
     GGDiagramWindow,
     GPSMapWindow,
     MapTileImage,
@@ -118,6 +119,18 @@ def test_left_sidebar_groups_analysis_items_by_workflow(qtbot):
         "Benchmark Summary",
         "Export Report",
     ]
+
+def test_left_sidebar_adds_gauge_indicators_window(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+
+    gauge_window = window.add_analysis_window("Gauge Indicators").widget()
+    window.set_playback_position(10)
+
+    assert "Gauge Indicators" in window.sidebar_item_titles("시각화")
+    assert isinstance(gauge_window, GaugeIndicatorsWindow)
+    assert gauge_window.gauge_value("RPM") == pytest.approx(window.sensor_series["RPM"][10])
 
 
 def test_right_properties_can_configure_left_sidebar_visibility_width_and_density(qtbot):

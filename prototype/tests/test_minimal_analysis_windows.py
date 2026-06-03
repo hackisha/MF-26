@@ -12,6 +12,7 @@ from mflog_proto.ui.minimal_analysis_windows import (
     CurrentValuesWindow,
     DataAnalysisWindow,
     DocumentsWindow,
+    GaugeIndicatorsWindow,
     GGDiagramWindow,
     GlbMeshPrimitive,
     GlbModelInfo,
@@ -448,6 +449,25 @@ def test_current_values_table_updates_from_playback_state(qtbot):
     assert window.value_for("RPM") == "2500.000"
     assert window.value_for("TPS_percent") == "30.000"
     assert window.reliability_text() == "Reliability: info"
+
+
+def test_gauge_indicators_update_rpm_and_speed_from_playback(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
+    window = GaugeIndicatorsWindow(
+        playback,
+        {
+            "RPM": [1000.0, 4500.0, 8000.0],
+            "GPS speed": [10.0, 55.5, 100.0],
+        },
+    )
+    qtbot.addWidget(window)
+
+    playback.set_sample(1)
+
+    assert window.gauge_value("RPM") == pytest.approx(4500.0)
+    assert window.gauge_text("RPM") == "4500 rpm"
+    assert window.gauge_value("Speed") == pytest.approx(55.5)
+    assert window.gauge_text("Speed") == "55.5 km/h"
 
 
 def test_data_analysis_window_summarizes_session_metrics_and_events(qtbot):

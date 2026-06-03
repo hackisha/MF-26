@@ -49,6 +49,7 @@ from mflog_proto.ui.minimal_analysis_windows import (
     DocumentsWindow,
     EventReviewWindow,
     ExportReportWindow,
+    GaugeIndicatorsWindow,
     GGDiagramWindow,
     GPSMapWindow,
     GPSRouteLayer,
@@ -588,6 +589,7 @@ DEFAULT_ANALYSIS_ITEMS: tuple[str, ...] = (
     "Event Review",
     "GPS Map",
     "G-G Diagram",
+    "Gauge Indicators",
     "3D Vehicle Model",
     "Current Values Table",
     "Benchmark Summary",
@@ -600,6 +602,7 @@ SIDEBAR_GROUPS: dict[str, tuple[str, ...]] = {
         "Time-Series Graph",
         "GPS Map",
         "G-G Diagram",
+        "Gauge Indicators",
         "3D Vehicle Model",
         "Current Values Table",
     ),
@@ -1105,6 +1108,8 @@ class MainWindow(QtWidgets.QMainWindow):
             widget = self._build_gps_map_window()
         elif title == "Current Values Table":
             widget = self._build_current_values_window()
+        elif title == "Gauge Indicators":
+            widget = self._build_gauge_indicators_window()
         elif title == "Benchmark Summary":
             widget = BenchmarkSummaryWindow(collect_environment())
         elif title == "3D Vehicle Model":
@@ -1137,6 +1142,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def _default_analysis_window_size(self, title: str) -> QtCore.QSize:
         if title == "Time-Series Graph":
             return QtCore.QSize(520, 290)
+        if title == "Gauge Indicators":
+            return QtCore.QSize(440, 230)
         if title in {"GPS Map", "G-G Diagram"}:
             return QtCore.QSize(560, 340)
         if title == "3D Vehicle Model":
@@ -1264,6 +1271,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 "AY_CORRECTED_G": self.sensor_series["AY_CORRECTED_G"],
             },
         )
+
+    def _build_gauge_indicators_window(self) -> GaugeIndicatorsWindow:
+        return GaugeIndicatorsWindow(self.playback_state, self.sensor_series)
 
     def _build_data_analysis_window(self) -> DataAnalysisWindow:
         session_name = self.loaded_csv_path.name if self.loaded_csv_path is not None else "No CSV"

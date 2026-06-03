@@ -1025,6 +1025,121 @@ class CurrentValuesWindow(QtWidgets.QWidget):
             self.table.item(row_index, 1).setText(text)
 
 
+class _GaugeWidget(QtWidgets.QWidget):
+    def __init__(
+        self,
+        title: str,
+        unit: str,
+        maximum: float,
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.title = title
+        self.unit = unit
+        self.maximum = float(maximum)
+        self.value: float | None = None
+        self.setMinimumSize(170, 140)
+
+    def set_value(self, value: float | None) -> None:
+        self.value = None if value is None else float(value)
+        self.update()
+
+    def value_text(self) -> str:
+        if self.value is None:
+            return "-"
+        if self.unit == "rpm":
+            return f"{self.value:.0f} rpm"
+        return f"{self.value:.1f} {self.unit}"
+
+    def paintEvent(self, event: QtGui.QPaintEvent) -> None:  # noqa: N802
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        rect = self.rect().adjusted(12, 12, -12, -12)
+        center = QtCore.QPointF(rect.center().x(), rect.bottom() - 18)
+        radius = min(rect.width() / 2.0, rect.height() - 38)
+        arc_rect = QtCore.QRectF(
+            center.x() - radius,
+            center.y() - radius,
+            radius * 2,
+            radius * 2,
+        )
+        painter.setPen(QtGui.QPen(QtGui.QColor("#41505a"), 8))
+        painter.drawArc(arc_rect, 30 * 16, 120 * 16)
+        ratio = 0.0 if self.value is None else min(max(self.value / self.maximum, 0.0), 1.0)
+        painter.setPen(QtGui.QPen(QtGui.QColor("#f4c95d"), 8))
+        painter.drawArc(arc_rect, 150 * 16, int(-120 * ratio * 16))
+        angle = math.radians(150 - 120 * ratio)
+        needle_end = QtCore.QPointF(
+            center.x() + math.cos(angle) * radius * 0.78,
+            center.y() - math.sin(angle) * radius * 0.78,
+        )
+        painter.setPen(QtGui.QPen(QtGui.QColor("#e8f1f5"), 3))
+        painter.drawLine(center, needle_end)
+        painter.setPen(QtGui.QColor("#ffffff"))
+        painter.drawText(
+            rect,
+            QtCore.Qt.AlignmentFlag.AlignTop | QtCore.Qt.AlignmentFlag.AlignHCenter,
+            self.title,
+        )
+        painter.setPen(QtGui.QColor("#f4c95d"))
+        painter.drawText(
+            rect,
+            QtCore.Qt.AlignmentFlag.AlignBottom | QtCore.Qt.AlignmentFlag.AlignHCenter,
+            self.value_text(),
+        )
+
+
+class GaugeIndicatorsWindow(QtWidgets.QWidget):
+    def __init__(
+        self,
+        playback_state: PlaybackState,
+        series: dict[str, Sequence[float | None]],
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("gaugeIndicatorsWindow")
+        self._playback_state = playback_state
+        self._series = series
+        self._speed_channel = _first_existing_channel(
+            series,
+            ("GPS speed", "VSS / GPS speed", "GPS_SPEED_KPH", "GPS_Speed_KPH", "VSS_kmh"),
+        )
+        self._gauges = {
+            "RPM": _GaugeWidget("RPM", "rpm", 9000.0),
+            "Speed": _GaugeWidget("Speed", "km/h", 180.0),
+        }
+        self._unsubscribe = playback_state.subscribe(self._handle_cursor_event)
+        layout = QtWidgets.QHBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(10)
+        for gauge in self._gauges.values():
+            layout.addWidget(gauge, 1)
+        self._update_values(self._playback_state.current_sample)
+
+    def gauge_value(self, name: str) -> float | None:
+        return self._gauges[name].value
+
+    def gauge_text(self, name: str) -> str:
+        return self._gauges[name].value_text()
+
+    def dispose(self) -> None:
+        self._unsubscribe()
+
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
+        self.dispose()
+        super().closeEvent(event)
+
+    def _handle_cursor_event(self, event: CursorEvent) -> None:
+        if event.kind is CursorKind.PLAYBACK:
+            self._update_values(event.sample_index)
+
+    def _update_values(self, sample_index: int) -> None:
+        self._gauges["RPM"].set_value(_sample_value(self._series.get("RPM"), sample_index))
+        self._gauges["Speed"].set_value(
+            _sample_value(self._series.get(self._speed_channel, ()), sample_index)
+        )
+
+
 class DataAnalysisWindow(QtWidgets.QWidget):
     def __init__(
         self,
@@ -2231,6 +2346,24 @@ def load_glb_info(path: Path) -> GlbModelInfo:
 
 def _format_kib(byte_length: int) -> str:
     return f"{byte_length / 1024:.1f} KB"
+
+
+def _first_existing_channel(
+    series: Mapping[str, Sequence[float | None]],
+    names: Sequence[str],
+) -> str:
+    for name in names:
+        if name in series:
+            return name
+    return ""
+
+
+def _sample_value(values: Sequence[float | None] | None, sample_index: int) -> float | None:
+    if not values:
+        return None
+    clamped = min(max(sample_index, 0), len(values) - 1)
+    value = values[clamped]
+    return None if value is None else float(value)
 
 
 def _format_optional_float(value: float | None) -> str:
