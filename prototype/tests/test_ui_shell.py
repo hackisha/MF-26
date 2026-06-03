@@ -585,18 +585,15 @@ def test_time_series_analysis_window_uses_real_pyqtgraph_widget(qtbot):
     assert isinstance(first_subwindow.widget(), TimeSeriesWindow)
 
 
-def test_workspace_command_bar_exposes_layout_presets(qtbot):
+def test_workspace_command_bar_keeps_only_window_arrangement_tools(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
 
     assert window.workspace_command_bar.objectName() == "workspaceCommandBar"
-    assert window.workspace_preset_names() == (
-        "Drive Review",
-        "GPS / Line",
-        "Dynamics",
-        "Sensor Debug",
-    )
+    assert window.workspace_command_bar_title.text() == "Window tools"
+    assert window.workspace_preset_buttons == {}
     assert window.tile_workspace_button.objectName() == "tileWorkspaceButton"
+    assert window.workspace_preset_names() == ()
 
 
 def test_workspace_preset_opens_and_arranges_analysis_windows(qtbot):
@@ -649,6 +646,36 @@ def test_top_preset_tab_opens_default_windows_without_duplicates(qtbot):
     assert titles.count("Vehicle Dynamics") == 1
     assert titles.count("Segment Analysis") == 1
     assert titles.count("Export Report") == 1
+
+
+def test_top_preset_tab_applies_analysis_mode_settings(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+
+    window.apply_preset_tab(1)
+
+    assert window.selected_channels == ["GPS speed", "VSS / GPS speed", "yaw rate"]
+    assert _checked_time_series_channels(window) == [
+        "GPS speed",
+        "VSS / GPS speed",
+        "yaw rate",
+    ]
+    active_window = window.workspace.activeSubWindow()
+    assert active_window is not None
+    assert active_window.windowTitle() == "GPS Map"
+    assert window.properties_stack.currentWidget().objectName() == "gpsPropertiesPage"
+
+    window.apply_preset_tab(6)
+
+    assert window.selected_channels == [
+        "AX_CORRECTED_G",
+        "AY_CORRECTED_G",
+        "roll rate",
+        "pitch rate",
+        "yaw rate",
+    ]
+    assert window.properties_stack.currentWidget().objectName() == "ggPropertiesPage"
 
 
 def test_new_analysis_windows_are_staggered_in_workspace(qtbot):
@@ -1257,4 +1284,15 @@ def _time_series_channel_options(window: MainWindow) -> list[str]:
     return [
         window.time_series_channel_list.item(index).text()
         for index in range(window.time_series_channel_list.count())
+    ]
+
+
+def _checked_time_series_channels(window: MainWindow) -> list[str]:
+    return [
+        window.time_series_channel_list.item(index).text()
+        for index in range(window.time_series_channel_list.count())
+        if (
+            window.time_series_channel_list.item(index).checkState()
+            == QtCore.Qt.CheckState.Checked
+        )
     ]

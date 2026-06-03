@@ -19,7 +19,7 @@ crashes.
 ```
 
 Expected result: all tests pass without a `python.exe` native error dialog.
-The current expected count is `176 passed`.
+The current expected count is `177 passed`.
 
 ## 2. Generate Target CSV
 
@@ -100,13 +100,13 @@ Check that:
   playback time, tab order, and open analysis windows through `.mflogproj`.
 - The left analysis panel groups windows into Visualization, Analysis, Reports,
   and Documents while preserving search, add, sort, density, and width controls.
-- The central workspace exposes Drive Review, GPS / Line, Dynamics, and Sensor
-  Debug layout presets, opens missing windows without duplicating existing ones,
-  tiles preset windows, staggers newly opened windows, and uses a visible accent
-  border for the active analysis window.
+- The central workspace command bar is reduced to window-management tools such
+  as `Tile`; analysis presets are not duplicated as layout buttons.
 - Clicking a top preset tab opens a suitable default analysis window set for
   that domain, such as GPS / LapTime opening GPS Map, Time-Series Graph, and
-  Segment Analysis, without duplicating already-open windows.
+  Segment Analysis, without duplicating already-open windows. The same analysis
+  mode also applies domain-default time-series channels and focuses the matching
+  right properties page.
 - `Event Review` opens from the Analysis group, seeks playback to the selected
   event, supports unreviewed/confirmed/ignored states, stores notes, and
   restores review data from `.mflogproj`.
