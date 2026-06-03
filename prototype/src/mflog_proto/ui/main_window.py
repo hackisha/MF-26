@@ -623,6 +623,64 @@ WORKSPACE_LAYOUT_PRESETS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+PRESET_TAB_WINDOW_SETS: tuple[tuple[str, ...], ...] = (
+    (
+        "Time-Series Graph",
+        "GPS Map",
+        "G-G Diagram",
+        "Vehicle Dynamics",
+    ),
+    (
+        "GPS Map",
+        "Time-Series Graph",
+        "Segment Analysis",
+    ),
+    (
+        "Time-Series Graph",
+        "Data Analysis",
+        "Current Values Table",
+        "Event Review",
+    ),
+    (
+        "Time-Series Graph",
+        "Data Analysis",
+        "Event Review",
+        "Current Values Table",
+    ),
+    (
+        "Time-Series Graph",
+        "Data Analysis",
+        "Event Review",
+    ),
+    (
+        "Time-Series Graph",
+        "Current Values Table",
+        "Event Review",
+    ),
+    (
+        "Time-Series Graph",
+        "G-G Diagram",
+        "Vehicle Dynamics",
+    ),
+    (
+        "Data Analysis",
+        "Vehicle Dynamics",
+        "Segment Analysis",
+        "Export Report",
+    ),
+    (
+        "Documents",
+        "Export Report",
+        "Benchmark Summary",
+    ),
+    (
+        "Time-Series Graph",
+        "GPS Map",
+        "G-G Diagram",
+        "Current Values Table",
+    ),
+)
+
 
 class MainWindow(QtWidgets.QMainWindow):
     """Korean-first shell that mirrors the SRS and root UI storyboard."""
@@ -662,6 +720,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._syncing_event_marker_selection = False
         self._syncing_time_series_channel_checks = False
         self._syncing_ideal_path_controls = False
+        self._syncing_preset_tabs = False
         self.playback_timer = QtCore.QTimer(self)
         self.playback_timer.setInterval(33)
         self.playback_timer.timeout.connect(self._tick_playback_timer)
@@ -843,18 +902,22 @@ class MainWindow(QtWidgets.QMainWindow):
     def _restore_preset_tabs(self, state: ProjectState) -> None:
         if not state.preset_tab_order:
             return
-        while self.preset_tabs.count():
-            self.preset_tabs.removeTab(0)
-        seen = set(state.preset_tab_order)
-        for tab_title in state.preset_tab_order:
-            self.preset_tabs.addTab(tab_title)
-        for tab_title in DEFAULT_PRESET_TABS:
-            if tab_title not in seen:
+        self._syncing_preset_tabs = True
+        try:
+            while self.preset_tabs.count():
+                self.preset_tabs.removeTab(0)
+            seen = set(state.preset_tab_order)
+            for tab_title in state.preset_tab_order:
                 self.preset_tabs.addTab(tab_title)
-        if self.preset_tabs.count():
-            self.preset_tabs.setCurrentIndex(
-                min(max(state.active_tab_index, 0), self.preset_tabs.count() - 1)
-            )
+            for tab_title in DEFAULT_PRESET_TABS:
+                if tab_title not in seen:
+                    self.preset_tabs.addTab(tab_title)
+            if self.preset_tabs.count():
+                self.preset_tabs.setCurrentIndex(
+                    min(max(state.active_tab_index, 0), self.preset_tabs.count() - 1)
+                )
+        finally:
+            self._syncing_preset_tabs = False
 
     def _clear_workspace(self) -> None:
         for sub_window in list(self.workspace.subWindowList()):
@@ -871,11 +934,32 @@ class MainWindow(QtWidgets.QMainWindow):
     def workspace_preset_names(self) -> tuple[str, ...]:
         return tuple(WORKSPACE_LAYOUT_PRESETS)
 
+    def preset_tab_window_sets(self) -> tuple[tuple[str, ...], ...]:
+        return PRESET_TAB_WINDOW_SETS
+
+    def preset_tab_window_titles(self, index: int) -> tuple[str, ...]:
+        if index < 0 or index >= len(PRESET_TAB_WINDOW_SETS):
+            return ()
+        return PRESET_TAB_WINDOW_SETS[index]
+
+    def apply_preset_tab(self, index: int) -> None:
+        if self._syncing_preset_tabs or not hasattr(self, "workspace"):
+            return
+        titles = self.preset_tab_window_titles(index)
+        if not titles:
+            return
+        self._open_and_arrange_analysis_windows(titles)
+
     def apply_workspace_preset(self, preset_name: str) -> None:
         titles = WORKSPACE_LAYOUT_PRESETS.get(preset_name)
         if titles is None:
             raise KeyError(preset_name)
+        self._open_and_arrange_analysis_windows(titles)
 
+    def _open_and_arrange_analysis_windows(
+        self,
+        titles: Sequence[str],
+    ) -> list[QtWidgets.QMdiSubWindow]:
         target_windows: list[QtWidgets.QMdiSubWindow] = []
         for title in titles:
             sub_window = self._find_analysis_sub_window(title)
@@ -887,6 +971,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if target_windows:
             self.workspace.setActiveSubWindow(target_windows[0])
             self._update_properties_for_active_window(target_windows[0])
+        return target_windows
 
     def tile_analysis_windows(self) -> None:
         self._arrange_analysis_windows(self.workspace.subWindowList())
@@ -1265,6 +1350,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.workspace.setViewMode(QtWidgets.QMdiArea.ViewMode.SubWindowView)
         self.workspace.setBackground(QtGui.QBrush(QtGui.QColor("#202326")))
         self.workspace.subWindowActivated.connect(self._update_properties_for_active_window)
+        self.preset_tabs.tabBarClicked.connect(self.apply_preset_tab)
 
         central_layout.addWidget(self.preset_tabs)
         central_layout.addWidget(self.workspace_command_bar)

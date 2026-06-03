@@ -19,7 +19,7 @@ crashes.
 ```
 
 Expected result: all tests pass without a `python.exe` native error dialog.
-The current expected count is `174 passed`.
+The current expected count is `176 passed`.
 
 ## 2. Generate Target CSV
 
@@ -104,6 +104,9 @@ Check that:
   Debug layout presets, opens missing windows without duplicating existing ones,
   tiles preset windows, staggers newly opened windows, and uses a visible accent
   border for the active analysis window.
+- Clicking a top preset tab opens a suitable default analysis window set for
+  that domain, such as GPS / LapTime opening GPS Map, Time-Series Graph, and
+  Segment Analysis, without duplicating already-open windows.
 - `Event Review` opens from the Analysis group, seeks playback to the selected
   event, supports unreviewed/confirmed/ignored states, stores notes, and
   restores review data from `.mflogproj`.
