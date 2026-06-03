@@ -1140,6 +1140,154 @@ class GaugeIndicatorsWindow(QtWidgets.QWidget):
         )
 
 
+class _TireTemperaturePanel(QtWidgets.QWidget):
+    def __init__(self, corner: str, parent: QtWidgets.QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.corner = corner
+        self.temperature: float | None = None
+        self.setMinimumSize(150, 135)
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Expanding,
+        )
+
+    def set_temperature(self, value: float | None) -> None:
+        self.temperature = value
+        self.update()
+
+    def temperature_text(self) -> str:
+        return "-" if self.temperature is None else f"{self.temperature:.1f} C"
+
+    def paintEvent(self, event: QtGui.QPaintEvent) -> None:  # noqa: N802
+        super().paintEvent(event)
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+        rect = self.rect().adjusted(10, 10, -10, -10)
+
+        painter.setPen(QtGui.QPen(QtGui.QColor("#34424a"), 1))
+        painter.setBrush(QtGui.QColor("#1c2327"))
+        painter.drawRoundedRect(rect, 6, 6)
+
+        label_rect = QtCore.QRect(rect.left() + 12, rect.top() + 8, 48, 26)
+        painter.setPen(QtGui.QColor("#f2f5f7"))
+        label_font = painter.font()
+        label_font.setBold(True)
+        label_font.setPointSize(11)
+        painter.setFont(label_font)
+        painter.drawText(label_rect, QtCore.Qt.AlignmentFlag.AlignLeft, self.corner)
+
+        bar_rect = QtCore.QRect(
+            rect.right() - 34,
+            rect.top() + 24,
+            14,
+            max(54, rect.height() - 54),
+        )
+        gradient = QtGui.QLinearGradient(bar_rect.bottomLeft(), bar_rect.topLeft())
+        gradient.setColorAt(0.0, QtGui.QColor("#4aa3ff"))
+        gradient.setColorAt(0.55, QtGui.QColor("#f4c95d"))
+        gradient.setColorAt(1.0, QtGui.QColor("#ec7063"))
+        painter.setPen(QtGui.QPen(QtGui.QColor("#7a8a94"), 1))
+        painter.setBrush(gradient)
+        painter.drawRoundedRect(bar_rect, 4, 4)
+
+        tire_rect = QtCore.QRectF(
+            rect.left() + 30,
+            rect.top() + 35,
+            max(48, rect.width() - 88),
+            max(58, rect.height() - 74),
+        )
+        painter.setPen(QtGui.QPen(QtGui.QColor("#6f7d85"), 2))
+        painter.setBrush(QtGui.QColor("#273039"))
+        painter.drawRoundedRect(tire_rect, 22, 22)
+
+        inner = tire_rect.adjusted(12, 12, -12, -12)
+        painter.setPen(QtGui.QPen(QtGui.QColor("#11161a"), 2))
+        painter.setBrush(QtGui.QColor("#151b20"))
+        painter.drawRoundedRect(inner, 14, 14)
+
+        if self.temperature is not None:
+            ratio = _clamp((self.temperature - 20.0) / 100.0, 0.0, 1.0)
+            fill_height = tire_rect.height() * ratio
+            heat_rect = QtCore.QRectF(
+                tire_rect.left(),
+                tire_rect.bottom() - fill_height,
+                tire_rect.width(),
+                fill_height,
+            )
+            heat_color = QtGui.QColor.fromRgbF(ratio, 0.25 + (1.0 - ratio) * 0.35, 1.0 - ratio)
+            heat_color.setAlpha(70)
+            painter.setPen(QtCore.Qt.PenStyle.NoPen)
+            painter.setBrush(heat_color)
+            painter.drawRoundedRect(heat_rect, 18, 18)
+
+        value_rect = QtCore.QRect(rect.left() + 12, rect.bottom() - 32, rect.width() - 24, 24)
+        value_font = painter.font()
+        value_font.setBold(True)
+        value_font.setPointSize(12)
+        painter.setFont(value_font)
+        painter.setPen(QtGui.QColor("#f4c95d" if self.temperature is not None else "#9aa7af"))
+        painter.drawText(
+            value_rect,
+            QtCore.Qt.AlignmentFlag.AlignCenter,
+            self.temperature_text(),
+        )
+
+
+class TireTemperatureWindow(QtWidgets.QWidget):
+    _ALIASES: Mapping[str, tuple[str, ...]] = {
+        "FL": ("Tire_FL_C", "FL_TireTemp_C", "TireTemp_FL", "FL_temp"),
+        "FR": ("Tire_FR_C", "FR_TireTemp_C", "TireTemp_FR", "FR_temp"),
+        "RL": ("Tire_RL_C", "RL_TireTemp_C", "TireTemp_RL", "RL_temp"),
+        "RR": ("Tire_RR_C", "RR_TireTemp_C", "TireTemp_RR", "RR_temp"),
+    }
+
+    def __init__(
+        self,
+        playback_state: PlaybackState,
+        series: dict[str, Sequence[float | None]],
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("tireTemperatureWindow")
+        self._playback_state = playback_state
+        self._series = series
+        self._channels = {
+            corner: _first_existing_channel(series, aliases)
+            for corner, aliases in self._ALIASES.items()
+        }
+        self._panels = {
+            corner: _TireTemperaturePanel(corner)
+            for corner in ("FL", "FR", "RL", "RR")
+        }
+        self._unsubscribe = playback_state.subscribe(self._handle_cursor_event)
+
+        layout = QtWidgets.QGridLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
+        for index, corner in enumerate(("FL", "FR", "RL", "RR")):
+            layout.addWidget(self._panels[corner], index // 2, index % 2)
+        self._update_values(self._playback_state.current_sample)
+
+    def temperature_text(self, corner: str) -> str:
+        return self._panels[corner].temperature_text()
+
+    def dispose(self) -> None:
+        self._unsubscribe()
+
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
+        self.dispose()
+        super().closeEvent(event)
+
+    def _handle_cursor_event(self, event: CursorEvent) -> None:
+        if event.kind is CursorKind.PLAYBACK:
+            self._update_values(event.sample_index)
+
+    def _update_values(self, sample_index: int) -> None:
+        for corner, panel in self._panels.items():
+            channel = self._channels[corner]
+            panel.set_temperature(_sample_value(self._series.get(channel), sample_index))
+
+
 class DataAnalysisWindow(QtWidgets.QWidget):
     def __init__(
         self,

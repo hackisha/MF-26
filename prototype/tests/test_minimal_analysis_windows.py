@@ -19,6 +19,7 @@ from mflog_proto.ui.minimal_analysis_windows import (
     GPSMapWindow,
     MapTileImage,
     OpenStreetMapTileProvider,
+    TireTemperatureWindow,
     VehicleDynamicsWindow,
     VehicleModelWindow,
     _qimage_to_rgba_array,
@@ -485,6 +486,25 @@ def test_gauge_indicators_use_vss_alias_for_speed(qtbot):
 
     assert window.gauge_value("Speed") == pytest.approx(55.5)
     assert window.gauge_text("Speed") == "55.5 km/h"
+
+
+def test_tire_temperature_window_maps_channels_and_empty_states(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1])
+    window = TireTemperatureWindow(
+        playback,
+        {
+            "Tire_FL_C": [45.0, 55.0],
+            "FR_TireTemp_C": [46.0, 56.0],
+        },
+    )
+    qtbot.addWidget(window)
+
+    playback.set_sample(1)
+
+    assert window.temperature_text("FL") == "55.0 C"
+    assert window.temperature_text("FR") == "56.0 C"
+    assert window.temperature_text("RL") == "-"
+    assert window.temperature_text("RR") == "-"
 
 
 def test_data_analysis_window_summarizes_session_metrics_and_events(qtbot):

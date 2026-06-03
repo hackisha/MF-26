@@ -10,7 +10,12 @@ from mflog_proto.analysis.event_reviews import EventReviewState
 from mflog_proto.analysis.reference_route import ReferenceRoute, ReferenceRoutePoint
 from mflog_proto.analysis.segments import AnalysisSegment
 from mflog_proto.persistence.project_state import ProjectState, WindowState
-from mflog_proto.ui.main_window import DEFAULT_ANALYSIS_ITEMS, MainWindow, _root_asset_path
+from mflog_proto.ui.main_window import (
+    DEFAULT_ANALYSIS_ITEMS,
+    SIDEBAR_GROUPS,
+    MainWindow,
+    _root_asset_path,
+)
 from mflog_proto.ui.minimal_analysis_windows import (
     BenchmarkSummaryWindow,
     CurrentValuesWindow,
@@ -23,6 +28,7 @@ from mflog_proto.ui.minimal_analysis_windows import (
     GPSMapWindow,
     MapTileImage,
     SegmentAnalysisWindow,
+    TireTemperatureWindow,
     VehicleDynamicsWindow,
     VehicleModelWindow,
 )
@@ -131,6 +137,22 @@ def test_left_sidebar_adds_gauge_indicators_window(qtbot):
     assert "Gauge Indicators" in window.sidebar_item_titles("시각화")
     assert isinstance(gauge_window, GaugeIndicatorsWindow)
     assert gauge_window.gauge_value("RPM") == pytest.approx(window.sensor_series["RPM"][10])
+
+
+def test_left_sidebar_adds_tire_temperature_window(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    tire_window = window.add_analysis_window("Tire Temperature").widget()
+
+    visualization_group = next(
+        group_name
+        for group_name, titles in SIDEBAR_GROUPS.items()
+        if "Tire Temperature" in titles
+    )
+    assert "Tire Temperature" in window.sidebar_item_titles(visualization_group)
+    assert isinstance(tire_window, TireTemperatureWindow)
+    assert tire_window.temperature_text("FL") == "-"
 
 
 def test_right_properties_can_configure_left_sidebar_visibility_width_and_density(qtbot):

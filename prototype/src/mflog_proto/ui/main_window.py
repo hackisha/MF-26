@@ -55,6 +55,7 @@ from mflog_proto.ui.minimal_analysis_windows import (
     GPSRouteLayer,
     MapTileProvider,
     SegmentAnalysisWindow,
+    TireTemperatureWindow,
     VehicleDynamicsWindow,
     VehicleModelWindow,
     load_glb_info,
@@ -590,6 +591,7 @@ DEFAULT_ANALYSIS_ITEMS: tuple[str, ...] = (
     "GPS Map",
     "G-G Diagram",
     "Gauge Indicators",
+    "Tire Temperature",
     "3D Vehicle Model",
     "Current Values Table",
     "Benchmark Summary",
@@ -603,6 +605,7 @@ SIDEBAR_GROUPS: dict[str, tuple[str, ...]] = {
         "GPS Map",
         "G-G Diagram",
         "Gauge Indicators",
+        "Tire Temperature",
         "3D Vehicle Model",
         "Current Values Table",
     ),
@@ -1110,6 +1113,8 @@ class MainWindow(QtWidgets.QMainWindow):
             widget = self._build_current_values_window()
         elif title == "Gauge Indicators":
             widget = self._build_gauge_indicators_window()
+        elif title == "Tire Temperature":
+            widget = self._build_tire_temperature_window()
         elif title == "Benchmark Summary":
             widget = BenchmarkSummaryWindow(collect_environment())
         elif title == "3D Vehicle Model":
@@ -1144,6 +1149,8 @@ class MainWindow(QtWidgets.QMainWindow):
             return QtCore.QSize(520, 290)
         if title == "Gauge Indicators":
             return QtCore.QSize(440, 230)
+        if title == "Tire Temperature":
+            return QtCore.QSize(430, 380)
         if title in {"GPS Map", "G-G Diagram"}:
             return QtCore.QSize(560, 340)
         if title == "3D Vehicle Model":
@@ -1274,6 +1281,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _build_gauge_indicators_window(self) -> GaugeIndicatorsWindow:
         return GaugeIndicatorsWindow(self.playback_state, self.sensor_series)
+
+    def _build_tire_temperature_window(self) -> TireTemperatureWindow:
+        return TireTemperatureWindow(self.playback_state, self.sensor_series)
 
     def _build_data_analysis_window(self) -> DataAnalysisWindow:
         session_name = self.loaded_csv_path.name if self.loaded_csv_path is not None else "No CSV"
@@ -3027,7 +3037,8 @@ class MainWindow(QtWidgets.QMainWindow):
             QWidget#timeSeriesWindow, QWidget#ggDiagramWindow, QWidget#gpsMapWindow,
             QWidget#currentValuesWindow, QWidget#dataAnalysisWindow,
             QWidget#documentsWindow, QWidget#benchmarkSummaryWindow,
-            QWidget#vehicleModelWindow, QWidget#vehicleDynamicsWindow {
+            QWidget#vehicleModelWindow, QWidget#vehicleDynamicsWindow,
+            QWidget#tireTemperatureWindow {
                 background: #151a1e;
             }
             QLabel#hoverLabel, QLabel#reliabilityBadge, QLabel#gpsMapBackgroundStatus,
