@@ -1105,7 +1105,7 @@ class VideoSyncWindow(QtWidgets.QWidget):
         raw_position = self._playback_state.current_time_ms + self._video_offset_ms
         duration = int(getattr(self._backend, "duration_ms", 0) or 0)
         lower_clamped = max(0, raw_position)
-        return min(lower_clamped, duration) if duration > 0 else lower_clamped
+        return min(lower_clamped, max(0, duration))
 
     def status_text(self) -> str:
         return self.status_label.text()
@@ -1121,7 +1121,7 @@ class VideoSyncWindow(QtWidgets.QWidget):
 
         candidate = Path(path)
         self._video_path = candidate
-        if candidate.is_absolute() and not candidate.exists():
+        if not candidate.exists():
             self._warning_text = f"Video missing: {candidate}"
             self._refresh_sync()
             return
