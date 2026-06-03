@@ -32,7 +32,9 @@ def test_reference_route_round_trips_mflogroute_json(tmp_path: Path) -> None:
     assert restored.source_path == path
     assert restored.points == route.points
     assert restored.metadata == {"source": "manual"}
-    assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == 1
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == 1
+    assert "source_path" not in payload
 
 
 def test_reference_route_rejects_invalid_coordinates(tmp_path: Path) -> None:
@@ -186,4 +188,12 @@ def test_reference_route_rejects_null_schema(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="schema"):
+        load_reference_route(path)
+
+
+def test_reference_route_rejects_malformed_json(tmp_path: Path) -> None:
+    path = tmp_path / "malformed.mflogroute"
+    path.write_text("{not json", encoding="utf-8")
+
+    with pytest.raises(ValueError):
         load_reference_route(path)
