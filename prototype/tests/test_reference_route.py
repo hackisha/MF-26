@@ -154,10 +154,34 @@ def test_reference_route_copies_metadata_on_construction() -> None:
     assert route.to_dict()["metadata"] == {"source": "manual"}
 
 
+def test_reference_route_metadata_is_immutable() -> None:
+    route = ReferenceRoute(
+        name="route",
+        points=(),
+        metadata={"source": "manual"},
+    )
+
+    with pytest.raises(TypeError):
+        route.metadata["source"] = "mutated"
+
+    assert route.to_dict()["metadata"] == {"source": "manual"}
+
+
 def test_reference_route_rejects_unsupported_schema(tmp_path: Path) -> None:
     path = tmp_path / "future.mflogroute"
     path.write_text(
         json.dumps({"schema_version": 99, "name": "future", "points": []}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="schema"):
+        load_reference_route(path)
+
+
+def test_reference_route_rejects_null_schema(tmp_path: Path) -> None:
+    path = tmp_path / "null-schema.mflogroute"
+    path.write_text(
+        json.dumps({"schema_version": None, "name": "bad", "points": []}),
         encoding="utf-8",
     )
 

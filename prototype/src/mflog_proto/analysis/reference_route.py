@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 import math
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 SCHEMA_VERSION = 1
@@ -33,12 +34,16 @@ class ReferenceRoute:
             timespec="seconds"
         )
     )
-    metadata: dict[str, str] = field(default_factory=dict)
+    metadata: dict[str, str] | MappingProxyType[str, str] = field(default_factory=dict)
     source_path: Path | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "points", _points_from_iterable(self.points))
-        object.__setattr__(self, "metadata", _metadata_from_dict(self.metadata))
+        object.__setattr__(
+            self,
+            "metadata",
+            MappingProxyType(_metadata_from_dict(self.metadata)),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -59,7 +64,10 @@ class ReferenceRoute:
         *,
         source_path: Path | None = None,
     ) -> "ReferenceRoute":
-        schema_version = int(data.get("schema_version", SCHEMA_VERSION))
+        try:
+            schema_version = int(data.get("schema_version", SCHEMA_VERSION))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Invalid reference route schema") from exc
         if schema_version != SCHEMA_VERSION:
             raise ValueError(f"Unsupported reference route schema: {schema_version}")
         points_data = data.get("points", ())
