@@ -1102,7 +1102,7 @@ class GaugeIndicatorsWindow(QtWidgets.QWidget):
         self._series = series
         self._speed_channel = _first_existing_channel(
             series,
-            ("GPS speed", "VSS / GPS speed", "GPS_SPEED_KPH", "GPS_Speed_KPH", "VSS_kmh"),
+            ("GPS speed", "VSS / GPS speed", "GPS_SPEED_KPH", "GPS_Speed_KPH", "VSS_kmh", "VSS"),
         )
         self._gauges = {
             "RPM": _GaugeWidget("RPM", "rpm", 9000.0),
