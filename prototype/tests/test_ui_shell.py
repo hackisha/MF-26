@@ -31,6 +31,7 @@ from mflog_proto.ui.minimal_analysis_windows import (
     TireTemperatureWindow,
     VehicleDynamicsWindow,
     VehicleModelWindow,
+    VideoSyncWindow,
 )
 from mflog_proto.ui.time_series_window import TimeSeriesWindow
 
@@ -153,6 +154,38 @@ def test_left_sidebar_adds_tire_temperature_window(qtbot):
     assert "Tire Temperature" in window.sidebar_item_titles(visualization_group)
     assert isinstance(tire_window, TireTemperatureWindow)
     assert tire_window.temperature_text("FL") == "-"
+
+
+def test_left_sidebar_adds_video_sync_window(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    video_window = window.add_analysis_window("Video Sync").widget()
+
+    assert "Video Sync" in window.sidebar_item_titles("시각화")
+    assert isinstance(video_window, VideoSyncWindow)
+    assert video_window.video_offset_ms() == 0
+
+
+def test_right_properties_configure_video_sync_for_open_and_new_windows(qtbot, tmp_path):
+    path = tmp_path / "drive.mp4"
+    path.write_bytes(b"not a real video but exists")
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    first = window.add_analysis_window("Video Sync").widget()
+    window.load_video_sync_path(path)
+    window.video_sync_offset_spin.setValue(750)
+    window.video_sync_mute_checkbox.setChecked(False)
+
+    second = window.add_analysis_window("Video Sync").widget()
+
+    assert first.video_path() == path
+    assert first.video_offset_ms() == 750
+    assert first.video_muted() is False
+    assert second.video_path() == path
+    assert second.video_offset_ms() == 750
+    assert second.video_muted() is False
 
 
 def test_right_properties_can_configure_left_sidebar_visibility_width_and_density(qtbot):
