@@ -18,31 +18,27 @@ tags:
 
 `MainWindow.restore_project_state()` restores optional project-owned state such
 as reference routes. A reviewed implementation renamed the current
-`ReferenceRoute` when a saved route path was missing, but accidentally preserved
-the old route points from the previous project.
+`ReferenceRoute` when a saved route path was missing or unreadable, but
+accidentally preserved the old route points from the previous project.
 
 ## Guidance
 
 When a project state field points to an optional external artifact, restore from
-the artifact only if it exists and loads. If it is absent or missing, create a
-fresh empty domain object from the saved metadata instead of mutating or
-renaming the previous in-memory object.
+the artifact only if it exists and loads successfully. If it is absent, missing,
+or corrupt, create a fresh empty domain object from the saved metadata instead
+of mutating or renaming the previous in-memory object.
 
 ```python
 if state.reference_route_path is not None and state.reference_route_path.exists():
-    self.load_reference_route_path(state.reference_route_path)
+    if not self.load_reference_route_path(state.reference_route_path):
+        self._set_empty_restored_reference_route(state)
 else:
-    self.set_reference_route(
-        ReferenceRoute(
-            name=state.reference_route_name or "Reference route",
-            points=(),
-        )
-    )
+    self._set_empty_restored_reference_route(state)
 ```
 
 Add regression coverage that starts with non-empty old state, restores a project
-with no artifact, and checks both the main state and any open/new analysis
-windows show zero reference points.
+with no artifact or a corrupt artifact, and checks both the main state and any
+open/new analysis windows show zero reference points.
 
 ## Why This Matters
 

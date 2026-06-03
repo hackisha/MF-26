@@ -912,14 +912,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.load_vehicle_model_path(state.vehicle_model_path)
         self.reference_route_path = state.reference_route_path
         if self.reference_route_path is not None and self.reference_route_path.exists():
-            self.load_reference_route_path(self.reference_route_path)
+            if not self.load_reference_route_path(self.reference_route_path):
+                self._set_empty_restored_reference_route(state)
         else:
-            self.set_reference_route(
-                ReferenceRoute(
-                    name=state.reference_route_name or "Reference route",
-                    points=(),
-                )
-            )
+            self._set_empty_restored_reference_route(state)
         self._select_sidebar_group(self.selected_sidebar_group)
         self._restore_preset_tabs(state)
         self._clear_workspace()
@@ -930,6 +926,14 @@ class MainWindow(QtWidgets.QMainWindow):
             sub_window.resize(window_state.width, window_state.height)
 
         self.set_playback_seconds(state.playback_seconds)
+
+    def _set_empty_restored_reference_route(self, state: ProjectState) -> None:
+        self.set_reference_route(
+            ReferenceRoute(
+                name=state.reference_route_name or "Reference route",
+                points=(),
+            )
+        )
 
     def _capture_window_state(self) -> list[WindowState]:
         windows: list[WindowState] = []

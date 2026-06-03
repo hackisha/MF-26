@@ -936,6 +936,35 @@ def test_restore_project_state_without_reference_route_uses_default_empty_route(
     assert gps_window.reference_route_point_count == 0
 
 
+def test_restore_project_state_replaces_corrupt_reference_route_with_empty_route(
+    qtbot, tmp_path
+):
+    bad_path = tmp_path / "corrupt.mflogroute"
+    bad_path.write_text("{not json", encoding="utf-8")
+    window = MainWindow()
+    qtbot.addWidget(window)
+    gps_window = window.add_analysis_window("GPS Map").widget()
+    window.set_reference_route(
+        ReferenceRoute(
+            name="Old Route",
+            points=(ReferenceRoutePoint(35.0, 126.0), ReferenceRoutePoint(35.1, 126.1)),
+        )
+    )
+
+    window.restore_project_state(
+        ProjectState(reference_route_path=bad_path, reference_route_name="Corrupt Route")
+    )
+
+    assert window.reference_route.name == "Corrupt Route"
+    assert len(window.reference_route.points) == 0
+    assert window.reference_route.source_path is None
+    assert window.reference_route_path is None
+    assert window.reference_route_points_label.text() == "0 points"
+    assert gps_window.reference_route_name == "Corrupt Route"
+    assert gps_window.reference_route_point_count == 0
+    assert window.add_analysis_window("GPS Map").widget().reference_route_point_count == 0
+
+
 def test_reference_route_edit_signal_syncs_multiple_open_gps_windows(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
