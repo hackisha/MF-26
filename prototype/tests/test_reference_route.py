@@ -59,6 +59,16 @@ def test_reference_route_point_rejects_invalid_latitude() -> None:
         ReferenceRoutePoint(latitude=91.0, longitude=126.0)
 
 
+def test_reference_route_point_rejects_nan_latitude() -> None:
+    with pytest.raises(ValueError, match="latitude"):
+        ReferenceRoutePoint(latitude=float("nan"), longitude=126.0)
+
+
+def test_reference_route_rejects_invalid_point_objects() -> None:
+    with pytest.raises(ValueError, match="points|ReferenceRoutePoint"):
+        ReferenceRoute(name="bad", points=("not-a-point",))
+
+
 def test_reference_route_rejects_null_points(tmp_path: Path) -> None:
     path = tmp_path / "null-points.mflogroute"
     path.write_text(
@@ -68,6 +78,25 @@ def test_reference_route_rejects_null_points(tmp_path: Path) -> None:
                 "name": "bad",
                 "created_at": "2026-06-03T00:00:00+09:00",
                 "points": None,
+                "metadata": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="points"):
+        load_reference_route(path)
+
+
+def test_reference_route_rejects_non_array_points(tmp_path: Path) -> None:
+    path = tmp_path / "number-points.mflogroute"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "name": "bad",
+                "created_at": "2026-06-03T00:00:00+09:00",
+                "points": 123,
                 "metadata": {},
             }
         ),

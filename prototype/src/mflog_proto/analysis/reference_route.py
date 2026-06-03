@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,7 @@ class ReferenceRoute:
     source_path: Path | None = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "points", _points_from_iterable(self.points))
         object.__setattr__(self, "metadata", _metadata_from_dict(self.metadata))
 
     def to_dict(self) -> dict[str, Any]:
@@ -61,9 +63,9 @@ class ReferenceRoute:
         if schema_version != SCHEMA_VERSION:
             raise ValueError(f"Unsupported reference route schema: {schema_version}")
         points_data = data.get("points", ())
-        if points_data is None:
+        if not isinstance(points_data, list | tuple):
             raise ValueError("Reference route points must be a JSON array")
-        points = tuple(_point_from_dict(item) for item in points_data)
+        points = _points_from_iterable(_point_from_dict(item) for item in points_data)
         name = str(data.get("name", "")).strip() or _default_route_name(source_path)
         metadata = _metadata_from_dict(data.get("metadata", {}))
         created_at = str(data.get("created_at", "")).strip()
@@ -106,6 +108,8 @@ def _coordinate_value(value: Any, name: str) -> float:
         coordinate = float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"Invalid {name}: {value!r}") from exc
+    if not math.isfinite(coordinate):
+        raise ValueError(f"Invalid {name}: {coordinate}")
     if name == "latitude":
         lower = -90.0
         upper = 90.0
@@ -115,6 +119,17 @@ def _coordinate_value(value: Any, name: str) -> float:
     if coordinate < lower or coordinate > upper:
         raise ValueError(f"Invalid {name}: {coordinate}")
     return coordinate
+
+
+def _points_from_iterable(points: Any) -> tuple[ReferenceRoutePoint, ...]:
+    try:
+        normalized = tuple(points)
+    except TypeError as exc:
+        raise ValueError("Reference route points must be an iterable") from exc
+    for point in normalized:
+        if not isinstance(point, ReferenceRoutePoint):
+            raise ValueError("Reference route points must contain ReferenceRoutePoint")
+    return normalized
 
 
 def _metadata_from_dict(data: Any) -> dict[str, str]:
