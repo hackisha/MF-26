@@ -617,6 +617,40 @@ def test_workspace_preset_opens_and_arranges_analysis_windows(qtbot):
     assert len({(rect.x(), rect.y()) for rect in geometries.values()}) >= 3
 
 
+def test_top_preset_tabs_define_default_analysis_window_sets(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    assert len(window.preset_tab_window_sets()) == window.preset_tabs.count()
+    assert window.preset_tab_window_titles(1) == (
+        "GPS Map",
+        "Time-Series Graph",
+        "Segment Analysis",
+    )
+    assert window.preset_tab_window_titles(7) == (
+        "Data Analysis",
+        "Vehicle Dynamics",
+        "Segment Analysis",
+        "Export Report",
+    )
+    assert all(window.preset_tab_window_titles(index) for index in range(window.preset_tabs.count()))
+
+
+def test_top_preset_tab_opens_default_windows_without_duplicates(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.apply_preset_tab(7)
+    window.apply_preset_tab(7)
+    titles = [sub.windowTitle() for sub in window.workspace.subWindowList()]
+
+    assert titles.count("Time-Series Graph") == 1
+    assert titles.count("Data Analysis") == 1
+    assert titles.count("Vehicle Dynamics") == 1
+    assert titles.count("Segment Analysis") == 1
+    assert titles.count("Export Report") == 1
+
+
 def test_new_analysis_windows_are_staggered_in_workspace(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
