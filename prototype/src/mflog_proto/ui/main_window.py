@@ -911,18 +911,15 @@ class MainWindow(QtWidgets.QMainWindow):
         if state.vehicle_model_path is not None:
             self.load_vehicle_model_path(state.vehicle_model_path)
         self.reference_route_path = state.reference_route_path
-        if state.reference_route_name:
-            self.reference_route = ReferenceRoute(
-                name=state.reference_route_name,
-                points=self.reference_route.points,
-                created_at=self.reference_route.created_at,
-                metadata=dict(self.reference_route.metadata),
-                source_path=self.reference_route_path,
-            )
         if self.reference_route_path is not None and self.reference_route_path.exists():
             self.load_reference_route_path(self.reference_route_path)
         else:
-            self._refresh_reference_route_status()
+            self.set_reference_route(
+                ReferenceRoute(
+                    name=state.reference_route_name or "Reference route",
+                    points=(),
+                )
+            )
         self._select_sidebar_group(self.selected_sidebar_group)
         self._restore_preset_tabs(state)
         self._clear_workspace()

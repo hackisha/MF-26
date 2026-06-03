@@ -888,6 +888,74 @@ def test_main_window_updates_reference_route_from_gps_map_edit_signal(qtbot):
     assert window.reference_route_points_label.text() == "1 points"
 
 
+def test_restore_project_state_replaces_missing_reference_route_with_empty_route(
+    qtbot, tmp_path
+):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    gps_window = window.add_analysis_window("GPS Map").widget()
+    window.set_reference_route(
+        ReferenceRoute(
+            name="Old Route",
+            points=(ReferenceRoutePoint(35.0, 126.0), ReferenceRoutePoint(35.1, 126.1)),
+        )
+    )
+
+    window.restore_project_state(
+        ProjectState(
+            reference_route_name="Empty Project",
+            reference_route_path=tmp_path / "missing.mflogroute",
+        )
+    )
+
+    assert window.reference_route.name == "Empty Project"
+    assert len(window.reference_route.points) == 0
+    assert window.reference_route.source_path is None
+    assert window.reference_route_path is None
+    assert window.reference_route_points_label.text() == "0 points"
+    assert gps_window.reference_route_name == "Empty Project"
+    assert gps_window.reference_route_point_count == 0
+    assert window.add_analysis_window("GPS Map").widget().reference_route_point_count == 0
+
+
+def test_restore_project_state_without_reference_route_uses_default_empty_route(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    gps_window = window.add_analysis_window("GPS Map").widget()
+    window.set_reference_route(
+        ReferenceRoute(name="Old Route", points=(ReferenceRoutePoint(35.0, 126.0),))
+    )
+
+    window.restore_project_state(ProjectState())
+
+    assert window.reference_route.name == "Reference route"
+    assert len(window.reference_route.points) == 0
+    assert window.reference_route.source_path is None
+    assert window.reference_route_points_label.text() == "0 points"
+    assert gps_window.reference_route_name == "Reference route"
+    assert gps_window.reference_route_point_count == 0
+
+
+def test_reference_route_edit_signal_syncs_multiple_open_gps_windows(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    gps_a = window.add_analysis_window("GPS Map").widget()
+    gps_b = window.add_analysis_window("GPS Map").widget()
+
+    gps_a.set_reference_route(
+        ReferenceRoute(
+            name="Edited",
+            points=(ReferenceRoutePoint(35.0, 126.0), ReferenceRoutePoint(35.1, 126.1)),
+        )
+    )
+
+    assert window.reference_route.name == "Edited"
+    assert len(window.reference_route.points) == 2
+    assert gps_b.reference_route_name == "Edited"
+    assert gps_b.reference_route_point_count == 2
+    assert window.reference_route_points_label.text() == "2 points"
+
+
 def test_right_properties_selects_time_series_channels_for_open_and_new_windows(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
