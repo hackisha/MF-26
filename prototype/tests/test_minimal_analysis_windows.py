@@ -4,6 +4,7 @@ import pytest
 from PySide6 import QtCore, QtGui
 
 from mflog_proto.analysis.dynamics import DynamicsSummary
+from mflog_proto.analysis.reference_route import ReferenceRoute, ReferenceRoutePoint
 from mflog_proto.benchmark.metrics import DependencyInfo, EnvironmentInfo
 from mflog_proto.playback import PlaybackState
 from mflog_proto.ui.minimal_analysis_windows import (
@@ -266,6 +267,48 @@ def test_gps_map_draws_ideal_path_overlay_from_playback(qtbot):
     assert window.ideal_path_point_count == 3
     assert window.ideal_current_position == pytest.approx((37.00015, 127.00038))
     assert window.ideal_path_text() == "Ideal path: ready | 3 points"
+
+
+def test_gps_map_draws_reference_route_with_start_and_end(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1])
+    window = GPSMapWindow(playback)
+    qtbot.addWidget(window)
+
+    route = ReferenceRoute(
+        name="Reference A",
+        points=(
+            ReferenceRoutePoint(37.0, 127.0),
+            ReferenceRoutePoint(37.0001, 127.0002),
+            ReferenceRoutePoint(37.0003, 127.0004),
+        ),
+        created_at="2026-06-03T00:00:00+09:00",
+    )
+    window.set_reference_route(route)
+
+    assert window.reference_route_name == "Reference A"
+    assert window.reference_route_point_count == 3
+    assert window.reference_route_start == pytest.approx((37.0, 127.0))
+    assert window.reference_route_end == pytest.approx((37.0003, 127.0004))
+    assert window.reference_route_visible is True
+
+
+def test_gps_map_edit_mode_click_adds_reference_points(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1])
+    window = GPSMapWindow(playback)
+    qtbot.addWidget(window)
+    window.resize(640, 360)
+    window.show()
+    window.plot.setXRange(126.999, 127.001)
+    window.plot.setYRange(36.999, 37.001)
+    qtbot.waitExposed(window)
+
+    window.set_reference_route_edit_enabled(True)
+    scene_pos = window.plot.plotItem.vb.mapViewToScene(QtCore.QPointF(127.0, 37.0))
+    window.add_reference_point_from_scene(scene_pos)
+
+    assert window.reference_route_point_count == 1
+    assert window.reference_route_start == pytest.approx((37.0, 127.0))
+    assert window.reference_route_end == pytest.approx((37.0, 127.0))
 
 
 def test_gps_map_toggles_real_map_background(qtbot):

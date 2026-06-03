@@ -18,6 +18,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from mflog_proto.analysis.dynamics import DynamicsSummary
 from mflog_proto.analysis.event_reviews import EventReview, EventReviewState
+from mflog_proto.analysis.reference_route import ReferenceRoute, ReferenceRoutePoint
 from mflog_proto.analysis.segments import AnalysisSegment, SegmentSummary
 from mflog_proto.benchmark.metrics import EnvironmentInfo
 from mflog_proto.playback import CursorEvent, CursorKind, PlaybackState
@@ -395,6 +396,10 @@ class GPSMapWindow(QtWidgets.QWidget):
         self._ideal_path_point_count = 0
         self._ideal_path_status = "off"
         self._ideal_current_position: tuple[float, float] | None = None
+        self._reference_route = ReferenceRoute(name="Reference route", points=())
+        self._reference_route_positions: tuple[tuple[float, float], ...] = ()
+        self._reference_hover_candidates: tuple[_GPSHoverCandidate, ...] = ()
+        self._reference_route_edit_enabled = False
         self._map_background_enabled = False
         self._map_tile_loaded = False
         self._map_background_status = "off"
@@ -409,12 +414,26 @@ class GPSMapWindow(QtWidgets.QWidget):
         self.plot.setLabel("bottom", "Longitude")
         self.plot.setLabel("left", "Latitude")
         self.plot.scene().sigMouseMoved.connect(self._handle_mouse_moved)
+        self.plot.scene().sigMouseClicked.connect(self._handle_mouse_clicked)
         self.map_tile_item = pg.ImageItem(axisOrder="row-major")
         self.route_background_item = pg.PlotDataItem(
             pen=pg.mkPen(QtGui.QColor(93, 173, 226, 45), width=2)
         )
         self.ideal_path_item = pg.PlotDataItem(
             pen=pg.mkPen(QtGui.QColor(244, 201, 93, 210), width=2, style=QtCore.Qt.PenStyle.DashLine)
+        )
+        self.reference_route_item = pg.PlotDataItem(
+            pen=pg.mkPen(QtGui.QColor(72, 201, 176, 220), width=2.5)
+        )
+        self.reference_start_item = pg.ScatterPlotItem(
+            pen=pg.mkPen("#ffffff", width=2),
+            brush=pg.mkBrush("#2ecc71"),
+            size=12,
+        )
+        self.reference_end_item = pg.ScatterPlotItem(
+            pen=pg.mkPen("#ffffff", width=2),
+            brush=pg.mkBrush("#e74c3c"),
+            size=12,
         )
         self.track_item = pg.PlotDataItem(pen=pg.mkPen("#5dade2", width=3))
         self.current_item = pg.ScatterPlotItem(
@@ -437,6 +456,9 @@ class GPSMapWindow(QtWidgets.QWidget):
         self.map_tile_item.setVisible(False)
         self.route_background_item.setZValue(0)
         self.ideal_path_item.setZValue(6)
+        self.reference_route_item.setZValue(7)
+        self.reference_start_item.setZValue(13)
+        self.reference_end_item.setZValue(13)
         self.track_item.setZValue(5)
         self.current_item.setZValue(10)
         self.ideal_current_item.setZValue(11)
@@ -444,6 +466,9 @@ class GPSMapWindow(QtWidgets.QWidget):
         self.plot.addItem(self.map_tile_item)
         self.plot.addItem(self.route_background_item)
         self.plot.addItem(self.ideal_path_item)
+        self.plot.addItem(self.reference_route_item)
+        self.plot.addItem(self.reference_start_item)
+        self.plot.addItem(self.reference_end_item)
         self.plot.addItem(self.track_item)
         self.plot.addItem(self.current_item)
         self.plot.addItem(self.ideal_current_item)
@@ -513,6 +538,69 @@ class GPSMapWindow(QtWidgets.QWidget):
     @property
     def ideal_current_position(self) -> tuple[float, float] | None:
         return self._ideal_current_position
+
+    @property
+    def reference_route_name(self) -> str:
+        return self._reference_route.name
+
+    @property
+    def reference_route_point_count(self) -> int:
+        return len(self._reference_route.points)
+
+    @property
+    def reference_route_visible(self) -> bool:
+        return self.reference_route_item.isVisible() and self.reference_route_point_count > 0
+
+    @property
+    def reference_route_start(self) -> tuple[float, float] | None:
+        return self._reference_route_positions[0] if self._reference_route_positions else None
+
+    @property
+    def reference_route_end(self) -> tuple[float, float] | None:
+        return self._reference_route_positions[-1] if self._reference_route_positions else None
+
+    @property
+    def reference_route(self) -> ReferenceRoute:
+        return self._reference_route
+
+    @property
+    def reference_route_edit_enabled(self) -> bool:
+        return self._reference_route_edit_enabled
+
+    def set_reference_route(self, route: ReferenceRoute) -> None:
+        self._reference_route = route
+        self._refresh_reference_route_items()
+
+    def clear_reference_route(self) -> None:
+        self.set_reference_route(ReferenceRoute(name=self._reference_route.name, points=()))
+
+    def set_reference_route_edit_enabled(self, enabled: bool) -> None:
+        self._reference_route_edit_enabled = bool(enabled)
+
+    def rename_reference_route(self, name: str) -> None:
+        cleaned = name.strip() or "Reference route"
+        self.set_reference_route(
+            ReferenceRoute(
+                name=cleaned,
+                points=self._reference_route.points,
+                created_at=self._reference_route.created_at,
+                metadata=dict(self._reference_route.metadata),
+                source_path=self._reference_route.source_path,
+            )
+        )
+
+    def add_reference_point_from_scene(self, scene_pos: QtCore.QPointF) -> None:
+        view_point = self.plot.plotItem.vb.mapSceneToView(scene_pos)
+        point = ReferenceRoutePoint(latitude=float(view_point.y()), longitude=float(view_point.x()))
+        self.set_reference_route(
+            ReferenceRoute(
+                name=self._reference_route.name,
+                points=(*self._reference_route.points, point),
+                created_at=self._reference_route.created_at,
+                metadata=dict(self._reference_route.metadata),
+                source_path=self._reference_route.source_path,
+            )
+        )
 
     def set_map_background_enabled(self, enabled: bool) -> None:
         enabled = bool(enabled)
@@ -676,9 +764,44 @@ class GPSMapWindow(QtWidgets.QWidget):
         self.ideal_path_label.setText(self.ideal_path_text())
         self._sync_hover_and_map_positions()
 
+    def _refresh_reference_route_items(self) -> None:
+        positions = tuple(
+            (point.latitude, point.longitude) for point in self._reference_route.points
+        )
+        self._reference_route_positions = positions
+        longitudes = tuple(position[1] for position in positions)
+        latitudes = tuple(position[0] for position in positions)
+        self.reference_route_item.setData(longitudes, latitudes)
+        self.reference_route_item.setVisible(bool(positions))
+        if positions:
+            self.reference_start_item.setData([{"pos": (positions[0][1], positions[0][0])}])
+            self.reference_end_item.setData([{"pos": (positions[-1][1], positions[-1][0])}])
+        else:
+            self.reference_start_item.setData([])
+            self.reference_end_item.setData([])
+        self._reference_hover_candidates = tuple(
+            _GPSHoverCandidate(
+                route_name=f"Reference: {self._reference_route.name}",
+                sample_index=index,
+                latitude=position[0],
+                longitude=position[1],
+            )
+            for index, position in enumerate(positions)
+        )
+        self._sync_hover_and_map_positions()
+        self._refresh_map_background()
+
     def _sync_hover_and_map_positions(self) -> None:
-        self._hover_candidates = self._route_hover_candidates + self._ideal_hover_candidates
-        self._all_positions = self._route_positions + self._ideal_valid_positions
+        self._hover_candidates = (
+            self._route_hover_candidates
+            + self._ideal_hover_candidates
+            + self._reference_hover_candidates
+        )
+        self._all_positions = (
+            self._route_positions
+            + self._ideal_valid_positions
+            + self._reference_route_positions
+        )
 
     def dispose(self) -> None:
         self._unsubscribe()
@@ -761,6 +884,15 @@ class GPSMapWindow(QtWidgets.QWidget):
         self._map_tile_loaded = False
         self._map_background_status = status
         self.map_background_label.setText(self.map_background_text())
+
+    def _handle_mouse_clicked(self, mouse_event: object) -> None:
+        if not self._reference_route_edit_enabled:
+            return
+        if not hasattr(mouse_event, "scenePos"):
+            return
+        self.add_reference_point_from_scene(mouse_event.scenePos())
+        if hasattr(mouse_event, "accept"):
+            mouse_event.accept()
 
     def _handle_mouse_moved(self, scene_pos: object) -> None:
         scene_pos = _single_scene_point(scene_pos)
