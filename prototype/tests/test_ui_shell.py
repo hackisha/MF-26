@@ -7,6 +7,7 @@ import pytest
 import shiboken6
 
 from mflog_proto.analysis.event_reviews import EventReviewState
+from mflog_proto.analysis.reference_route import ReferenceRoute, ReferenceRoutePoint
 from mflog_proto.analysis.segments import AnalysisSegment
 from mflog_proto.persistence.project_state import ProjectState, WindowState
 from mflog_proto.ui.main_window import DEFAULT_ANALYSIS_ITEMS, MainWindow, _root_asset_path
@@ -840,6 +841,51 @@ def test_gps_properties_enable_ideal_path_for_open_and_new_windows(qtbot):
 
     assert new_gps_window.ideal_path_visible is True
     assert new_gps_window.ideal_path_point_count == window.playback_state.sample_count
+
+
+def test_gps_properties_control_reference_route_for_open_and_new_windows(qtbot, tmp_path):
+    route_path = tmp_path / "reference.mflogroute"
+    window = MainWindow()
+    qtbot.addWidget(window)
+    gps_window = window.add_analysis_window("GPS Map").widget()
+
+    assert window.reference_route_edit_checkbox.objectName() == "referenceRouteEditCheckbox"
+    assert window.reference_route_points_label.text() == "0 points"
+
+    window.reference_route_name_edit.setText("Reference A")
+    window.reference_route_edit_checkbox.setChecked(True)
+    window.set_reference_route(
+        ReferenceRoute(
+            name="Reference A",
+            points=(ReferenceRoutePoint(35.0, 126.0), ReferenceRoutePoint(35.1, 126.1)),
+            created_at="2026-06-03T00:00:00+09:00",
+        )
+    )
+
+    assert gps_window.reference_route_name == "Reference A"
+    assert gps_window.reference_route_point_count == 2
+    assert window.reference_route_points_label.text() == "2 points"
+
+    assert window.save_reference_route_path(route_path) is True
+    window.clear_reference_route()
+    assert gps_window.reference_route_point_count == 0
+
+    assert window.load_reference_route_path(route_path) is True
+    new_gps_window = window.add_analysis_window("GPS Map").widget()
+    assert new_gps_window.reference_route_name == "Reference A"
+    assert new_gps_window.reference_route_point_count == 2
+
+
+def test_main_window_updates_reference_route_from_gps_map_edit_signal(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    gps_window = window.add_analysis_window("GPS Map").widget()
+    gps_window.set_reference_route(
+        ReferenceRoute(name="Edited", points=(ReferenceRoutePoint(35.0, 126.0),))
+    )
+    assert window.reference_route.name == "Edited"
+    assert len(window.reference_route.points) == 1
+    assert window.reference_route_points_label.text() == "1 points"
 
 
 def test_right_properties_selects_time_series_channels_for_open_and_new_windows(qtbot):

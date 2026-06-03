@@ -19,6 +19,11 @@ from mflog_proto.analysis.event_reviews import (
     build_event_reviews,
 )
 from mflog_proto.analysis.kinematics import compute_ideal_path
+from mflog_proto.analysis.reference_route import (
+    ReferenceRoute,
+    load_reference_route,
+    save_reference_route,
+)
 from mflog_proto.analysis.segments import (
     AnalysisSegment,
     SegmentSummary,
@@ -729,6 +734,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.loaded_csv_path: Path | None = None
         self.visualization_settings = VisualizationSettings()
         self.ideal_path_settings = IdealPathSettings()
+        self.reference_route = ReferenceRoute(name="Reference route", points=())
+        self.reference_route_path: Path | None = None
         self.sidebar_settings = SidebarSettings()
         self.vehicle_model_path = _root_asset_path("car.glb")
         self.vehicle_model_info = load_glb_info(self.vehicle_model_path)
@@ -748,6 +755,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._syncing_event_marker_selection = False
         self._syncing_time_series_channel_checks = False
         self._syncing_ideal_path_controls = False
+        self._syncing_reference_route_windows = False
         self._syncing_preset_tabs = False
         self.playback_timer = QtCore.QTimer(self)
         self.playback_timer.setInterval(33)
@@ -858,6 +866,8 @@ class MainWindow(QtWidgets.QMainWindow):
             selected_channels=tuple(self.selected_channels),
             playback_seconds=self.playback_state.current_seconds,
             vehicle_model_path=self.vehicle_model_path,
+            reference_route_path=self.reference_route_path,
+            reference_route_name=self.reference_route.name,
             event_reviews=self.event_reviews,
             analysis_segments=self.analysis_segments,
             selected_sidebar_group=self.selected_sidebar_group,
@@ -900,6 +910,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self._populate_time_series_channel_list()
         if state.vehicle_model_path is not None:
             self.load_vehicle_model_path(state.vehicle_model_path)
+        self.reference_route_path = state.reference_route_path
+        if state.reference_route_name:
+            self.reference_route = ReferenceRoute(
+                name=state.reference_route_name,
+                points=self.reference_route.points,
+                created_at=self.reference_route.created_at,
+                metadata=dict(self.reference_route.metadata),
+                source_path=self.reference_route_path,
+            )
+        if self.reference_route_path is not None and self.reference_route_path.exists():
+            self.load_reference_route_path(self.reference_route_path)
+        else:
+            self._refresh_reference_route_status()
         self._select_sidebar_group(self.selected_sidebar_group)
         self._restore_preset_tabs(state)
         self._clear_workspace()
@@ -1213,6 +1236,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 longitude=self.sensor_series["longitude"],
             )
         self._apply_ideal_path_to_gps_window(widget)
+        widget.set_reference_route(self.reference_route)
+        widget.referenceRouteChanged.connect(self._handle_gps_reference_route_changed)
+        if hasattr(self, "reference_route_edit_checkbox"):
+            widget.set_reference_route_edit_enabled(
+                self.reference_route_edit_checkbox.isChecked()
+            )
         return widget
 
     def _build_vehicle_model_window(self) -> VehicleModelWindow:
@@ -1519,6 +1548,31 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ideal_path_steering_channel_combo.currentTextChanged.connect(
             self._update_ideal_path_settings_from_controls
         )
+        self.reference_route_edit_checkbox = QtWidgets.QCheckBox("Edit route")
+        self.reference_route_edit_checkbox.setObjectName("referenceRouteEditCheckbox")
+        self.reference_route_edit_checkbox.toggled.connect(
+            self._update_reference_route_controls
+        )
+        self.reference_route_name_edit = QtWidgets.QLineEdit(self.reference_route.name)
+        self.reference_route_name_edit.setObjectName("referenceRouteNameEdit")
+        self.reference_route_name_edit.editingFinished.connect(
+            self._rename_reference_route_from_controls
+        )
+        self.reference_route_load_button = QtWidgets.QPushButton("Load route...")
+        self.reference_route_load_button.setObjectName("referenceRouteLoadButton")
+        self.reference_route_load_button.clicked.connect(
+            self._open_reference_route_load_dialog
+        )
+        self.reference_route_save_button = QtWidgets.QPushButton("Save route...")
+        self.reference_route_save_button.setObjectName("referenceRouteSaveButton")
+        self.reference_route_save_button.clicked.connect(
+            self._open_reference_route_save_dialog
+        )
+        self.reference_route_clear_button = QtWidgets.QPushButton("Clear")
+        self.reference_route_clear_button.setObjectName("referenceRouteClearButton")
+        self.reference_route_clear_button.clicked.connect(self.clear_reference_route)
+        self.reference_route_points_label = QtWidgets.QLabel("0 points")
+        self.reference_route_points_label.setObjectName("referenceRoutePointsLabel")
         self.graph_line_color_combo = QtWidgets.QComboBox()
         self.graph_line_color_combo.setObjectName("graphLineColorCombo")
         self.graph_line_color_combo.addItems(("Default", "Yellow", "Blue", "Green", "Red"))
@@ -1627,6 +1681,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 ("Wheelbase", self.ideal_path_wheelbase_spin),
                 ("Steering ratio", self.ideal_path_steering_ratio_spin),
                 ("Steering channel", self.ideal_path_steering_channel_combo),
+                ("Ref edit", self.reference_route_edit_checkbox),
+                ("Ref name", self.reference_route_name_edit),
+                ("Ref load", self.reference_route_load_button),
+                ("Ref save", self.reference_route_save_button),
+                ("Ref clear", self.reference_route_clear_button),
+                ("Ref points", self.reference_route_points_label),
             ),
         )
         self.gg_properties_page = self._make_properties_page(
@@ -1821,6 +1881,122 @@ class MainWindow(QtWidgets.QMainWindow):
             steering_channel=self.ideal_path_steering_channel_combo.currentText(),
         )
         self._apply_ideal_path_settings_to_open_windows()
+
+    def set_reference_route(self, route: ReferenceRoute) -> None:
+        self.reference_route = route
+        self.reference_route_path = route.source_path
+        if hasattr(self, "reference_route_name_edit"):
+            self.reference_route_name_edit.setText(route.name)
+        self._apply_reference_route_to_open_windows()
+        self._refresh_reference_route_status()
+
+    def clear_reference_route(self) -> None:
+        self.set_reference_route(ReferenceRoute(name=self.reference_route.name, points=()))
+
+    def load_reference_route_path(self, path: Path) -> bool:
+        try:
+            route = load_reference_route(path)
+        except (OSError, ValueError) as exc:
+            self.statusBar().showMessage(f"Reference route load failed: {exc}", 5000)
+            return False
+        self.set_reference_route(route)
+        self.statusBar().showMessage(f"Loaded reference route: {path.name}", 5000)
+        return True
+
+    def save_reference_route_path(self, path: Path) -> bool:
+        route = ReferenceRoute(
+            name=self.reference_route.name,
+            points=self.reference_route.points,
+            created_at=self.reference_route.created_at,
+            metadata=dict(self.reference_route.metadata),
+            source_path=path,
+        )
+        try:
+            save_reference_route(path, route)
+        except OSError as exc:
+            self.statusBar().showMessage(f"Reference route save failed: {exc}", 5000)
+            return False
+        self.reference_route = route
+        self.reference_route_path = path
+        self._apply_reference_route_to_open_windows()
+        self._refresh_reference_route_status()
+        self.statusBar().showMessage(f"Saved reference route: {path.name}", 5000)
+        return True
+
+    def _handle_gps_reference_route_changed(self, route: object) -> None:
+        if self._syncing_reference_route_windows or not isinstance(route, ReferenceRoute):
+            return
+        source_path = (
+            route.source_path if route.source_path is not None else self.reference_route_path
+        )
+        self.reference_route = ReferenceRoute(
+            name=route.name,
+            points=route.points,
+            created_at=route.created_at,
+            metadata=dict(route.metadata),
+            source_path=source_path,
+        )
+        self.reference_route_path = source_path
+        if hasattr(self, "reference_route_name_edit"):
+            self.reference_route_name_edit.setText(self.reference_route.name)
+        self._apply_reference_route_to_open_windows()
+        self._refresh_reference_route_status()
+
+    def _open_reference_route_load_dialog(self) -> None:
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Load reference route",
+            str(Path.cwd()),
+            "MF route (*.mflogroute);;JSON (*.json);;All files (*.*)",
+        )
+        if path:
+            self.load_reference_route_path(Path(path))
+
+    def _open_reference_route_save_dialog(self) -> None:
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Save reference route",
+            str(self.reference_route_path or Path.cwd() / "reference.mflogroute"),
+            "MF route (*.mflogroute);;JSON (*.json);;All files (*.*)",
+        )
+        if path:
+            self.save_reference_route_path(Path(path))
+
+    def _rename_reference_route_from_controls(self) -> None:
+        name = self.reference_route_name_edit.text().strip() or "Reference route"
+        self.set_reference_route(
+            ReferenceRoute(
+                name=name,
+                points=self.reference_route.points,
+                created_at=self.reference_route.created_at,
+                metadata=dict(self.reference_route.metadata),
+                source_path=self.reference_route_path,
+            )
+        )
+
+    def _update_reference_route_controls(self, *_args: object) -> None:
+        self._apply_reference_route_to_open_windows()
+
+    def _apply_reference_route_to_open_windows(self) -> None:
+        edit_enabled = (
+            hasattr(self, "reference_route_edit_checkbox")
+            and self.reference_route_edit_checkbox.isChecked()
+        )
+        self._syncing_reference_route_windows = True
+        try:
+            for sub_window in self.workspace.subWindowList():
+                widget = sub_window.widget()
+                if isinstance(widget, GPSMapWindow):
+                    widget.set_reference_route(self.reference_route)
+                    widget.set_reference_route_edit_enabled(edit_enabled)
+        finally:
+            self._syncing_reference_route_windows = False
+
+    def _refresh_reference_route_status(self) -> None:
+        if hasattr(self, "reference_route_points_label"):
+            self.reference_route_points_label.setText(
+                f"{len(self.reference_route.points)} points"
+            )
 
     def _update_sidebar_settings_from_controls(self, *_args: object) -> None:
         self.sidebar_settings = SidebarSettings(
