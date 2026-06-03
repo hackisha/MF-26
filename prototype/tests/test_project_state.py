@@ -29,6 +29,9 @@ def test_project_state_round_trips_json(tmp_path):
         vehicle_model_path=Path("models/custom-car.glb"),
         reference_route_path=Path("routes/endurance.mflogroute"),
         reference_route_name="Endurance reference",
+        video_path=Path("videos/endurance_gopro.mp4"),
+        video_offset_ms=-1250,
+        video_muted=False,
     )
 
     project_path = tmp_path / "session.mflogproto.json"
@@ -39,6 +42,9 @@ def test_project_state_round_trips_json(tmp_path):
     assert restored == state
     assert restored.reference_route_path == Path("routes/endurance.mflogroute")
     assert restored.reference_route_name == "Endurance reference"
+    assert restored.video_path == Path("videos/endurance_gopro.mp4")
+    assert restored.video_offset_ms == -1250
+    assert restored.video_muted is False
 
 
 def test_project_state_rejects_unknown_schema_version(tmp_path):
@@ -58,6 +64,9 @@ def test_project_state_defaults_optional_sections():
     assert state.vehicle_model_path is None
     assert state.reference_route_path is None
     assert state.reference_route_name == ""
+    assert state.video_path is None
+    assert state.video_offset_ms == 0
+    assert state.video_muted is True
 
 
 def test_project_state_v2_round_trips_event_reviews_and_segments(tmp_path):
@@ -104,3 +113,6 @@ def test_project_state_loads_v1_files_with_empty_integrated_ux_fields(tmp_path):
     assert restored.analysis_segments == ()
     assert restored.selected_sidebar_group == "시각화"
     assert restored.report_output_path is None
+    assert restored.video_path is None
+    assert restored.video_offset_ms == 0
+    assert restored.video_muted is True
