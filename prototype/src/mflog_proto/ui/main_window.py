@@ -1309,8 +1309,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 pass
         widget.load_button.clicked.connect(self._open_video_sync_dialog)
         widget.clear_button.clicked.connect(self.clear_video_sync)
-        widget.offset_spin.valueChanged.connect(self.set_video_sync_offset_ms)
-        widget.mute_checkbox.toggled.connect(self.set_video_sync_muted)
+        widget.videoOffsetChanged.connect(self.set_video_sync_offset_ms)
+        widget.videoMutedChanged.connect(self.set_video_sync_muted)
         return widget
 
     def _build_data_analysis_window(self) -> DataAnalysisWindow:
@@ -1982,22 +1982,22 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def load_video_sync_path(self, path: Path | str) -> None:
         self.video_path = Path(path)
-        self._apply_video_sync_to_open_windows()
+        self._apply_video_sync_to_open_windows(path=True, offset=False, muted=False)
         self._sync_video_sync_controls()
 
     def clear_video_sync(self) -> None:
         self.video_path = None
-        self._apply_video_sync_to_open_windows()
+        self._apply_video_sync_to_open_windows(path=True, offset=False, muted=False)
         self._sync_video_sync_controls()
 
     def set_video_sync_offset_ms(self, offset_ms: int) -> None:
         self.video_offset_ms = int(offset_ms)
-        self._apply_video_sync_to_open_windows()
+        self._apply_video_sync_to_open_windows(path=False, offset=True, muted=False)
         self._sync_video_sync_controls()
 
     def set_video_sync_muted(self, muted: bool) -> None:
         self.video_muted = bool(muted)
-        self._apply_video_sync_to_open_windows()
+        self._apply_video_sync_to_open_windows(path=False, offset=False, muted=True)
         self._sync_video_sync_controls()
 
     def _open_video_sync_dialog(self) -> None:
@@ -2010,13 +2010,22 @@ class MainWindow(QtWidgets.QMainWindow):
         if path:
             self.load_video_sync_path(path)
 
-    def _apply_video_sync_to_open_windows(self) -> None:
+    def _apply_video_sync_to_open_windows(
+        self,
+        *,
+        path: bool = True,
+        offset: bool = True,
+        muted: bool = True,
+    ) -> None:
         for sub_window in self.workspace.subWindowList():
             widget = sub_window.widget()
             if isinstance(widget, VideoSyncWindow):
-                widget.set_video_path(self.video_path)
-                widget.set_video_offset_ms(self.video_offset_ms)
-                widget.set_video_muted(self.video_muted)
+                if path:
+                    widget.set_video_path(self.video_path)
+                if offset:
+                    widget.set_video_offset_ms(self.video_offset_ms, notify=False)
+                if muted:
+                    widget.set_video_muted(self.video_muted, notify=False)
 
     def _sync_video_sync_controls(self) -> None:
         if not hasattr(self, "video_sync_path_edit"):

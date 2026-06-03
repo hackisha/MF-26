@@ -1019,6 +1019,9 @@ class _QtMediaVideoBackend(QtCore.QObject):
 
 
 class VideoSyncWindow(QtWidgets.QWidget):
+    videoOffsetChanged = QtCore.Signal(int)
+    videoMutedChanged = QtCore.Signal(bool)
+
     def __init__(
         self,
         playback_state: PlaybackState,
@@ -1122,8 +1125,12 @@ class VideoSyncWindow(QtWidgets.QWidget):
         return self.status_label.text()
 
     def set_video_path(self, path: Path | str | None) -> None:
+        had_warning = bool(self._warning_text)
         self._warning_text = ""
         if path in (None, ""):
+            if self._video_path is None:
+                self._refresh_sync()
+                return
             self._video_path = None
             if hasattr(self._backend, "clear_source"):
                 self._backend.clear_source()
@@ -1131,6 +1138,13 @@ class VideoSyncWindow(QtWidgets.QWidget):
             return
 
         candidate = Path(path)
+        if candidate == self._video_path and not had_warning:
+            self._refresh_sync()
+            return
+        if candidate == self._video_path and had_warning and not candidate.exists():
+            self._warning_text = f"Video missing: {candidate}"
+            self._refresh_sync()
+            return
         self._video_path = candidate
         if not candidate.exists():
             self._warning_text = f"Video missing: {candidate}"
@@ -1144,19 +1158,25 @@ class VideoSyncWindow(QtWidgets.QWidget):
             self._backend.set_source(candidate)
         self._refresh_sync()
 
-    def set_video_offset_ms(self, offset_ms: int) -> None:
-        self._video_offset_ms = int(offset_ms)
+    def set_video_offset_ms(self, offset_ms: int, *, notify: bool = True) -> None:
+        next_offset = int(offset_ms)
+        changed = next_offset != self._video_offset_ms
+        self._video_offset_ms = next_offset
         if self.offset_spin.value() != self._video_offset_ms:
             self.offset_spin.blockSignals(True)
             self.offset_spin.setValue(self._video_offset_ms)
             self.offset_spin.blockSignals(False)
         self._refresh_sync()
+        if changed and notify:
+            self.videoOffsetChanged.emit(self._video_offset_ms)
 
     def nudge_video_offset(self, delta_ms: int) -> None:
         self.set_video_offset_ms(self._video_offset_ms + int(delta_ms))
 
-    def set_video_muted(self, muted: bool) -> None:
-        self._video_muted = bool(muted)
+    def set_video_muted(self, muted: bool, *, notify: bool = True) -> None:
+        next_muted = bool(muted)
+        changed = next_muted != self._video_muted
+        self._video_muted = next_muted
         if self.mute_checkbox.isChecked() != self._video_muted:
             self.mute_checkbox.blockSignals(True)
             self.mute_checkbox.setChecked(self._video_muted)
@@ -1164,6 +1184,8 @@ class VideoSyncWindow(QtWidgets.QWidget):
         if hasattr(self._backend, "set_muted"):
             self._backend.set_muted(self._video_muted)
         self._refresh_status()
+        if changed and notify:
+            self.videoMutedChanged.emit(self._video_muted)
 
     def dispose(self) -> None:
         self._unsubscribe()
