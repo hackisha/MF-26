@@ -14,7 +14,7 @@ import urllib.request
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtMultimedia, QtMultimediaWidgets, QtWidgets
 
 from mflog_proto.analysis.dynamics import DynamicsSummary
 from mflog_proto.analysis.event_reviews import EventReview, EventReviewState
@@ -963,6 +963,245 @@ class GPSMapWindow(QtWidgets.QWidget):
         widget_pos = self.plot.mapFromScene(scene_pos)
         global_pos = self.plot.mapToGlobal(widget_pos)
         QtWidgets.QToolTip.showText(global_pos, detail, self.plot)
+
+
+class _QtMediaVideoBackend(QtCore.QObject):
+    def __init__(self, parent: QtCore.QObject | None = None) -> None:
+        super().__init__(parent)
+        self._player = QtMultimedia.QMediaPlayer(self)
+        self._audio_output = QtMultimedia.QAudioOutput(self)
+        self._player.setAudioOutput(self._audio_output)
+
+    @property
+    def duration_ms(self) -> int:
+        return int(self._player.duration())
+
+    @property
+    def position_ms(self) -> int:
+        return int(self._player.position())
+
+    @property
+    def error_text(self) -> str:
+        return self._player.errorString()
+
+    def set_video_output(self, video_widget: QtMultimediaWidgets.QVideoWidget) -> None:
+        self._player.setVideoOutput(video_widget)
+
+    def set_source(self, path: Path) -> None:
+        self._player.setSource(QtCore.QUrl.fromLocalFile(str(path)))
+
+    def clear_source(self) -> None:
+        self._player.setSource(QtCore.QUrl())
+
+    def set_position(self, position_ms: int) -> None:
+        self._player.setPosition(max(0, int(position_ms)))
+
+    def play(self) -> None:
+        self._player.play()
+
+    def pause(self) -> None:
+        self._player.pause()
+
+    def set_muted(self, muted: bool) -> None:
+        self._audio_output.setMuted(bool(muted))
+
+    def set_playback_rate(self, rate: float) -> None:
+        self._player.setPlaybackRate(float(rate))
+
+
+class VideoSyncWindow(QtWidgets.QWidget):
+    def __init__(
+        self,
+        playback_state: PlaybackState,
+        *,
+        video_path: Path | None = None,
+        video_offset_ms: int = 0,
+        video_muted: bool = True,
+        backend: object | None = None,
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("videoSyncWindow")
+        self._playback_state = playback_state
+        self._video_path: Path | None = None
+        self._video_offset_ms = int(video_offset_ms)
+        self._video_muted = bool(video_muted)
+        self._warning_text = ""
+        self._backend = backend if backend is not None else _QtMediaVideoBackend(self)
+        self._last_is_playing = playback_state.is_playing
+        self._unsubscribe = playback_state.subscribe(self._handle_cursor_event)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+
+        self.video_widget = QtMultimediaWidgets.QVideoWidget()
+        self.video_widget.setObjectName("videoSyncVideoWidget")
+        self.video_widget.setMinimumSize(320, 180)
+        self.video_widget.setStyleSheet("background: #11171b; border: 1px solid #53616b;")
+
+        self.status_label = QtWidgets.QLabel()
+        self.status_label.setObjectName("videoSyncStatusLabel")
+        self.status_label.setWordWrap(True)
+
+        self.offset_spin = QtWidgets.QSpinBox()
+        self.offset_spin.setObjectName("videoSyncOffsetSpin")
+        self.offset_spin.setRange(-3_600_000, 3_600_000)
+        self.offset_spin.setSuffix(" ms")
+        self.offset_spin.setValue(self._video_offset_ms)
+        self.offset_spin.valueChanged.connect(self.set_video_offset_ms)
+
+        self.mute_checkbox = QtWidgets.QCheckBox("Mute")
+        self.mute_checkbox.setObjectName("videoSyncMuteCheckbox")
+        self.mute_checkbox.setChecked(self._video_muted)
+        self.mute_checkbox.toggled.connect(self.set_video_muted)
+
+        self.load_button = QtWidgets.QPushButton("Load Video...")
+        self.load_button.setObjectName("videoSyncLoadButton")
+        self.load_button.clicked.connect(self._open_video_dialog)
+        self.clear_button = QtWidgets.QPushButton("Clear")
+        self.clear_button.setObjectName("videoSyncClearButton")
+        self.clear_button.clicked.connect(lambda: self.set_video_path(None))
+
+        control_row = QtWidgets.QHBoxLayout()
+        for delta in (-1000, -100, 100, 1000):
+            button = QtWidgets.QPushButton(f"{delta:+d}")
+            button.setObjectName(f"videoSyncNudge{delta:+d}Button")
+            button.clicked.connect(
+                lambda _checked=False, value=delta: self.nudge_video_offset(value)
+            )
+            control_row.addWidget(button)
+        control_row.addWidget(self.offset_spin)
+        control_row.addWidget(self.mute_checkbox)
+        control_row.addStretch(1)
+        control_row.addWidget(self.load_button)
+        control_row.addWidget(self.clear_button)
+
+        layout.addWidget(self.video_widget, 1)
+        layout.addLayout(control_row)
+        layout.addWidget(self.status_label)
+
+        if hasattr(self._backend, "set_video_output"):
+            self._backend.set_video_output(self.video_widget)
+        if hasattr(self._backend, "set_muted"):
+            self._backend.set_muted(self._video_muted)
+        if hasattr(self._backend, "set_playback_rate"):
+            self._backend.set_playback_rate(self._playback_state.playback_speed)
+        if video_path is not None:
+            self.set_video_path(video_path)
+        else:
+            self._refresh_sync()
+
+    def video_path(self) -> Path | None:
+        return self._video_path
+
+    def video_offset_ms(self) -> int:
+        return self._video_offset_ms
+
+    def video_muted(self) -> bool:
+        return self._video_muted
+
+    def target_video_time_ms(self) -> int:
+        raw_position = self._playback_state.current_time_ms + self._video_offset_ms
+        duration = int(getattr(self._backend, "duration_ms", 0) or 0)
+        lower_clamped = max(0, raw_position)
+        return min(lower_clamped, duration) if duration > 0 else lower_clamped
+
+    def status_text(self) -> str:
+        return self.status_label.text()
+
+    def set_video_path(self, path: Path | str | None) -> None:
+        self._warning_text = ""
+        if path in (None, ""):
+            self._video_path = None
+            if hasattr(self._backend, "clear_source"):
+                self._backend.clear_source()
+            self._refresh_sync()
+            return
+
+        candidate = Path(path)
+        self._video_path = candidate
+        if candidate.is_absolute() and not candidate.exists():
+            self._warning_text = f"Video missing: {candidate}"
+            self._refresh_sync()
+            return
+        if hasattr(self._backend, "set_source"):
+            self._backend.set_source(candidate)
+        self._refresh_sync()
+
+    def set_video_offset_ms(self, offset_ms: int) -> None:
+        self._video_offset_ms = int(offset_ms)
+        if self.offset_spin.value() != self._video_offset_ms:
+            self.offset_spin.blockSignals(True)
+            self.offset_spin.setValue(self._video_offset_ms)
+            self.offset_spin.blockSignals(False)
+        self._refresh_sync()
+
+    def nudge_video_offset(self, delta_ms: int) -> None:
+        self.set_video_offset_ms(self._video_offset_ms + int(delta_ms))
+
+    def set_video_muted(self, muted: bool) -> None:
+        self._video_muted = bool(muted)
+        if self.mute_checkbox.isChecked() != self._video_muted:
+            self.mute_checkbox.blockSignals(True)
+            self.mute_checkbox.setChecked(self._video_muted)
+            self.mute_checkbox.blockSignals(False)
+        if hasattr(self._backend, "set_muted"):
+            self._backend.set_muted(self._video_muted)
+        self._refresh_status()
+
+    def dispose(self) -> None:
+        self._unsubscribe()
+        if hasattr(self._backend, "pause"):
+            self._backend.pause()
+
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
+        self.dispose()
+        super().closeEvent(event)
+
+    def _open_video_dialog(self) -> None:
+        path, _selected_filter = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Load video",
+            str(Path.cwd()),
+            "Video files (*.mp4 *.mov *.m4v *.avi);;All files (*.*)",
+        )
+        if path:
+            self.set_video_path(path)
+
+    def _handle_cursor_event(self, event: CursorEvent) -> None:
+        if event.kind is not CursorKind.PLAYBACK:
+            return
+        self._refresh_sync()
+        if hasattr(self._backend, "set_playback_rate"):
+            self._backend.set_playback_rate(self._playback_state.playback_speed)
+        if self._playback_state.is_playing != self._last_is_playing:
+            self._last_is_playing = self._playback_state.is_playing
+            if self._playback_state.is_playing:
+                if hasattr(self._backend, "play"):
+                    self._backend.play()
+            elif hasattr(self._backend, "pause"):
+                self._backend.pause()
+
+    def _refresh_sync(self) -> None:
+        if (
+            self._video_path is not None
+            and not self._warning_text
+            and hasattr(self._backend, "set_position")
+        ):
+            self._backend.set_position(self.target_video_time_ms())
+        self._refresh_status()
+
+    def _refresh_status(self) -> None:
+        if self._warning_text:
+            self.status_label.setText(self._warning_text)
+            return
+        name = "-" if self._video_path is None else self._video_path.name
+        self.status_label.setText(
+            f"Video: {name} | CSV {_format_seconds(self._playback_state.current_time_ms)} | "
+            f"Video {_format_seconds(self.target_video_time_ms())} | "
+            f"Offset {self._video_offset_ms:+d} ms"
+        )
 
 
 class CurrentValuesWindow(QtWidgets.QWidget):
@@ -2494,6 +2733,10 @@ def load_glb_info(path: Path) -> GlbModelInfo:
 
 def _format_kib(byte_length: int) -> str:
     return f"{byte_length / 1024:.1f} KB"
+
+
+def _format_seconds(time_ms: int) -> str:
+    return f"{int(time_ms) / 1000:.3f} s"
 
 
 def _first_existing_channel(
