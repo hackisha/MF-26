@@ -27,12 +27,18 @@ def test_project_state_round_trips_json(tmp_path):
         preset_tab_order=("차량 거동", "GPS / LapTime"),
         active_tab_index=1,
         vehicle_model_path=Path("models/custom-car.glb"),
+        reference_route_path=Path("routes/endurance.mflogroute"),
+        reference_route_name="Endurance reference",
     )
 
     project_path = tmp_path / "session.mflogproto.json"
     save_project_state(project_path, state)
 
-    assert load_project_state(project_path) == state
+    restored = load_project_state(project_path)
+
+    assert restored == state
+    assert restored.reference_route_path == Path("routes/endurance.mflogroute")
+    assert restored.reference_route_name == "Endurance reference"
 
 
 def test_project_state_rejects_unknown_schema_version(tmp_path):
@@ -50,6 +56,8 @@ def test_project_state_defaults_optional_sections():
     assert state.open_windows == ()
     assert state.active_profile == "prototype"
     assert state.vehicle_model_path is None
+    assert state.reference_route_path is None
+    assert state.reference_route_name == ""
 
 
 def test_project_state_v2_round_trips_event_reviews_and_segments(tmp_path):
