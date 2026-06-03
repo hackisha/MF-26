@@ -365,6 +365,8 @@ class GGDiagramWindow(QtWidgets.QWidget):
 
 
 class GPSMapWindow(QtWidgets.QWidget):
+    referenceRouteChanged = QtCore.Signal(object)
+
     def __init__(
         self,
         playback_state: PlaybackState,
@@ -570,6 +572,7 @@ class GPSMapWindow(QtWidgets.QWidget):
     def set_reference_route(self, route: ReferenceRoute) -> None:
         self._reference_route = route
         self._refresh_reference_route_items()
+        self.referenceRouteChanged.emit(self._reference_route)
 
     def clear_reference_route(self) -> None:
         self.set_reference_route(ReferenceRoute(name=self._reference_route.name, points=()))
@@ -888,9 +891,16 @@ class GPSMapWindow(QtWidgets.QWidget):
     def _handle_mouse_clicked(self, mouse_event: object) -> None:
         if not self._reference_route_edit_enabled:
             return
-        if not hasattr(mouse_event, "scenePos"):
+        if not hasattr(mouse_event, "button") or not hasattr(mouse_event, "scenePos"):
             return
-        self.add_reference_point_from_scene(mouse_event.scenePos())
+        if mouse_event.button() != QtCore.Qt.MouseButton.LeftButton:
+            return
+        scene_pos = mouse_event.scenePos()
+        if not isinstance(scene_pos, QtCore.QPointF):
+            return
+        if not self.plot.plotItem.vb.sceneBoundingRect().contains(scene_pos):
+            return
+        self.add_reference_point_from_scene(scene_pos)
         if hasattr(mouse_event, "accept"):
             mouse_event.accept()
 

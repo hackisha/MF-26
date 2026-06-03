@@ -57,6 +57,27 @@ class FakeMosaicTileProvider(OpenStreetMapTileProvider):
         return image
 
 
+class FakeClick:
+    def __init__(
+        self,
+        scene_pos=None,
+        *,
+        button=QtCore.Qt.MouseButton.LeftButton,
+    ):
+        self._scene_pos = scene_pos
+        self._button = button
+        self.accepted = False
+
+    def scenePos(self):
+        return self._scene_pos
+
+    def button(self):
+        return self._button
+
+    def accept(self):
+        self.accepted = True
+
+
 def test_osm_tile_provider_builds_high_resolution_mosaic_for_gps_bounds(tmp_path):
     provider = FakeMosaicTileProvider(tmp_path)
     latitudes = [35.2915, 35.2930, 35.2931]
@@ -293,17 +314,6 @@ def test_gps_map_draws_reference_route_with_start_and_end(qtbot):
 
 
 def test_gps_map_edit_mode_click_adds_reference_points(qtbot):
-    class FakeClick:
-        def __init__(self, scene_pos):
-            self._scene_pos = scene_pos
-            self.accepted = False
-
-        def scenePos(self):
-            return self._scene_pos
-
-        def accept(self):
-            self.accepted = True
-
     playback = PlaybackState(timestamps=[0.0, 0.1])
     window = GPSMapWindow(playback)
     qtbot.addWidget(window)
@@ -328,6 +338,71 @@ def test_gps_map_edit_mode_click_adds_reference_points(qtbot):
     assert window.reference_route_point_count == 1
     assert window.reference_route_start == pytest.approx((37.0, 127.0))
     assert window.reference_route_end == pytest.approx((37.0, 127.0))
+
+
+def test_gps_map_edit_mode_ignores_non_left_and_out_of_bounds_clicks(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1])
+    window = GPSMapWindow(playback)
+    qtbot.addWidget(window)
+    window.resize(640, 360)
+    window.show()
+    window.plot.setXRange(126.999, 127.001)
+    window.plot.setYRange(36.999, 37.001)
+    qtbot.waitExposed(window)
+    window.set_reference_route_edit_enabled(True)
+
+    scene_pos = window.plot.plotItem.vb.mapViewToScene(QtCore.QPointF(127.0, 37.0))
+    right_click = FakeClick(scene_pos, button=QtCore.Qt.MouseButton.RightButton)
+    window._handle_mouse_clicked(right_click)
+
+    assert right_click.accepted is False
+    assert window.reference_route_point_count == 0
+
+    outside_pos = window.plot.plotItem.vb.sceneBoundingRect().bottomRight() + QtCore.QPointF(
+        20.0,
+        20.0,
+    )
+    outside_click = FakeClick(outside_pos)
+    window._handle_mouse_clicked(outside_click)
+
+    assert outside_click.accepted is False
+    assert window.reference_route_point_count == 0
+
+
+def test_gps_map_emits_reference_route_changed_for_route_updates(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1])
+    window = GPSMapWindow(playback)
+    qtbot.addWidget(window)
+    emitted_routes = []
+    window.referenceRouteChanged.connect(emitted_routes.append)
+
+    route = ReferenceRoute(
+        name="Reference A",
+        points=(ReferenceRoutePoint(37.0, 127.0),),
+        created_at="2026-06-03T00:00:00+09:00",
+    )
+    window.set_reference_route(route)
+
+    assert emitted_routes[-1] is route
+
+    window.rename_reference_route("Renamed")
+
+    assert emitted_routes[-1].name == "Renamed"
+    assert emitted_routes[-1].points == route.points
+
+    scene_pos = window.plot.plotItem.vb.mapViewToScene(QtCore.QPointF(127.0002, 37.0001))
+    window.add_reference_point_from_scene(scene_pos)
+
+    assert emitted_routes[-1].name == "Renamed"
+    assert len(emitted_routes[-1].points) == 2
+    assert emitted_routes[-1].points[-1].latitude == pytest.approx(37.0001)
+    assert emitted_routes[-1].points[-1].longitude == pytest.approx(127.0002)
+
+    window.clear_reference_route()
+
+    assert emitted_routes[-1].name == "Renamed"
+    assert emitted_routes[-1].points == ()
+    assert len(emitted_routes) == 4
 
 
 def test_gps_map_toggles_real_map_background(qtbot):
