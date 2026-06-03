@@ -880,6 +880,9 @@ class MainWindow(QtWidgets.QMainWindow):
             vehicle_model_path=self.vehicle_model_path,
             reference_route_path=self.reference_route_path,
             reference_route_name=self.reference_route.name,
+            video_path=self.video_path,
+            video_offset_ms=self.video_offset_ms,
+            video_muted=self.video_muted,
             event_reviews=self.event_reviews,
             analysis_segments=self.analysis_segments,
             selected_sidebar_group=self.selected_sidebar_group,
@@ -928,6 +931,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._set_empty_restored_reference_route(state)
         else:
             self._set_empty_restored_reference_route(state)
+        self.video_path = state.video_path
+        self.video_offset_ms = state.video_offset_ms
+        self.video_muted = state.video_muted
+        self._sync_video_sync_controls()
         self._select_sidebar_group(self.selected_sidebar_group)
         self._restore_preset_tabs(state)
         self._clear_workspace()

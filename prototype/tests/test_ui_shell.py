@@ -1396,6 +1396,23 @@ def test_main_window_captures_integrated_analysis_state(qtbot, tmp_path):
     assert state.selected_sidebar_group == "분석"
 
 
+def test_main_window_captures_video_sync_project_state(qtbot, tmp_path):
+    video_path = tmp_path / "drive.mp4"
+    video_path.write_bytes(b"placeholder")
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+    window.load_video_sync_path(video_path)
+    window.set_video_sync_offset_ms(1250)
+    window.set_video_sync_muted(False)
+
+    state = window.capture_project_state(csv_path="example.csv")
+
+    assert state.video_path == video_path
+    assert state.video_offset_ms == 1250
+    assert state.video_muted is False
+
+
 def test_main_window_restores_workspace_project_state(qtbot):
     source = MainWindow()
     qtbot.addWidget(source)
@@ -1416,6 +1433,57 @@ def test_main_window_restores_workspace_project_state(qtbot):
     assert restored.active_profile == "mf_2026"
     assert restored.playback_state.current_sample == 12
     assert restored.timeline_status.text() == "시간 1.200 s | 샘플 12"
+
+
+def test_main_window_restores_video_sync_project_state_for_new_windows(qtbot, tmp_path):
+    video_path = tmp_path / "drive.mp4"
+    video_path.write_bytes(b"placeholder")
+    state = ProjectState(
+        video_path=video_path,
+        video_offset_ms=-250,
+        video_muted=False,
+        open_windows=(WindowState("Video Sync", 10, 20, 620, 420),),
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+
+    window.restore_project_state(state)
+    video_window = window.workspace.subWindowList()[0].widget()
+    next_video_window = window.add_analysis_window("Video Sync").widget()
+
+    assert isinstance(video_window, VideoSyncWindow)
+    assert video_window.video_path() == video_path
+    assert video_window.video_offset_ms() == -250
+    assert video_window.video_muted() is False
+    assert next_video_window.video_path() == video_path
+    assert next_video_window.video_offset_ms() == -250
+    assert next_video_window.video_muted() is False
+    assert window.video_sync_path_edit.text() == str(video_path)
+    assert window.video_sync_offset_spin.value() == -250
+    assert window.video_sync_mute_checkbox.isChecked() is False
+
+
+def test_main_window_restores_missing_video_without_blocking_project(qtbot, tmp_path):
+    missing_video = tmp_path / "missing.mp4"
+    state = ProjectState(
+        video_path=missing_video,
+        video_offset_ms=500,
+        video_muted=True,
+        open_windows=(WindowState("Video Sync", 0, 0, 620, 420),),
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+
+    window.restore_project_state(state)
+    video_window = window.workspace.subWindowList()[0].widget()
+
+    assert isinstance(video_window, VideoSyncWindow)
+    assert video_window.video_path() == missing_video
+    assert video_window.video_offset_ms() == 500
+    assert "missing" in video_window.status_text().lower()
+    assert window.video_path == missing_video
 
 
 def test_main_window_restores_event_reviews_segments_and_report_path(qtbot, tmp_path):
