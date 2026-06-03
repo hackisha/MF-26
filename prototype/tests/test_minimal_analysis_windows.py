@@ -91,6 +91,7 @@ class FakeVideoBackend:
         self.pause_called = 0
         self.source_path = None
         self.error_text = ""
+        self.on_duration_changed = None
 
     def set_video_output(self, _video_widget):
         self.video_output_set = True
@@ -115,6 +116,14 @@ class FakeVideoBackend:
 
     def set_playback_rate(self, rate):
         self.playback_rate = float(rate)
+
+    def set_duration_changed_callback(self, callback):
+        self.on_duration_changed = callback
+
+    def set_duration_ms(self, value):
+        self.duration_ms = int(value)
+        if self.on_duration_changed is not None:
+            self.on_duration_changed(self.duration_ms)
 
 
 def test_video_sync_window_seeks_backend_from_playback_time_and_offset(qtbot, tmp_path):
@@ -165,10 +174,12 @@ def test_video_sync_window_clamps_target_time_and_updates_offset(qtbot, tmp_path
     assert backend.position_ms == 1500
 
 
-def test_video_sync_window_follows_play_pause_speed_and_mute(qtbot):
+def test_video_sync_window_follows_play_pause_speed_and_mute(qtbot, tmp_path):
+    path = tmp_path / "drive.mp4"
+    path.write_bytes(b"placeholder")
     playback = PlaybackState(timestamps=[0.0, 1.0])
     backend = FakeVideoBackend()
-    window = VideoSyncWindow(playback, video_path=Path("drive.mp4"), backend=backend)
+    window = VideoSyncWindow(playback, video_path=path, backend=backend)
     qtbot.addWidget(window)
 
     playback.set_speed(2.0)
@@ -224,6 +235,46 @@ def test_video_sync_window_clamps_to_zero_when_duration_is_zero(qtbot, tmp_path)
 
     assert window.target_video_time_ms() == 0
     assert backend.position_ms == 0
+
+
+def test_video_sync_window_clears_previous_source_when_missing_path_selected(qtbot, tmp_path):
+    valid = tmp_path / "drive.mp4"
+    valid.write_bytes(b"placeholder")
+    missing = tmp_path / "missing.mp4"
+    playback = PlaybackState(timestamps=[0.0, 1.0])
+    backend = FakeVideoBackend(duration_ms=10_000)
+    window = VideoSyncWindow(playback, video_path=valid, backend=backend)
+    qtbot.addWidget(window)
+
+    assert backend.source_path == valid
+
+    window.set_video_path(missing)
+
+    assert "missing" in window.status_text().lower()
+    assert backend.source_path is None
+    assert backend.pause_called >= 1
+
+
+def test_video_sync_window_resyncs_when_backend_duration_changes(qtbot, tmp_path):
+    path = tmp_path / "drive.mp4"
+    path.write_bytes(b"placeholder")
+    playback = PlaybackState(timestamps=[0.0, 1.0, 2.0])
+    backend = FakeVideoBackend(duration_ms=0)
+    window = VideoSyncWindow(
+        playback,
+        video_path=path,
+        video_offset_ms=250,
+        backend=backend,
+    )
+    qtbot.addWidget(window)
+
+    playback.set_time_ms(1000)
+    assert backend.position_ms == 0
+
+    backend.set_duration_ms(10_000)
+
+    assert window.target_video_time_ms() == 1250
+    assert backend.position_ms == 1250
 
 
 def test_osm_tile_provider_builds_high_resolution_mosaic_for_gps_bounds(tmp_path):

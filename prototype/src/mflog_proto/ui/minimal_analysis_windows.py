@@ -971,6 +971,8 @@ class _QtMediaVideoBackend(QtCore.QObject):
         self._player = QtMultimedia.QMediaPlayer(self)
         self._audio_output = QtMultimedia.QAudioOutput(self)
         self._player.setAudioOutput(self._audio_output)
+        self._duration_changed_callback: Callable[[int], None] | None = None
+        self._player.durationChanged.connect(self._handle_duration_changed)
 
     @property
     def duration_ms(self) -> int:
@@ -1007,6 +1009,13 @@ class _QtMediaVideoBackend(QtCore.QObject):
 
     def set_playback_rate(self, rate: float) -> None:
         self._player.setPlaybackRate(float(rate))
+
+    def set_duration_changed_callback(self, callback: Callable[[int], None] | None) -> None:
+        self._duration_changed_callback = callback
+
+    def _handle_duration_changed(self, duration_ms: int) -> None:
+        if self._duration_changed_callback is not None:
+            self._duration_changed_callback(int(duration_ms))
 
 
 class VideoSyncWindow(QtWidgets.QWidget):
@@ -1087,6 +1096,8 @@ class VideoSyncWindow(QtWidgets.QWidget):
             self._backend.set_muted(self._video_muted)
         if hasattr(self._backend, "set_playback_rate"):
             self._backend.set_playback_rate(self._playback_state.playback_speed)
+        if hasattr(self._backend, "set_duration_changed_callback"):
+            self._backend.set_duration_changed_callback(self._handle_backend_duration_changed)
         if video_path is not None:
             self.set_video_path(video_path)
         else:
@@ -1123,6 +1134,10 @@ class VideoSyncWindow(QtWidgets.QWidget):
         self._video_path = candidate
         if not candidate.exists():
             self._warning_text = f"Video missing: {candidate}"
+            if hasattr(self._backend, "pause"):
+                self._backend.pause()
+            if hasattr(self._backend, "clear_source"):
+                self._backend.clear_source()
             self._refresh_sync()
             return
         if hasattr(self._backend, "set_source"):
@@ -1182,6 +1197,9 @@ class VideoSyncWindow(QtWidgets.QWidget):
                     self._backend.play()
             elif hasattr(self._backend, "pause"):
                 self._backend.pause()
+
+    def _handle_backend_duration_changed(self, _duration_ms: int) -> None:
+        self._refresh_sync()
 
     def _refresh_sync(self) -> None:
         if (
