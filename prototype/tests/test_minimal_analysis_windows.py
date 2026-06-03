@@ -293,6 +293,17 @@ def test_gps_map_draws_reference_route_with_start_and_end(qtbot):
 
 
 def test_gps_map_edit_mode_click_adds_reference_points(qtbot):
+    class FakeClick:
+        def __init__(self, scene_pos):
+            self._scene_pos = scene_pos
+            self.accepted = False
+
+        def scenePos(self):
+            return self._scene_pos
+
+        def accept(self):
+            self.accepted = True
+
     playback = PlaybackState(timestamps=[0.0, 0.1])
     window = GPSMapWindow(playback)
     qtbot.addWidget(window)
@@ -302,10 +313,18 @@ def test_gps_map_edit_mode_click_adds_reference_points(qtbot):
     window.plot.setYRange(36.999, 37.001)
     qtbot.waitExposed(window)
 
-    window.set_reference_route_edit_enabled(True)
     scene_pos = window.plot.plotItem.vb.mapViewToScene(QtCore.QPointF(127.0, 37.0))
-    window.add_reference_point_from_scene(scene_pos)
+    ignored_click = FakeClick(scene_pos)
+    window._handle_mouse_clicked(ignored_click)
 
+    assert ignored_click.accepted is False
+    assert window.reference_route_point_count == 0
+
+    window.set_reference_route_edit_enabled(True)
+    click = FakeClick(scene_pos)
+    window._handle_mouse_clicked(click)
+
+    assert click.accepted is True
     assert window.reference_route_point_count == 1
     assert window.reference_route_start == pytest.approx((37.0, 127.0))
     assert window.reference_route_end == pytest.approx((37.0, 127.0))
