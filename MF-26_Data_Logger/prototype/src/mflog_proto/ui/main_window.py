@@ -91,6 +91,13 @@ class SidebarSettings:
     width_px: int = 260
 
 
+@dataclass(frozen=True)
+class AnalysisPresetMode:
+    windows: tuple[str, ...]
+    channels: tuple[str, ...] = ()
+    focus_window: str = ""
+
+
 class _AnalysisWindowOverlayControls(QtCore.QObject):
     def __init__(
         self,
@@ -623,62 +630,83 @@ WORKSPACE_LAYOUT_PRESETS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-PRESET_TAB_WINDOW_SETS: tuple[tuple[str, ...], ...] = (
-    (
-        "Time-Series Graph",
-        "GPS Map",
-        "G-G Diagram",
-        "Vehicle Dynamics",
+PRESET_TAB_MODES: tuple[AnalysisPresetMode, ...] = (
+    AnalysisPresetMode(
+        windows=("Time-Series Graph", "GPS Map", "G-G Diagram", "Vehicle Dynamics"),
+        channels=(
+            "RPM",
+            "TPS_percent",
+            "VSS / GPS speed",
+            "AX_CORRECTED_G",
+            "AY_CORRECTED_G",
+            "yaw rate",
+        ),
+        focus_window="Time-Series Graph",
     ),
-    (
-        "GPS Map",
-        "Time-Series Graph",
-        "Segment Analysis",
+    AnalysisPresetMode(
+        windows=("GPS Map", "Time-Series Graph", "Segment Analysis"),
+        channels=("GPS speed", "VSS / GPS speed", "yaw rate"),
+        focus_window="GPS Map",
     ),
-    (
-        "Time-Series Graph",
-        "Data Analysis",
-        "Current Values Table",
-        "Event Review",
+    AnalysisPresetMode(
+        windows=(
+            "Time-Series Graph",
+            "Data Analysis",
+            "Current Values Table",
+            "Event Review",
+        ),
+        channels=("Battery voltage", "VSS / GPS speed", "RPM"),
+        focus_window="Time-Series Graph",
     ),
-    (
-        "Time-Series Graph",
-        "Data Analysis",
-        "Event Review",
-        "Current Values Table",
+    AnalysisPresetMode(
+        windows=(
+            "Time-Series Graph",
+            "Data Analysis",
+            "Event Review",
+            "Current Values Table",
+        ),
+        channels=("RPM", "TPS_percent", "Battery voltage", "yaw rate"),
+        focus_window="Time-Series Graph",
     ),
-    (
-        "Time-Series Graph",
-        "Data Analysis",
-        "Event Review",
+    AnalysisPresetMode(
+        windows=("Time-Series Graph", "Data Analysis", "Event Review"),
+        channels=("TPS_percent", "RPM", "VSS / GPS speed"),
+        focus_window="Time-Series Graph",
     ),
-    (
-        "Time-Series Graph",
-        "Current Values Table",
-        "Event Review",
+    AnalysisPresetMode(
+        windows=("Time-Series Graph", "Current Values Table", "Event Review"),
+        channels=("Battery voltage", "RPM", "TPS_percent"),
+        focus_window="Time-Series Graph",
     ),
-    (
-        "Time-Series Graph",
-        "G-G Diagram",
-        "Vehicle Dynamics",
+    AnalysisPresetMode(
+        windows=("Time-Series Graph", "G-G Diagram", "Vehicle Dynamics"),
+        channels=(
+            "AX_CORRECTED_G",
+            "AY_CORRECTED_G",
+            "roll rate",
+            "pitch rate",
+            "yaw rate",
+        ),
+        focus_window="G-G Diagram",
     ),
-    (
-        "Data Analysis",
-        "Vehicle Dynamics",
-        "Segment Analysis",
-        "Export Report",
+    AnalysisPresetMode(
+        windows=("Data Analysis", "Vehicle Dynamics", "Segment Analysis", "Export Report"),
+        channels=("RPM", "VSS / GPS speed", "AX_CORRECTED_G", "AY_CORRECTED_G"),
+        focus_window="Data Analysis",
     ),
-    (
-        "Documents",
-        "Export Report",
-        "Benchmark Summary",
+    AnalysisPresetMode(
+        windows=("Documents", "Export Report", "Benchmark Summary"),
+        focus_window="Documents",
     ),
-    (
-        "Time-Series Graph",
-        "GPS Map",
-        "G-G Diagram",
-        "Current Values Table",
+    AnalysisPresetMode(
+        windows=("Time-Series Graph", "GPS Map", "G-G Diagram", "Current Values Table"),
+        channels=("RPM", "TPS_percent"),
+        focus_window="Time-Series Graph",
     ),
+)
+
+PRESET_TAB_WINDOW_SETS: tuple[tuple[str, ...], ...] = tuple(
+    mode.windows for mode in PRESET_TAB_MODES
 )
 
 
@@ -932,23 +960,63 @@ class MainWindow(QtWidgets.QMainWindow):
             sub_window.deleteLater()
 
     def workspace_preset_names(self) -> tuple[str, ...]:
-        return tuple(WORKSPACE_LAYOUT_PRESETS)
+        return ()
 
     def preset_tab_window_sets(self) -> tuple[tuple[str, ...], ...]:
         return PRESET_TAB_WINDOW_SETS
 
     def preset_tab_window_titles(self, index: int) -> tuple[str, ...]:
-        if index < 0 or index >= len(PRESET_TAB_WINDOW_SETS):
+        mode = self.preset_tab_mode(index)
+        if mode is None:
             return ()
-        return PRESET_TAB_WINDOW_SETS[index]
+        return mode.windows
+
+    def preset_tab_mode(self, index: int) -> AnalysisPresetMode | None:
+        if index < 0:
+            return None
+        mode_index = index
+        if hasattr(self, "preset_tabs") and index < self.preset_tabs.count():
+            tab_title = self.preset_tabs.tabText(index)
+            try:
+                mode_index = DEFAULT_PRESET_TABS.index(tab_title)
+            except ValueError:
+                mode_index = index
+        if mode_index < 0 or mode_index >= len(PRESET_TAB_MODES):
+            return None
+        return PRESET_TAB_MODES[mode_index]
 
     def apply_preset_tab(self, index: int) -> None:
         if self._syncing_preset_tabs or not hasattr(self, "workspace"):
             return
-        titles = self.preset_tab_window_titles(index)
-        if not titles:
+        mode = self.preset_tab_mode(index)
+        if mode is None:
             return
-        self._open_and_arrange_analysis_windows(titles)
+        self._apply_analysis_preset_mode(mode)
+
+    def _apply_analysis_preset_mode(self, mode: AnalysisPresetMode) -> None:
+        self._apply_preset_time_series_channels(mode.channels)
+        target_windows = self._open_and_arrange_analysis_windows(
+            mode.windows,
+            focus_title=mode.focus_window,
+        )
+        focus_title = (
+            mode.focus_window
+            or (target_windows[0].windowTitle() if target_windows else "")
+        )
+        if focus_title:
+            self._select_sidebar_group_for_window(focus_title)
+
+    def _apply_preset_time_series_channels(self, channel_ids: Sequence[str]) -> None:
+        if not channel_ids:
+            return
+        selected = [
+            channel_id for channel_id in channel_ids if channel_id in self.sensor_series
+        ]
+        if not selected:
+            return
+        self.selected_channels = selected
+        self._populate_time_series_channel_list()
+        self._apply_time_series_channels_to_open_windows()
 
     def apply_workspace_preset(self, preset_name: str) -> None:
         titles = WORKSPACE_LAYOUT_PRESETS.get(preset_name)
@@ -959,6 +1027,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def _open_and_arrange_analysis_windows(
         self,
         titles: Sequence[str],
+        *,
+        focus_title: str = "",
     ) -> list[QtWidgets.QMdiSubWindow]:
         target_windows: list[QtWidgets.QMdiSubWindow] = []
         for title in titles:
@@ -969,8 +1039,16 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._arrange_analysis_windows(target_windows)
         if target_windows:
-            self.workspace.setActiveSubWindow(target_windows[0])
-            self._update_properties_for_active_window(target_windows[0])
+            focus_window = next(
+                (
+                    sub_window
+                    for sub_window in target_windows
+                    if sub_window.windowTitle() == focus_title
+                ),
+                target_windows[0],
+            )
+            self.workspace.setActiveSubWindow(focus_window)
+            self._update_properties_for_active_window(focus_window)
         return target_windows
 
     def tile_analysis_windows(self) -> None:
@@ -1323,20 +1401,10 @@ class MainWindow(QtWidgets.QMainWindow):
         command_layout = QtWidgets.QHBoxLayout(self.workspace_command_bar)
         command_layout.setContentsMargins(8, 5, 8, 5)
         command_layout.setSpacing(6)
-        command_label = QtWidgets.QLabel("Layout")
-        command_label.setObjectName("workspaceCommandLabel")
-        command_layout.addWidget(command_label)
+        self.workspace_command_bar_title = QtWidgets.QLabel("Window tools")
+        self.workspace_command_bar_title.setObjectName("workspaceCommandLabel")
+        command_layout.addWidget(self.workspace_command_bar_title)
         self.workspace_preset_buttons: dict[str, QtWidgets.QToolButton] = {}
-        for preset_name in WORKSPACE_LAYOUT_PRESETS:
-            button = QtWidgets.QToolButton()
-            button.setObjectName(_object_name(preset_name, suffix="PresetButton"))
-            button.setText(preset_name)
-            button.setToolTip(f"Apply {preset_name} workspace")
-            button.clicked.connect(
-                lambda _checked=False, name=preset_name: self.apply_workspace_preset(name)
-            )
-            command_layout.addWidget(button)
-            self.workspace_preset_buttons[preset_name] = button
         command_layout.addStretch(1)
         self.tile_workspace_button = QtWidgets.QToolButton()
         self.tile_workspace_button.setObjectName("tileWorkspaceButton")
@@ -2067,6 +2135,18 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.analysis_tree.setCurrentItem(group_item)
                 self.selected_sidebar_group = group_name
                 return
+
+    def _select_sidebar_group_for_window(self, title: str) -> None:
+        if not hasattr(self, "analysis_tree"):
+            return
+        for group_index in range(self.analysis_tree.topLevelItemCount()):
+            group_item = self.analysis_tree.topLevelItem(group_index)
+            for child_index in range(group_item.childCount()):
+                child_item = group_item.child(child_index)
+                if child_item.text(0) == title:
+                    self.analysis_tree.setCurrentItem(group_item)
+                    self.selected_sidebar_group = group_item.text(0)
+                    return
 
     def _add_selected_analysis_window(self) -> None:
         tree_item = self.analysis_tree.currentItem() if hasattr(self, "analysis_tree") else None
