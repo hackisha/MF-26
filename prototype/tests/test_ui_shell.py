@@ -1484,6 +1484,7 @@ def test_main_window_restores_missing_video_without_blocking_project(qtbot, tmp_
     assert video_window.video_offset_ms() == 500
     assert "missing" in video_window.status_text().lower()
     assert window.video_path == missing_video
+    assert "missing" in window.video_sync_status_label.text().lower()
 
 
 def test_main_window_restores_event_reviews_segments_and_report_path(qtbot, tmp_path):

@@ -2046,9 +2046,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.video_sync_mute_checkbox.blockSignals(True)
         self.video_sync_mute_checkbox.setChecked(self.video_muted)
         self.video_sync_mute_checkbox.blockSignals(False)
-        self.video_sync_status_label.setText(
-            "No video loaded" if self.video_path is None else f"Video: {self.video_path.name}"
-        )
+        if self.video_path is None:
+            status_text = "No video loaded"
+        elif not self.video_path.exists():
+            status_text = f"Video missing: {self.video_path}"
+        else:
+            status_text = f"Video: {self.video_path.name}"
+        self.video_sync_status_label.setText(status_text)
 
     def load_reference_route_path(self, path: Path) -> bool:
         try:
