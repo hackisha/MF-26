@@ -1132,6 +1132,8 @@ class VideoSyncWindow(QtWidgets.QWidget):
                 self._refresh_sync()
                 return
             self._video_path = None
+            if hasattr(self._backend, "pause"):
+                self._backend.pause()
             if hasattr(self._backend, "clear_source"):
                 self._backend.clear_source()
             self._refresh_sync()
@@ -1140,6 +1142,7 @@ class VideoSyncWindow(QtWidgets.QWidget):
         candidate = Path(path)
         if candidate == self._video_path and not had_warning:
             self._refresh_sync()
+            self._apply_transport_state(force=True)
             return
         if candidate == self._video_path and had_warning and not candidate.exists():
             self._warning_text = f"Video missing: {candidate}"
@@ -1157,6 +1160,7 @@ class VideoSyncWindow(QtWidgets.QWidget):
         if hasattr(self._backend, "set_source"):
             self._backend.set_source(candidate)
         self._refresh_sync()
+        self._apply_transport_state(force=True)
 
     def set_video_offset_ms(self, offset_ms: int, *, notify: bool = True) -> None:
         next_offset = int(offset_ms)
@@ -1210,15 +1214,24 @@ class VideoSyncWindow(QtWidgets.QWidget):
         if event.kind is not CursorKind.PLAYBACK:
             return
         self._refresh_sync()
+        self._apply_transport_state()
+
+    def _apply_transport_state(self, *, force: bool = False) -> None:
         if hasattr(self._backend, "set_playback_rate"):
             self._backend.set_playback_rate(self._playback_state.playback_speed)
-        if self._playback_state.is_playing != self._last_is_playing:
-            self._last_is_playing = self._playback_state.is_playing
-            if self._playback_state.is_playing:
-                if hasattr(self._backend, "play"):
-                    self._backend.play()
-            elif hasattr(self._backend, "pause"):
-                self._backend.pause()
+        is_playing = self._playback_state.is_playing
+        if is_playing == self._last_is_playing and not (force and is_playing):
+            return
+        self._last_is_playing = is_playing
+        if is_playing:
+            if (
+                self._video_path is not None
+                and not self._warning_text
+                and hasattr(self._backend, "play")
+            ):
+                self._backend.play()
+        elif hasattr(self._backend, "pause"):
+            self._backend.pause()
 
     def _handle_backend_duration_changed(self, _duration_ms: int) -> None:
         self._refresh_sync()

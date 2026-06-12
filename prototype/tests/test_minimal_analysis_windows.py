@@ -193,6 +193,39 @@ def test_video_sync_window_follows_play_pause_speed_and_mute(qtbot, tmp_path):
     assert backend.pause_called == 1
 
 
+def test_video_sync_window_starts_playback_when_opened_during_csv_playback(
+    qtbot, tmp_path
+):
+    path = tmp_path / "drive.mp4"
+    path.write_bytes(b"placeholder")
+    playback = PlaybackState(timestamps=[0.0, 1.0])
+    playback.play()
+    backend = FakeVideoBackend()
+
+    window = VideoSyncWindow(playback, video_path=path, backend=backend)
+    qtbot.addWidget(window)
+
+    assert backend.source_path == path
+    assert backend.play_called == 1
+
+
+def test_video_sync_window_starts_playback_when_video_loaded_during_csv_playback(
+    qtbot, tmp_path
+):
+    path = tmp_path / "drive.mp4"
+    path.write_bytes(b"placeholder")
+    playback = PlaybackState(timestamps=[0.0, 1.0])
+    playback.play()
+    backend = FakeVideoBackend()
+    window = VideoSyncWindow(playback, backend=backend)
+    qtbot.addWidget(window)
+
+    window.set_video_path(path)
+
+    assert backend.source_path == path
+    assert backend.play_called == 1
+
+
 def test_video_sync_window_keeps_warning_for_missing_video_file(qtbot, tmp_path):
     playback = PlaybackState(timestamps=[0.0, 1.0])
     missing = tmp_path / "missing.mp4"
