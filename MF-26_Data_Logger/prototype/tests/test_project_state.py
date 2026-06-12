@@ -32,6 +32,25 @@ def test_project_state_round_trips_json(tmp_path):
         video_path=Path("videos/endurance_gopro.mp4"),
         video_offset_ms=-1250,
         video_muted=False,
+        visualization_settings={
+            "gps_map_background_enabled": True,
+            "graph_line_color": "#ec7063",
+            "graph_line_width": 0.75,
+            "gg_limit_radius": 2.25,
+        },
+        ideal_path_settings={
+            "enabled": True,
+            "wheelbase_m": 1.65,
+            "steering_ratio": 12.5,
+            "steering_channel": "SteeringAngle_deg",
+        },
+        sidebar_settings={
+            "search_visible": False,
+            "add_button_visible": True,
+            "sort_mode": "A-Z",
+            "density": "Compact",
+            "width_px": 320,
+        },
     )
 
     project_path = tmp_path / "session.mflogproto.json"
@@ -45,6 +64,9 @@ def test_project_state_round_trips_json(tmp_path):
     assert restored.video_path == Path("videos/endurance_gopro.mp4")
     assert restored.video_offset_ms == -1250
     assert restored.video_muted is False
+    assert restored.visualization_settings["gg_limit_radius"] == 2.25
+    assert restored.ideal_path_settings["steering_ratio"] == 12.5
+    assert restored.sidebar_settings["density"] == "Compact"
 
 
 def test_project_state_rejects_unknown_schema_version(tmp_path):
@@ -125,3 +147,6 @@ def test_project_state_loads_v1_files_with_empty_integrated_ux_fields(tmp_path):
     assert restored.video_path is None
     assert restored.video_offset_ms == 0
     assert restored.video_muted is True
+    assert restored.visualization_settings == {}
+    assert restored.ideal_path_settings == {}
+    assert restored.sidebar_settings == {}

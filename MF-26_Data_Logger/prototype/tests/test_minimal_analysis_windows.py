@@ -310,6 +310,16 @@ def test_video_sync_window_resyncs_when_backend_duration_changes(qtbot, tmp_path
     assert backend.position_ms == 1250
 
 
+def test_video_sync_window_empty_state_invites_loading_video(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 1.0])
+    backend = FakeVideoBackend()
+    window = VideoSyncWindow(playback, backend=backend)
+    qtbot.addWidget(window)
+
+    assert "Load Video" in window.status_text()
+    assert "CSV 0.000 s" in window.status_text()
+
+
 def test_osm_tile_provider_builds_high_resolution_mosaic_for_gps_bounds(tmp_path):
     provider = FakeMosaicTileProvider(tmp_path)
     latitudes = [35.2915, 35.2930, 35.2931]
@@ -864,7 +874,9 @@ def test_vehicle_model_window_reports_model_and_throttles_when_hidden(qtbot):
     assert window.model_status_text() == "car.glb | GLB v2 | 1.0 KB"
     assert window.model_geometry_text() == "Loaded geometry: 1 mesh | 2 nodes"
     assert window.camera_status_text() == "Camera framed | viewport visible"
-    assert window.qualitative_note_text() == "Qualitative visualization only"
+    assert window.qualitative_note_text() == (
+        "Estimated attitude only: roll/pitch from acceleration, yaw from yaw-rate integration"
+    )
     assert window.preview_status_text() == "Loaded 3D GLB mesh"
     assert window.is_model_preview_rendered is True
     assert window.is_camera_framed is True

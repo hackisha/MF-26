@@ -212,6 +212,20 @@ def test_left_sidebar_adds_video_sync_window(qtbot):
     assert video_window.video_offset_ms() == 0
 
 
+def test_sidebar_search_matches_korean_aliases(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.sidebar_search.setText("영상")
+    assert window.sidebar_item_titles("시각화") == ["Video Sync"]
+
+    window.sidebar_search.setText("타이어")
+    assert window.sidebar_item_titles("시각화") == ["Tire Temperature"]
+
+    window.sidebar_search.setText("지도")
+    assert window.sidebar_item_titles("시각화") == ["GPS Map"]
+
+
 def test_right_properties_configure_video_sync_for_open_and_new_windows(qtbot, tmp_path):
     path = tmp_path / "drive.mp4"
     path.write_bytes(b"not a real video but exists")
@@ -378,6 +392,7 @@ def test_right_properties_panel_uses_grouped_readable_rows(qtbot):
         "QScrollBar::handle:vertical",
         "QScrollBar:horizontal",
         "QScrollBar::handle:horizontal",
+        "QComboBox::down-arrow",
         "QComboBox QAbstractItemView",
         "QComboBox QAbstractItemView::item",
         "QComboBox QAbstractItemView::item:selected",
@@ -395,6 +410,7 @@ def test_right_properties_panel_uses_grouped_readable_rows(qtbot):
     assert "selection-background-color: #3d5566;" in style
     assert "background: #334450;" in style
     assert "background: #405665;" in style
+    assert "적용 범위" in window.properties_scope_label.text()
 
 
 def test_bottom_playback_dock_exposes_required_csv_controls_and_status(qtbot):
@@ -408,6 +424,8 @@ def test_bottom_playback_dock_exposes_required_csv_controls_and_status(qtbot):
     assert window.playback_row_label.text() == "Rows: 101"
     assert window.playback_interval_label.text() == "Sample: 100 ms"
     assert window.playback_event_count_label.text() == "Events: 3"
+    assert window.open_csv_button.objectName() == "playbackOpenCsvButton"
+    assert window.open_csv_button.isEnabled() is True
     assert [window.speed_combo.itemText(index) for index in range(window.speed_combo.count())] == [
         "0.25x",
         "0.5x",
@@ -415,6 +433,29 @@ def test_bottom_playback_dock_exposes_required_csv_controls_and_status(qtbot):
         "2x",
         "4x",
     ]
+
+
+def test_playback_dock_open_csv_button_loads_session(tmp_path, qtbot, monkeypatch):
+    csv_path = tmp_path / "emu.csv"
+    csv_path.write_text(
+        "Timestamp,RPM,TPS_percent\n"
+        "0.0,1000,10\n"
+        "0.1,2000,20\n",
+        encoding="utf-8",
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getOpenFileName",
+        lambda *_args, **_kwargs: (str(csv_path), "CSV files (*.csv)"),
+    )
+
+    qtbot.mouseClick(window.open_csv_button, QtCore.Qt.LeftButton)
+
+    assert window.loaded_csv_path == csv_path
+    assert window.playback_file_label.text() == "emu.csv"
+    assert window.playback_row_label.text() == "Rows: 2"
 
 
 def test_playback_dock_uses_scrollable_sensor_cards_for_narrow_width(qtbot):
@@ -783,6 +824,17 @@ def test_top_preset_tabs_define_default_analysis_window_sets(qtbot):
         "Export Report",
     )
     assert all(window.preset_tab_window_titles(index) for index in range(window.preset_tabs.count()))
+
+
+def test_top_preset_tabs_explain_created_windows(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    tooltip = window.preset_tabs.tabToolTip(1)
+
+    assert "GPS Map" in tooltip
+    assert "Time-Series Graph" in tooltip
+    assert "channels:" in tooltip
 
 
 def test_top_preset_tab_opens_default_windows_without_duplicates(qtbot):
@@ -1430,6 +1482,50 @@ def test_main_window_captures_video_sync_project_state(qtbot, tmp_path):
     assert state.video_muted is False
 
 
+def test_main_window_persists_visual_ideal_and_sidebar_settings(tmp_path, qtbot):
+    csv_path = tmp_path / "emu.csv"
+    csv_path.write_text(
+        "Timestamp,Latitude,Longitude,GPS_Speed_KPH,RPM,TPS_percent,VSS_kmh,SteeringAngle_deg\n"
+        "0.0,37.0,127.0,40,1000,10,41,3\n"
+        "0.1,37.1,127.2,50,2000,20,51,4\n",
+        encoding="utf-8",
+    )
+    project_path = tmp_path / "session.mflogproj"
+    source = MainWindow(map_tile_provider=FakeMapTileProvider())
+    qtbot.addWidget(source)
+    source.load_csv_session(csv_path)
+    source.gps_map_background_checkbox.setChecked(True)
+    source.graph_line_color_combo.setCurrentText("Red")
+    source.graph_line_width_spin.setValue(0.75)
+    source.gg_limit_radius_spin.setValue(2.25)
+    source.ideal_path_enabled_checkbox.setChecked(True)
+    source.ideal_path_wheelbase_spin.setValue(1.65)
+    source.ideal_path_steering_ratio_spin.setValue(12.5)
+    source.ideal_path_steering_channel_combo.setCurrentText("SteeringAngle_deg")
+    source.sidebar_density_combo.setCurrentText("Compact")
+    source.sidebar_sort_combo.setCurrentText("A-Z")
+    source.sidebar_width_spin.setValue(320)
+
+    source.save_project_file(project_path)
+
+    restored = MainWindow(map_tile_provider=FakeMapTileProvider())
+    qtbot.addWidget(restored)
+    restored.open_project_file(project_path)
+
+    assert restored.gps_map_background_checkbox.isChecked() is True
+    assert restored.graph_line_color_combo.currentText() == "Red"
+    assert restored.graph_line_width_spin.value() == 0.75
+    assert restored.gg_limit_radius_spin.value() == 2.25
+    assert restored.ideal_path_enabled_checkbox.isChecked() is True
+    assert restored.ideal_path_wheelbase_spin.value() == 1.65
+    assert restored.ideal_path_steering_ratio_spin.value() == 12.5
+    assert restored.ideal_path_steering_channel_combo.currentText() == "SteeringAngle_deg"
+    assert restored.sidebar_density_combo.currentText() == "Compact"
+    assert restored.sidebar_sort_combo.currentText() == "A-Z"
+    assert restored.sidebar_width_spin.value() == 320
+    assert restored.add_analysis_window("G-G Diagram").widget().limit_circle_radius == 2.25
+
+
 def test_main_window_restores_workspace_project_state(qtbot):
     source = MainWindow()
     qtbot.addWidget(source)
@@ -1580,6 +1676,31 @@ def test_main_window_queues_project_restore_until_csv_load_completes(qtbot):
     assert window.complete_data_load_for_pending_project(Path("other.csv")) is False
     window.load_demo_session()
     assert window.complete_data_load_for_pending_project(Path("example.csv")) is True
+    assert [sub.windowTitle() for sub in window.workspace.subWindowList()] == ["G-G Diagram"]
+    assert window.playback_state.current_sample == 2
+
+
+def test_load_csv_session_completes_pending_project_restore(tmp_path, qtbot):
+    csv_path = tmp_path / "example.csv"
+    csv_path.write_text(
+        "Timestamp,RPM,TPS_percent\n"
+        "0.0,1000,10\n"
+        "0.1,2000,20\n"
+        "0.2,3000,30\n",
+        encoding="utf-8",
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+    state = ProjectState(
+        csv_path=csv_path,
+        open_windows=(WindowState("G-G Diagram", x=1, y=2, width=300, height=240),),
+        playback_seconds=0.2,
+    )
+
+    window.queue_project_restore_after_data_load(state)
+    window.load_csv_session(csv_path)
+
+    assert window.pending_project_state is None
     assert [sub.windowTitle() for sub in window.workspace.subWindowList()] == ["G-G Diagram"]
     assert window.playback_state.current_sample == 2
 
