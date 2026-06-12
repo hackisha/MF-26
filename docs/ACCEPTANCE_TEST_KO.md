@@ -1,212 +1,137 @@
-# MF-LOG-ANALYZER v2 프로토타입 인수테스트
+# MF-LOG-ANALYZER v2 인수 테스트 체크리스트
 
-이 문서는 사용자가 직접 프로토타입 상태를 확인할 때 쓰는 실행 체크리스트입니다.
-모든 명령은 프로젝트 루트에서 실행하는 것을 기준으로 합니다.
-
-```powershell
-cd C:\Users\hacki\Desktop\03_workspace\01_MF-26\03_DataAnalyzer
-$env:QT_QPA_PLATFORM='minimal'
-$env:QT_QPA_FONTDIR='C:\Windows\Fonts'
-```
-
-Windows에서 `QT_QPA_PLATFORM=minimal` 설정은 의도된 값입니다. 일반 pytest
-검증에서는 `offscreen`을 쓰지 마세요. PySide6/pyqtgraph 종료 과정에서
-`python.exe` 네이티브 오류창이 뜰 수 있습니다.
+이 문서는 사용자가 직접 프로토타입과 패키징된 EXE를 확인할 때 사용하는 기준이다.
+명령은 프로젝트 루트 `C:\Users\hacki\Desktop\03_workspace\01_MF-26\03_DataAnalyzer`에서 실행한다.
 
 ## 1. 자동 테스트
 
 ```powershell
-.\prototype\.venv\Scripts\python -m pytest .\prototype\tests
+cd C:\Users\hacki\Desktop\03_workspace\01_MF-26\03_DataAnalyzer\prototype
+$env:QT_QPA_PLATFORM='minimal'
+$env:QT_QPA_FONTDIR='C:\Windows\Fonts'
+$base = Join-Path $env:TEMP ('mflog-pytest-' + [guid]::NewGuid().ToString('N'))
+$cache = Join-Path $env:TEMP ('mflog-pytest-cache-' + [guid]::NewGuid().ToString('N'))
+.\.venv\Scripts\python.exe -m pytest -v --basetemp=$base -o cache_dir=$cache
 ```
 
-기대 결과:
+수용 기준:
 
-- 전체 테스트가 통과합니다.
-- `python.exe` 응용 프로그램 오류창이 뜨지 않습니다.
-- 최신 검증 기준으로는 `178 passed`가 정상입니다.
+- 전체 테스트가 통과한다.
+- `python.exe` 응용 프로그램 오류 창이 뜨지 않는다.
+- Windows에서 repo 내부 `.pytest-tmp` 또는 `.pytest_cache` 잠금이 생기면 위 명령처럼 임시 경로를 외부로 지정해 재실행한다.
 
-## 2. 300k x 200 합성 CSV 생성
+## 2. 대용량 CSV 성능
+
+300k 행, 200개 센서 목표 데이터를 생성한다.
 
 ```powershell
-.\prototype\.venv\Scripts\python -m mflog_proto.data.synthetic_log --rows 300000 --channels 200 --output .\prototype\.generated\synthetic_300k_200.csv
+.\.venv\Scripts\python.exe -m mflog_proto.data.synthetic_log --rows 300000 --channels 200 --output .\.generated\synthetic_300k_200.csv
 ```
 
-생성되는 입력 파일:
-
-```text
-prototype\.generated\synthetic_300k_200.csv
-```
-
-이미 파일이 있으면 다시 만들지 않고 다음 단계의 벤치마크에 그대로 사용할 수
-있습니다.
-
-## 3. 준비 상태 리포트
+벤치마크를 실행한다.
 
 ```powershell
-.\prototype\.venv\Scripts\python -m mflog_proto.benchmark.runner --json-output .\prototype\.generated\acceptance\benchmark_readiness.json --html-output .\prototype\.generated\acceptance\benchmark_readiness.html
+.\.venv\Scripts\python.exe -m mflog_proto.benchmark.runner --target-benchmark --rows 300000 --channels 200 --input .\.generated\synthetic_300k_200.csv --json-output .\.generated\acceptance\target_300k_200.json --html-output .\.generated\acceptance\target_300k_200.html --playback-updates 900 --hover-queries 1000 --graph-channel-count 20 --graph-pixel-width 1200
 ```
 
-이 리포트는 Python, PySide6, pyqtgraph, numpy, polars 같은 의존성이 준비됐는지
-확인합니다. 실제 성능 측정값은 다음 단계의 `--target-benchmark` 실행에서
-생성됩니다.
+수용 기준:
 
-산출물:
+- CSV 로딩 15초 이하.
+- 그래프 캐시 5초 이하.
+- 첫 그래프 표시 1.5초 이하.
+- hover p95 지연 80 ms 이하.
+- workspace 복원 2초 이하.
+- 메모리 RSS 2.5 GB 이하.
 
-```text
-prototype\.generated\acceptance\benchmark_readiness.json
-prototype\.generated\acceptance\benchmark_readiness.html
-```
-
-## 4. 300k x 200 목표 벤치마크
+## 3. 기본 UI 동작
 
 ```powershell
-.\prototype\.venv\Scripts\python -m mflog_proto.benchmark.runner --target-benchmark --rows 300000 --channels 200 --input .\prototype\.generated\synthetic_300k_200.csv --json-output .\prototype\.generated\acceptance\target_300k_200.json --html-output .\prototype\.generated\acceptance\target_300k_200.html --playback-updates 900 --hover-queries 1000 --graph-channel-count 20 --graph-pixel-width 1200
+.\.venv\Scripts\python.exe -m mflog_proto.app
 ```
 
-주요 산출물:
+수용 기준:
 
-```text
-prototype\.generated\acceptance\target_300k_200.json
-prototype\.generated\acceptance\target_300k_200.html
-```
+- 앱이 검은색/흰색 충돌 없이 지정된 어두운 UI 테마로 열린다.
+- 좌측 패널에서 Time-Series Graph, GPS Map, G-G Diagram, 3D Vehicle Model, Data Analysis, Documents, Gauge Indicators, Tire Temperature, Video Sync 창을 추가할 수 있다.
+- 우측 Properties 패널은 선택한 분석 창에 맞는 설정만 표시한다.
+- 체크박스, 콤보박스, 입력창 텍스트가 어두운 배경에서도 읽힌다.
+- 중앙 분석 창은 최대화 후에도 축소/복원/닫기 컨트롤이 유지되고, 테두리 드래그로 크기를 조절할 수 있다.
 
-최신 로컬 실행일인 2026-05-25 기준으로 모든 프로토타입 성능 게이트를
-통과했습니다.
+## 4. CSV 재생 동기화
 
-| 항목 | 최신 측정값 |
-| --- | ---: |
-| CSV 로딩 | 0.603 s |
-| 채널 매핑 | 0.0002 s |
-| 파생 채널 계산 | 0.042 s |
-| 로그 헬스 체크 | 0.157 s |
-| 그래프 캐시 생성 | 0.793 s |
-| 재생 커서 업데이트 루프 | 227,710 Hz |
-| Hover p95 지연 | 0.0027 ms |
-| 첫 그래프 표시 | 0.292 s |
-| 워크스페이스 복원 | 0.403 s |
-| 다중 창 업데이트 스모크 | 0.480 s |
-| 메모리 RSS | 0.694 GB |
+수용 기준:
 
-통과 기준은 다음과 같습니다.
+- CSV 업로드 전에는 하단 CSV Playback 도크가 비활성 상태 또는 업로드 안내 상태다.
+- CSV 업로드 후 파일명, row 수, 전체 길이, 현재 시간, 현재 row, 샘플링 주기, 이벤트 수가 표시된다.
+- 재생/일시정지, 처음, 이전 이벤트, 다음 이벤트, 0.25x/0.5x/1x/2x/4x 속도 선택이 동작한다.
+- 슬라이더 seek 시 Time-Series 세로선, GPS 현재 위치, G-G 현재 가속도 점, 센서 카드, 이벤트 강조가 같은 시점으로 갱신된다.
+- Time-Series plot hover는 시간, 센서명, 값, 단위를 표시하고, plot 클릭 시 해당 시간으로 이동한다.
+- 다른 탭으로 이동했다 돌아와도 업로드한 CSV와 재생 위치가 유지된다.
+- autosave 실패는 경고로만 표시되고 현재 CSV 세션 재생을 막지 않는다.
 
-- CSV 로딩: 15초 이하
-- 매핑/파생/헬스 체크: 각 5초 이하
-- 그래프 캐시: 5초 이하
-- 첫 그래프 표시: 1.5초 이하
-- Hover p95 지연: 80 ms 이하
-- 워크스페이스 복원: 2초 이하
-- 메모리 RSS: 2.5 GB 이하
+## 5. GPS, 기준 경로, 이상 경로
 
-## 5. 결함 포함 CSV 스모크
+수용 기준:
 
-결함 데이터 처리 경로를 확인하려면 아래 명령을 실행합니다.
+- GPS Map은 모든 CSV 경로를 연하게 배경 route로 표시하고, 현재 재생 중인 경로와 현재 위치를 강조한다.
+- `(0, 0)` 또는 범위 밖 GPS 좌표는 경로에 연결하지 않는다.
+- 실제 지도 배경 옵션을 켜면 OpenStreetMap 타일이 GPS 좌표계에 맞게 정렬된다.
+- 지도 타일 로딩이 실패해도 GPS 경로와 현재 위치는 계속 표시된다.
+- Reference Route 편집 모드에서 지도 클릭으로 기준 경로점을 추가할 수 있고 START/END 마커가 표시된다.
+- `.mflogroute` 저장/불러오기 후 경로 이름, 점 개수, START/END 위치가 복원된다.
+- Ideal Path 옵션을 켜면 wheelbase, steering ratio, steering channel 기준의 bicycle model 경로가 실제 GPS 경로 위에 겹쳐 표시된다.
+
+## 6. G-G, Time-Series, 센서 표시
+
+수용 기준:
+
+- CSV 업로드 전후 모두 G-G Diagram의 한계원이 보인다.
+- 우측 설정에서 G 한계 반경을 조정하면 열려 있는 G-G 창과 새 G-G 창에 반영된다.
+- G-G 점은 보정 가속도 채널을 우선 사용하고 현재 재생 시점 점을 강조한다.
+- Time-Series 우측 설정에서 표시 채널, 선 색상, 선 굵기를 조정할 수 있다.
+- 주요 센서 카드에는 RPM, VSS/GPS speed, Gear, Battery voltage, TPS, ax, ay, roll/pitch/yaw rate가 현재 재생 시점 기준으로 표시된다.
+- Gauge Indicators 창은 RPM과 Speed를 속도계 형태로 표시하고 재생 시점에 맞춰 갱신된다.
+- Tire Temperature 창은 FL/FR/RL/RR 패널을 표시하고, 센서가 없으면 `-`로 표시한다.
+
+## 7. 3D 차량 모델
+
+수용 기준:
+
+- 기본 `car.glb`가 로드되고 실제 GLB mesh가 viewport에 표시된다.
+- 우측 Properties의 Vehicle GLB 설정에서 다른 `.glb` 모델을 로드할 수 있다.
+- 선택한 GLB 경로는 `.mflogproj` 저장/불러오기 후 유지된다.
+- 차량 중심에 XYZ 축이 표시된다.
+- 현재 보정 ax/ay와 yaw rate에 따라 차량 roll/pitch/yaw 시각화가 갱신된다.
+- Roll, Pitch, Yaw 숫자 표시가 작은 창 크기에서도 깨지지 않는다.
+
+## 8. GoPro Video Sync
+
+수용 기준:
+
+- 좌측 패널에서 `Video Sync` 창을 추가할 수 있다.
+- Video Sync 창에서 GoPro 주행 영상을 로드하면 현재 CSV 재생 시간과 `video offset` 기준으로 영상 위치가 동기화된다.
+- CSV 재생/일시정지/속도 변경/seek 시 영상도 같은 기준 시간으로 이동한다.
+- Video Sync 창 내부의 `-1000`, `-100`, `+100`, `+1000` offset 버튼을 누르면 우측 Properties, 다른 Video Sync 창, 새로 여는 Video Sync 창에 같은 offset이 반영된다.
+- offset 또는 mute만 변경해도 영상 source가 다시 로드되지 않는다.
+- 우측 Properties에서 video path, offset, mute를 설정하면 열려 있는 Video Sync 창과 새 Video Sync 창에 반영된다.
+- `.mflogproj` 저장/불러오기 후 video path, offset, mute 상태가 복원된다.
+- 프로젝트에 저장된 영상 파일이 사라진 경우 중앙 Video Sync 창과 우측 Properties 모두 `Video missing` 경고를 표시하고 프로젝트 복원은 계속 완료된다.
+
+## 9. 프로젝트 저장/복원
+
+수용 기준:
+
+- `File > Save Project`와 `File > Open Project`로 CSV 경로, 재생 시간, 열린 분석 창, 탭 순서, 선택 채널, 차량 모델, 기준 경로, Video Sync 상태가 복원된다.
+- 누락된 CSV/기준 경로/영상 파일은 경고 또는 빈 상태로 처리되고 앱 실행 자체를 막지 않는다.
+- Event Review의 확인/무시 상태와 메모가 저장/복원된다.
+- Segment Analysis의 사용자 구간이 저장/복원된다.
+- Export Report는 세션 요약, 선택 채널, 이벤트 리뷰, 구간 요약을 포함한 HTML을 생성한다.
+
+## 10. Windows EXE 빌드와 스모크 테스트
 
 ```powershell
-.\prototype\.venv\Scripts\python -m mflog_proto.benchmark.runner --target-benchmark --generate --defects --rows 32 --channels 25 --input .\prototype\.generated\acceptance\target_defects_smoke.csv --json-output .\prototype\.generated\acceptance\target_defects_smoke.json --html-output .\prototype\.generated\acceptance\target_defects_smoke.html --graph-channel-count 2 --playback-updates 4 --hover-queries 4
-```
-
-기대 결과:
-
-- timestamp duplicate/backward 문제가 health-check details에 기록됩니다.
-- UI metric 경로가 sorted x 오류 없이 끝까지 실행됩니다.
-- `QT_QPA_PLATFORM`이 이전 세션에서 `offscreen`으로 남아 있어도 benchmark 내부에서
-  `minimal`로 강제됩니다.
-
-## 6. 수동 UI 스모크
-
-```powershell
-.\prototype\.venv\Scripts\python -m mflog_proto.app
-```
-
-확인할 항목:
-
-- 앱 창이 정상적으로 열립니다.
-- 왼쪽 분석 목록에서 분석 창을 추가할 수 있습니다.
-- 우측 속성 패널은 현재 선택한 분석 창을 따라가며 해당 창에 필요한 설정만
-  표시합니다. 분석 창별 전용 설정이 없는 작업공간/기본 페이지에서는 좌측
-  분석 패널의 검색창 표시, 추가 버튼 표시, 기본/A-Z 정렬,
-  Compact/Comfortable 밀도, 패널 폭을 조정할 수 있습니다. 속성 페이지는
-  그룹/행 경계가 보이고, 라벨/체크박스/입력창/비활성 컨트롤이 다크 배경에서도
-  읽히는 대비로 표시됩니다.
-- CSV가 없는 초기 상태에서는 하단 재생 도크가 비활성화되고 업로드 안내가 표시됩니다.
-- `File > Open CSV`로 루트 샘플 CSV를 열면 파일명, row 수, 전체 길이, 현재 시간,
-  현재 row, 추정 샘플링 주기, 이벤트 수가 하단 도크에 표시됩니다.
-- CSV malformed row 진단은 경고로만 표시되고 재생을 막지 않습니다.
-- `File > Save Project`와 `File > Open Project`로 `.mflogproj` 파일에 CSV 경로,
-  재생 시간, 탭 순서, 열린 분석 창이 왕복 저장됩니다.
-- 재생/일시정지, 처음 이동, 끝 이동, 이전/다음 이벤트 이동, 0.25x/0.5x/1x/2x/4x 속도 선택,
-  슬라이더 seek가 동작합니다.
-- 슬라이더를 움직이면 Time-Series 세로선, GPS 현재 위치점, G-G 현재 가속도점,
-  주요 센서 카드 값, 이벤트 강조가 같은 현재 시점으로 갱신됩니다.
-- 중앙 작업영역의 분석 창을 최대화해도 창 내부 우상단에 최소화/복원/닫기 컨트롤이
-  계속 표시됩니다.
-- 설정/우측 속성 패널에서 GPS 실제 지도 배경 레이어를 켜고 끌 수 있습니다.
-  네트워크/캐시 접근이 가능하면 고해상도 OpenStreetMap 타일 모자이크가 전체 경로
-  뒤에 위도/경도와 정렬되어 표시되고, 타일이 없어도 재생, 전체 경로, 현재 위치점은
-  계속 동작합니다. 같은 패널에서
-  시계열 그래프의 표시 채널, 선 색상/굵기와 G-G 한계원 반경도 조정할 수 있으며,
-  이미 열린 창과 새로 여는 창 모두 설정을 반영합니다.
-- GPS 경로는 `(0, 0)` 또는 범위를 벗어난 무효 좌표 샘플을 연결하지 않고 건너뜁니다.
-- CSV 업로드 후에도 G-G 다이어그램의 1 G 한계원이 보이고, `ax_g`/`ay_g`는
-  ADXL345 보정 가속도로 표시됩니다.
-- 탭을 이동했다가 돌아와도 CSV 세션과 재생 위치가 유지됩니다.
-- Time-Series, GPS, G-G plot hover 시 가장 가까운 샘플의 시간과 plot별 값이
-  라벨/tooltip에 표시되고, Time-Series 그래프 클릭 시 해당 시간으로 이동합니다.
-  Time-Series 축, legend, 재생 커서는 어두운 UI에서 대비가 충분해야 하며,
-  분석 창의 상태/보조 라벨도 어두운 창 배경 위에서 읽을 수 있어야 합니다.
-- 자동 저장 실패 경고가 표시되어도 현재 CSV 세션과 재생 기능은 유지됩니다.
-- `3D Vehicle Model` 창이 프로젝트 루트의 `car.glb`를 읽고, 렌더링 가능한
-  mesh vertex/triangle을 파싱한 뒤 viewport에 실제 GLB mesh와 정성적 시각화
-  안내를 표시합니다. 재생 중에는 현재 보정 `ax`/`ay` 가속도에 따라 모델이
-  roll/pitch 방향으로 기울고, `yaw rate` 적분값으로 yaw가 표시되며, 자세
-  텍스트와 viewport의 XYZ 축 및 Roll/Pitch/Yaw 화살표가 갱신됩니다.
-
-추가 GPS/3D 확인:
-
-- GPS Map은 지금까지 로드한 CSV 경로를 모두 연한 배경 route로 표시하고,
-  현재 재생 중인 CSV route를 더 강하게 강조합니다.
-- GPS route 위에 마우스를 올리면 가장 가까운 route point가 별도 marker로
-  강조되고 hover label/tooltip에 시간과 좌표가 표시됩니다.
-- 우측 속성 패널의 `Vehicle GLB` 설정에서 다른 `.glb` 차량 모델을 로드할 수
-  있으며, 열린 `3D Vehicle Model` 창과 새로 여는 창에 즉시 반영됩니다.
-- 선택한 차량 GLB 경로는 `.mflogproj` 저장/열기 후에도 유지됩니다.
-
-추가 기준 경로 / 게이지 / 타이어 온도 확인:
-
-- GPS Map 창을 선택한 뒤 우측 속성 패널에서 `Reference Route` 편집을 켜고,
-  지도 위를 클릭해 기준 경로점을 추가합니다. START/END 마커와 청록색 기준 경로가
-  실제 CSV 주행 경로 위에 함께 표시되어야 합니다.
-- 기준 경로 이름을 바꾼 뒤 `.mflogroute`로 저장하고 `Clear` 후 다시 불러오면
-  같은 이름, 점 개수, START/END 위치가 복원되어야 합니다.
-- `.mflogproj` 저장/열기 후에도 기준 경로 파일 경로와 이름이 유지되어야 하며,
-  기준 경로 파일이 없거나 깨져 있어도 앱은 빈 기준 경로로 열리고 기존 CSV 재생은
-  계속 사용할 수 있어야 합니다.
-- 좌측 분석 패널의 시각화 그룹에서 `Gauge Indicators`를 추가하면 RPM과 Speed
-  게이지가 표시되고, 하단 CSV 재생 위치를 움직일 때 현재 샘플 값으로 함께
-  갱신되어야 합니다. Speed는 `GPS speed`, `VSS / GPS speed`, `VSS`, `VSS_kmh`
-  계열 채널을 인식합니다.
-- 좌측 분석 패널의 시각화 그룹에서 `Tire Temperature`를 추가하면 FL/FR/RL/RR
-  타이어 패널이 표시됩니다. 현재 CSV에 타이어 온도 센서가 없으면 각 위치는 `-`로
-  표시되고, 추후 `Tire_FL_C`, `FR_TireTemp_C` 같은 채널이 들어오면 재생 시점에
-  맞춰 숫자와 파란색-빨간색 온도 막대가 갱신되어야 합니다.
-
-추가 통합 UX 확인:
-
-- 좌측 분석 패널은 시각화, 분석, 리포트, 문서 그룹으로 나뉘며 검색, 추가, 정렬, 밀도, 폭 설정을 유지합니다.
-- 중앙 작업공간의 명령 바는 `Tile` 같은 창 관리 도구만 제공하고, 분석 프리셋을 레이아웃 버튼으로 중복 노출하지 않습니다.
-- 상단 프리셋 탭을 클릭하면 도메인에 맞는 기본 분석 창 조합이 중복 없이 열립니다. 예를 들어 GPS / LapTime 탭은 GPS Map, Time-Series Graph, Segment Analysis를 함께 엽니다. 같은 분석 모드가 기본 시계열 채널과 우측 속성 페이지 포커스도 함께 적용합니다.
-- `Event Review` 창에서 이벤트를 선택하면 해당 시간으로 재생 위치가 이동하고, 미검토/확인/무시 상태와 메모가 `.mflogproj`에 저장 및 복구됩니다.
-- `Vehicle Dynamics` 창에서 최대 횡/종/합성 G, G 한계 사용률과 초과 횟수, 최대 yaw rate, 조향 데이터가 있을 때의 yaw 응답비와 언더/뉴트럴/오버스티어 경향을 확인할 수 있습니다.
-- `Segment Analysis` 창에서 현재 재생 시간을 기준으로 이름 있는 구간을 만들고, 사용 가능한 센서 통계를 표시합니다. 없는 센서는 `-`로 표시하고 분석을 중단하지 않습니다.
-- `Export Report` 창 또는 파일 메뉴에서 세션 요약, 선택 채널, 이벤트 리뷰 메모, 구간 요약이 포함된 HTML 리포트를 저장할 수 있습니다.
-- 하단 재생 도크의 센서 카드는 가로 스크롤 영역에 들어가 좁은 창에서도 컨트롤과 겹치지 않습니다.
-- 프로젝트 저장, 열기, 리포트 저장 실패는 로컬 앱 데이터 로그 디렉터리에 기록되고 경고로만 표시되며 현재 세션을 막지 않습니다.
-
-## 7. Windows EXE 빌드 스모크
-
-```powershell
-cd .\prototype
-.\.venv\Scripts\python -m PyInstaller --noconfirm --clean .\packaging\mflog_analyzer.spec
+cd C:\Users\hacki\Desktop\03_workspace\01_MF-26\03_DataAnalyzer\prototype
+.\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean .\packaging\mflog_analyzer.spec
 ```
 
 기대 산출물:
@@ -215,28 +140,15 @@ cd .\prototype
 prototype\dist\MF-LOG-ANALYZER-v2\MF-LOG-ANALYZER-v2.exe
 ```
 
-전달용 압축 파일이 필요하면 다음 명령으로 생성합니다.
+수용 기준:
+
+- EXE가 5초 이상 크래시 없이 실행된다.
+- 프로그램 아이콘은 흰색 배경의 파란색 무한질주 로고로 표시된다.
+- 번들된 `car.glb`와 문서 파일이 EXE 실행 환경에서도 로드된다.
+- GoPro Video Sync 창이 EXE 환경에서도 추가되고, 영상 파일 선택 UI가 열린다.
+
+필요 시 배포 압축 파일을 만든다.
 
 ```powershell
 Compress-Archive -Path .\dist\MF-LOG-ANALYZER-v2 -DestinationPath .\dist\MF-LOG-ANALYZER-v2.zip -Force
-```
-
-생성된 exe를 실행해 앱 창이 흰색 배경의 파란 무한질주 로고 프로그램 아이콘으로 열리고,
-`3D Vehicle Model`과 `Documents` 창에서 번들된 `car.glb`,
-`데이터분석기 콘티.pdf`를 확인합니다.
-
-## 8. 판정
-
-현재 프로토타입 기준 판정:
-
-- Python + PySide6/Qt + pyqtgraph + numpy + polars 스택은 300k x 200 목표
-  벤치마크를 통과했습니다.
-- 네이티브 가속은 첫 구현 슬라이스에서 필수는 아닙니다.
-- 그래프 캐시/다운샘플링 경로는 성능 핵심 구간이므로, production 구현에서도
-  numpy 배열 기반 경로를 유지해야 합니다.
-
-관련 결정 문서:
-
-```text
-docs\STACK_DECISION_MF_LOG_ANALYZER_V2.md
 ```
