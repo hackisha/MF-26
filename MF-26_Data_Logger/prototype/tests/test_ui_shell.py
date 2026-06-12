@@ -10,6 +10,7 @@ from mflog_proto.analysis.event_reviews import EventReviewState
 from mflog_proto.analysis.reference_route import ReferenceRoute, ReferenceRoutePoint
 from mflog_proto.analysis.segments import AnalysisSegment
 from mflog_proto.persistence.project_state import ProjectState, WindowState
+from mflog_proto.ui import minimal_analysis_windows as analysis_windows
 from mflog_proto.ui.main_window import (
     DEFAULT_ANALYSIS_ITEMS,
     SIDEBAR_GROUPS,
@@ -31,11 +32,56 @@ from mflog_proto.ui.minimal_analysis_windows import (
     TireTemperatureWindow,
     VehicleDynamicsWindow,
     VehicleModelWindow,
+    VideoSyncWindow,
 )
 from mflog_proto.ui.time_series_window import TimeSeriesWindow
 
 
 PROTOTYPE_ROOT = Path(__file__).resolve().parents[1]
+
+
+class CountingVideoBackend:
+    instances: list["CountingVideoBackend"] = []
+
+    def __init__(self, *_args, **_kwargs) -> None:
+        self.duration_ms = 10_000
+        self.position_ms = 0
+        self.muted = True
+        self.source_path = None
+        self.source_set_count = 0
+        self.clear_source_count = 0
+        self.playback_rate = 1.0
+        self.duration_changed_callback = None
+        CountingVideoBackend.instances.append(self)
+
+    def set_video_output(self, _video_widget) -> None:
+        pass
+
+    def set_source(self, path) -> None:
+        self.source_path = path
+        self.source_set_count += 1
+
+    def clear_source(self) -> None:
+        self.source_path = None
+        self.clear_source_count += 1
+
+    def set_position(self, position_ms) -> None:
+        self.position_ms = int(position_ms)
+
+    def play(self) -> None:
+        pass
+
+    def pause(self) -> None:
+        pass
+
+    def set_muted(self, muted) -> None:
+        self.muted = bool(muted)
+
+    def set_playback_rate(self, rate) -> None:
+        self.playback_rate = float(rate)
+
+    def set_duration_changed_callback(self, callback) -> None:
+        self.duration_changed_callback = callback
 
 
 class FakeMapTileProvider:
@@ -153,6 +199,68 @@ def test_left_sidebar_adds_tire_temperature_window(qtbot):
     assert "Tire Temperature" in window.sidebar_item_titles(visualization_group)
     assert isinstance(tire_window, TireTemperatureWindow)
     assert tire_window.temperature_text("FL") == "-"
+
+
+def test_left_sidebar_adds_video_sync_window(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    video_window = window.add_analysis_window("Video Sync").widget()
+
+    assert "Video Sync" in window.sidebar_item_titles("시각화")
+    assert isinstance(video_window, VideoSyncWindow)
+    assert video_window.video_offset_ms() == 0
+
+
+def test_right_properties_configure_video_sync_for_open_and_new_windows(qtbot, tmp_path):
+    path = tmp_path / "drive.mp4"
+    path.write_bytes(b"not a real video but exists")
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    first = window.add_analysis_window("Video Sync").widget()
+    window.load_video_sync_path(path)
+    window.video_sync_offset_spin.setValue(750)
+    window.video_sync_mute_checkbox.setChecked(False)
+
+    second = window.add_analysis_window("Video Sync").widget()
+
+    assert first.video_path() == path
+    assert first.video_offset_ms() == 750
+    assert first.video_muted() is False
+    assert second.video_path() == path
+    assert second.video_offset_ms() == 750
+    assert second.video_muted() is False
+
+
+def test_video_sync_window_controls_update_global_state_without_reloading_video(
+    qtbot, tmp_path, monkeypatch
+):
+    path = tmp_path / "drive.mp4"
+    path.write_bytes(b"not a real video but exists")
+    CountingVideoBackend.instances = []
+    monkeypatch.setattr(analysis_windows, "_QtMediaVideoBackend", CountingVideoBackend)
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    first = window.add_analysis_window("Video Sync").widget()
+    second = window.add_analysis_window("Video Sync").widget()
+    window.load_video_sync_path(path)
+    source_set_counts = [
+        backend.source_set_count for backend in CountingVideoBackend.instances
+    ]
+
+    first.nudge_video_offset(100)
+    window.set_video_sync_muted(False)
+
+    assert window.video_offset_ms == 100
+    assert window.video_sync_offset_spin.value() == 100
+    assert second.video_offset_ms() == 100
+    assert first.video_muted() is False
+    assert second.video_muted() is False
+    assert [
+        backend.source_set_count for backend in CountingVideoBackend.instances
+    ] == source_set_counts
 
 
 def test_right_properties_can_configure_left_sidebar_visibility_width_and_density(qtbot):
@@ -1288,6 +1396,23 @@ def test_main_window_captures_integrated_analysis_state(qtbot, tmp_path):
     assert state.selected_sidebar_group == "분석"
 
 
+def test_main_window_captures_video_sync_project_state(qtbot, tmp_path):
+    video_path = tmp_path / "drive.mp4"
+    video_path.write_bytes(b"placeholder")
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+    window.load_video_sync_path(video_path)
+    window.set_video_sync_offset_ms(1250)
+    window.set_video_sync_muted(False)
+
+    state = window.capture_project_state(csv_path="example.csv")
+
+    assert state.video_path == video_path
+    assert state.video_offset_ms == 1250
+    assert state.video_muted is False
+
+
 def test_main_window_restores_workspace_project_state(qtbot):
     source = MainWindow()
     qtbot.addWidget(source)
@@ -1308,6 +1433,58 @@ def test_main_window_restores_workspace_project_state(qtbot):
     assert restored.active_profile == "mf_2026"
     assert restored.playback_state.current_sample == 12
     assert restored.timeline_status.text() == "시간 1.200 s | 샘플 12"
+
+
+def test_main_window_restores_video_sync_project_state_for_new_windows(qtbot, tmp_path):
+    video_path = tmp_path / "drive.mp4"
+    video_path.write_bytes(b"placeholder")
+    state = ProjectState(
+        video_path=video_path,
+        video_offset_ms=-250,
+        video_muted=False,
+        open_windows=(WindowState("Video Sync", 10, 20, 620, 420),),
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+
+    window.restore_project_state(state)
+    video_window = window.workspace.subWindowList()[0].widget()
+    next_video_window = window.add_analysis_window("Video Sync").widget()
+
+    assert isinstance(video_window, VideoSyncWindow)
+    assert video_window.video_path() == video_path
+    assert video_window.video_offset_ms() == -250
+    assert video_window.video_muted() is False
+    assert next_video_window.video_path() == video_path
+    assert next_video_window.video_offset_ms() == -250
+    assert next_video_window.video_muted() is False
+    assert window.video_sync_path_edit.text() == str(video_path)
+    assert window.video_sync_offset_spin.value() == -250
+    assert window.video_sync_mute_checkbox.isChecked() is False
+
+
+def test_main_window_restores_missing_video_without_blocking_project(qtbot, tmp_path):
+    missing_video = tmp_path / "missing.mp4"
+    state = ProjectState(
+        video_path=missing_video,
+        video_offset_ms=500,
+        video_muted=True,
+        open_windows=(WindowState("Video Sync", 0, 0, 620, 420),),
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_demo_session()
+
+    window.restore_project_state(state)
+    video_window = window.workspace.subWindowList()[0].widget()
+
+    assert isinstance(video_window, VideoSyncWindow)
+    assert video_window.video_path() == missing_video
+    assert video_window.video_offset_ms() == 500
+    assert "missing" in video_window.status_text().lower()
+    assert window.video_path == missing_video
+    assert "missing" in window.video_sync_status_label.text().lower()
 
 
 def test_main_window_restores_event_reviews_segments_and_report_path(qtbot, tmp_path):

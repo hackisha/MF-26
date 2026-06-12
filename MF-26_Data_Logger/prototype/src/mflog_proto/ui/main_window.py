@@ -58,6 +58,7 @@ from mflog_proto.ui.minimal_analysis_windows import (
     TireTemperatureWindow,
     VehicleDynamicsWindow,
     VehicleModelWindow,
+    VideoSyncWindow,
     load_glb_info,
 )
 from mflog_proto.ui.time_series_window import TimeSeriesWindow
@@ -592,6 +593,7 @@ DEFAULT_ANALYSIS_ITEMS: tuple[str, ...] = (
     "G-G Diagram",
     "Gauge Indicators",
     "Tire Temperature",
+    "Video Sync",
     "3D Vehicle Model",
     "Current Values Table",
     "Benchmark Summary",
@@ -606,6 +608,7 @@ SIDEBAR_GROUPS: dict[str, tuple[str, ...]] = {
         "G-G Diagram",
         "Gauge Indicators",
         "Tire Temperature",
+        "Video Sync",
         "3D Vehicle Model",
         "Current Values Table",
     ),
@@ -742,6 +745,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ideal_path_settings = IdealPathSettings()
         self.reference_route = ReferenceRoute(name="Reference route", points=())
         self.reference_route_path: Path | None = None
+        self.video_path: Path | None = None
+        self.video_offset_ms = 0
+        self.video_muted = True
         self.sidebar_settings = SidebarSettings()
         self.vehicle_model_path = _root_asset_path("car.glb")
         self.vehicle_model_info = load_glb_info(self.vehicle_model_path)
@@ -874,6 +880,9 @@ class MainWindow(QtWidgets.QMainWindow):
             vehicle_model_path=self.vehicle_model_path,
             reference_route_path=self.reference_route_path,
             reference_route_name=self.reference_route.name,
+            video_path=self.video_path,
+            video_offset_ms=self.video_offset_ms,
+            video_muted=self.video_muted,
             event_reviews=self.event_reviews,
             analysis_segments=self.analysis_segments,
             selected_sidebar_group=self.selected_sidebar_group,
@@ -922,6 +931,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._set_empty_restored_reference_route(state)
         else:
             self._set_empty_restored_reference_route(state)
+        self.video_path = state.video_path
+        self.video_offset_ms = state.video_offset_ms
+        self.video_muted = state.video_muted
+        self._sync_video_sync_controls()
         self._select_sidebar_group(self.selected_sidebar_group)
         self._restore_preset_tabs(state)
         self._clear_workspace()
@@ -1115,6 +1128,8 @@ class MainWindow(QtWidgets.QMainWindow):
             widget = self._build_gauge_indicators_window()
         elif title == "Tire Temperature":
             widget = self._build_tire_temperature_window()
+        elif title == "Video Sync":
+            widget = self._build_video_sync_window()
         elif title == "Benchmark Summary":
             widget = BenchmarkSummaryWindow(collect_environment())
         elif title == "3D Vehicle Model":
@@ -1151,6 +1166,8 @@ class MainWindow(QtWidgets.QMainWindow):
             return QtCore.QSize(440, 230)
         if title == "Tire Temperature":
             return QtCore.QSize(430, 380)
+        if title == "Video Sync":
+            return QtCore.QSize(620, 420)
         if title in {"GPS Map", "G-G Diagram"}:
             return QtCore.QSize(560, 340)
         if title == "3D Vehicle Model":
@@ -1284,6 +1301,24 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _build_tire_temperature_window(self) -> TireTemperatureWindow:
         return TireTemperatureWindow(self.playback_state, self.sensor_series)
+
+    def _build_video_sync_window(self) -> VideoSyncWindow:
+        widget = VideoSyncWindow(
+            self.playback_state,
+            video_path=self.video_path,
+            video_offset_ms=self.video_offset_ms,
+            video_muted=self.video_muted,
+        )
+        for button in (widget.load_button, widget.clear_button):
+            try:
+                button.clicked.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+        widget.load_button.clicked.connect(self._open_video_sync_dialog)
+        widget.clear_button.clicked.connect(self.clear_video_sync)
+        widget.videoOffsetChanged.connect(self.set_video_sync_offset_ms)
+        widget.videoMutedChanged.connect(self.set_video_sync_muted)
+        return widget
 
     def _build_data_analysis_window(self) -> DataAnalysisWindow:
         session_name = self.loaded_csv_path.name if self.loaded_csv_path is not None else "No CSV"
@@ -1674,6 +1709,29 @@ class MainWindow(QtWidgets.QMainWindow):
         self.vehicle_model_load_button.setObjectName("vehicleModelLoadButton")
         self.vehicle_model_load_button.clicked.connect(self._open_vehicle_model_dialog)
 
+        self.video_sync_path_edit = QtWidgets.QLineEdit()
+        self.video_sync_path_edit.setObjectName("videoSyncPathEdit")
+        self.video_sync_path_edit.setReadOnly(True)
+        self.video_sync_load_button = QtWidgets.QPushButton("Load Video...")
+        self.video_sync_load_button.setObjectName("videoSyncLoadButton")
+        self.video_sync_load_button.clicked.connect(self._open_video_sync_dialog)
+        self.video_sync_clear_button = QtWidgets.QPushButton("Clear")
+        self.video_sync_clear_button.setObjectName("videoSyncClearButton")
+        self.video_sync_clear_button.clicked.connect(self.clear_video_sync)
+        self.video_sync_offset_spin = QtWidgets.QSpinBox()
+        self.video_sync_offset_spin.setObjectName("videoSyncOffsetSpin")
+        self.video_sync_offset_spin.setRange(-3_600_000, 3_600_000)
+        self.video_sync_offset_spin.setSuffix(" ms")
+        self.video_sync_offset_spin.setValue(self.video_offset_ms)
+        self.video_sync_offset_spin.valueChanged.connect(self.set_video_sync_offset_ms)
+        self.video_sync_mute_checkbox = QtWidgets.QCheckBox("Mute")
+        self.video_sync_mute_checkbox.setObjectName("videoSyncMuteCheckbox")
+        self.video_sync_mute_checkbox.setChecked(self.video_muted)
+        self.video_sync_mute_checkbox.toggled.connect(self.set_video_sync_muted)
+        self.video_sync_status_label = QtWidgets.QLabel("No video loaded")
+        self.video_sync_status_label.setObjectName("videoSyncStatusLabel")
+        self.video_sync_status_label.setWordWrap(True)
+
         self.workspace_properties_page = self._make_properties_page(
             "workspacePropertiesPage",
             (
@@ -1721,6 +1779,17 @@ class MainWindow(QtWidgets.QMainWindow):
                 ("", self.vehicle_model_load_button),
             ),
         )
+        self.video_sync_properties_page = self._make_properties_page(
+            "videoSyncPropertiesPage",
+            (
+                ("Video file", self.video_sync_path_edit),
+                ("Load", self.video_sync_load_button),
+                ("Clear", self.video_sync_clear_button),
+                ("Offset", self.video_sync_offset_spin),
+                ("Audio", self.video_sync_mute_checkbox),
+                ("Status", self.video_sync_status_label),
+            ),
+        )
         self.read_only_properties_label = QtWidgets.QLabel("선택한 창의 추가 설정이 없습니다.")
         self.read_only_properties_label.setWordWrap(True)
         self.read_only_properties_page = self._make_properties_page(
@@ -1734,6 +1803,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.gps_properties_page,
             self.gg_properties_page,
             self.vehicle_model_properties_page,
+            self.video_sync_properties_page,
             self.read_only_properties_page,
         ):
             self.properties_stack.addWidget(page)
@@ -1819,6 +1889,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 selected_page = self.gg_properties_page
             elif isinstance(selected_widget, VehicleModelWindow):
                 selected_page = self.vehicle_model_properties_page
+            elif isinstance(selected_widget, VideoSyncWindow):
+                selected_page = self.video_sync_properties_page
+                self._sync_video_sync_controls()
             else:
                 selected_page = self.read_only_properties_page
 
@@ -1913,6 +1986,73 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def clear_reference_route(self) -> None:
         self.set_reference_route(ReferenceRoute(name=self.reference_route.name, points=()))
+
+    def load_video_sync_path(self, path: Path | str) -> None:
+        self.video_path = Path(path)
+        self._apply_video_sync_to_open_windows(path=True, offset=False, muted=False)
+        self._sync_video_sync_controls()
+
+    def clear_video_sync(self) -> None:
+        self.video_path = None
+        self._apply_video_sync_to_open_windows(path=True, offset=False, muted=False)
+        self._sync_video_sync_controls()
+
+    def set_video_sync_offset_ms(self, offset_ms: int) -> None:
+        self.video_offset_ms = int(offset_ms)
+        self._apply_video_sync_to_open_windows(path=False, offset=True, muted=False)
+        self._sync_video_sync_controls()
+
+    def set_video_sync_muted(self, muted: bool) -> None:
+        self.video_muted = bool(muted)
+        self._apply_video_sync_to_open_windows(path=False, offset=False, muted=True)
+        self._sync_video_sync_controls()
+
+    def _open_video_sync_dialog(self) -> None:
+        path, _selected_filter = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Load video",
+            str(Path.cwd()),
+            "Video files (*.mp4 *.mov *.m4v *.avi);;All files (*.*)",
+        )
+        if path:
+            self.load_video_sync_path(path)
+
+    def _apply_video_sync_to_open_windows(
+        self,
+        *,
+        path: bool = True,
+        offset: bool = True,
+        muted: bool = True,
+    ) -> None:
+        for sub_window in self.workspace.subWindowList():
+            widget = sub_window.widget()
+            if isinstance(widget, VideoSyncWindow):
+                if path:
+                    widget.set_video_path(self.video_path)
+                if offset:
+                    widget.set_video_offset_ms(self.video_offset_ms, notify=False)
+                if muted:
+                    widget.set_video_muted(self.video_muted, notify=False)
+
+    def _sync_video_sync_controls(self) -> None:
+        if not hasattr(self, "video_sync_path_edit"):
+            return
+        self.video_sync_path_edit.setText(
+            "" if self.video_path is None else str(self.video_path)
+        )
+        self.video_sync_offset_spin.blockSignals(True)
+        self.video_sync_offset_spin.setValue(self.video_offset_ms)
+        self.video_sync_offset_spin.blockSignals(False)
+        self.video_sync_mute_checkbox.blockSignals(True)
+        self.video_sync_mute_checkbox.setChecked(self.video_muted)
+        self.video_sync_mute_checkbox.blockSignals(False)
+        if self.video_path is None:
+            status_text = "No video loaded"
+        elif not self.video_path.exists():
+            status_text = f"Video missing: {self.video_path}"
+        else:
+            status_text = f"Video: {self.video_path.name}"
+        self.video_sync_status_label.setText(status_text)
 
     def load_reference_route_path(self, path: Path) -> bool:
         try:

@@ -57,6 +57,9 @@ class ProjectState:
     vehicle_model_path: Path | None = None
     reference_route_path: Path | None = None
     reference_route_name: str = ""
+    video_path: Path | None = None
+    video_offset_ms: int = 0
+    video_muted: bool = True
     event_reviews: tuple[EventReview, ...] = ()
     analysis_segments: tuple[AnalysisSegment, ...] = ()
     selected_sidebar_group: str = "시각화"
@@ -73,6 +76,9 @@ class ProjectState:
                 None if self.reference_route_path is None else str(self.reference_route_path)
             ),
             "reference_route_name": self.reference_route_name,
+            "video_path": None if self.video_path is None else str(self.video_path),
+            "video_offset_ms": self.video_offset_ms,
+            "video_muted": self.video_muted,
             "active_profile": self.active_profile,
             "channel_mappings": dict(self.channel_mappings),
             "derived_channel_settings": dict(self.derived_channel_settings),
@@ -98,6 +104,7 @@ class ProjectState:
         csv_path = data.get("csv_path")
         vehicle_model_path = data.get("vehicle_model_path")
         reference_route_path = data.get("reference_route_path")
+        video_path = data.get("video_path")
         report_output_path = data.get("report_output_path")
         return cls(
             schema_version=SCHEMA_VERSION,
@@ -109,6 +116,9 @@ class ProjectState:
                 None if reference_route_path in (None, "") else Path(str(reference_route_path))
             ),
             reference_route_name=str(data.get("reference_route_name", "")),
+            video_path=None if video_path in (None, "") else Path(str(video_path)),
+            video_offset_ms=int(data.get("video_offset_ms", 0)),
+            video_muted=_optional_bool(data, "video_muted", default=True),
             report_output_path=(
                 None if report_output_path in (None, "") else Path(str(report_output_path))
             ),
@@ -142,3 +152,12 @@ def save_project_state(path: Path, state: ProjectState) -> None:
 
 def load_project_state(path: Path) -> ProjectState:
     return ProjectState.from_dict(json.loads(path.read_text(encoding="utf-8")))
+
+
+def _optional_bool(data: dict[str, Any], key: str, *, default: bool) -> bool:
+    if key not in data:
+        return default
+    value = data[key]
+    if not isinstance(value, bool):
+        raise ValueError(f"{key} must be a boolean")
+    return value
