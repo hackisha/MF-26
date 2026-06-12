@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 import math
 from pathlib import Path
 import sys
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
 
 from PySide6 import QtCore, QtGui, QtWidgets
 import shiboken6
@@ -601,6 +601,24 @@ DEFAULT_ANALYSIS_ITEMS: tuple[str, ...] = (
     "Documents",
 )
 
+SIDEBAR_SEARCH_ALIASES: dict[str, tuple[str, ...]] = {
+    "Time-Series Graph": ("시계열", "그래프", "plot", "센서"),
+    "Data Analysis": ("데이터", "분석", "통계", "요약"),
+    "Vehicle Dynamics": ("차량동역학", "동역학", "거동", "yaw", "understeer"),
+    "Segment Analysis": ("구간", "랩", "코너", "세그먼트"),
+    "Event Review": ("이벤트", "이상", "경고", "리뷰"),
+    "GPS Map": ("지도", "gps", "경로", "트랙", "위치"),
+    "G-G Diagram": ("gg", "g-g", "가속도", "한계원"),
+    "Gauge Indicators": ("게이지", "속도계", "rpm", "속도"),
+    "Tire Temperature": ("타이어", "온도", "타이어온도"),
+    "Video Sync": ("영상", "비디오", "고프로", "gopro", "sync"),
+    "3D Vehicle Model": ("3d", "모델", "차량모델", "glb"),
+    "Current Values Table": ("현재값", "센서값", "값", "테이블"),
+    "Benchmark Summary": ("벤치마크", "성능", "환경"),
+    "Export Report": ("리포트", "보고서", "내보내기", "html"),
+    "Documents": ("문서", "자료", "docs"),
+}
+
 SIDEBAR_GROUPS: dict[str, tuple[str, ...]] = {
     "시각화": (
         "Time-Series Graph",
@@ -883,6 +901,11 @@ class MainWindow(QtWidgets.QMainWindow):
             video_path=self.video_path,
             video_offset_ms=self.video_offset_ms,
             video_muted=self.video_muted,
+            visualization_settings=_visualization_settings_to_dict(
+                self.visualization_settings
+            ),
+            ideal_path_settings=_ideal_path_settings_to_dict(self.ideal_path_settings),
+            sidebar_settings=_sidebar_settings_to_dict(self.sidebar_settings),
             event_reviews=self.event_reviews,
             analysis_segments=self.analysis_segments,
             selected_sidebar_group=self.selected_sidebar_group,
@@ -913,6 +936,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.active_profile = state.active_profile
         self.channel_mappings = dict(state.channel_mappings)
         self.derived_channel_settings = dict(state.derived_channel_settings)
+        self.visualization_settings = _visualization_settings_from_dict(
+            state.visualization_settings,
+            fallback=self.visualization_settings,
+        )
+        self.ideal_path_settings = _ideal_path_settings_from_dict(
+            state.ideal_path_settings,
+            fallback=self.ideal_path_settings,
+        )
+        self.sidebar_settings = _sidebar_settings_from_dict(
+            state.sidebar_settings,
+            fallback=self.sidebar_settings,
+        )
+        self._sync_settings_controls_from_state()
         self.selected_channels = list(state.selected_channels)
         self.event_reviews = (
             state.event_reviews
@@ -979,10 +1015,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.preset_tabs.removeTab(0)
             seen = set(state.preset_tab_order)
             for tab_title in state.preset_tab_order:
-                self.preset_tabs.addTab(tab_title)
+                index = self.preset_tabs.addTab(tab_title)
+                self.preset_tabs.setTabToolTip(index, _preset_tab_tooltip_for_title(tab_title))
             for tab_title in DEFAULT_PRESET_TABS:
                 if tab_title not in seen:
-                    self.preset_tabs.addTab(tab_title)
+                    index = self.preset_tabs.addTab(tab_title)
+                    self.preset_tabs.setTabToolTip(index, _preset_tab_tooltip_for_title(tab_title))
             if self.preset_tabs.count():
                 self.preset_tabs.setCurrentIndex(
                     min(max(state.active_tab_index, 0), self.preset_tabs.count() - 1)
@@ -1478,8 +1516,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.preset_tabs.setObjectName("presetTabs")
         self.preset_tabs.setExpanding(False)
         self.preset_tabs.setMovable(True)
-        for tab_title in DEFAULT_PRESET_TABS:
+        for index, tab_title in enumerate(DEFAULT_PRESET_TABS):
             self.preset_tabs.addTab(tab_title)
+            self.preset_tabs.setTabToolTip(index, _preset_tab_tooltip(index))
 
         self.workspace_command_bar = QtWidgets.QFrame()
         self.workspace_command_bar.setObjectName("workspaceCommandBar")
@@ -1564,6 +1603,11 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.setSpacing(10)
         self.properties_selection_label = QtWidgets.QLabel("선택 창: -")
         self.properties_selection_label.setObjectName("propertiesSelectionLabel")
+        self.properties_scope_label = QtWidgets.QLabel(
+            "적용 범위: 선택한 창 종류와 이후 새로 여는 같은 종류의 창"
+        )
+        self.properties_scope_label.setObjectName("propertiesScopeLabel")
+        self.properties_scope_label.setWordWrap(True)
         self.properties_stack = QtWidgets.QStackedWidget()
         self.properties_stack.setObjectName("propertiesStack")
 
@@ -1811,6 +1855,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.properties_stack.addWidget(page)
 
         layout.addWidget(self.properties_selection_label)
+        layout.addWidget(self.properties_scope_label)
         layout.addWidget(self.properties_stack, 1)
 
         self.properties_panel.setWidget(content)
@@ -2072,6 +2117,61 @@ class MainWindow(QtWidgets.QMainWindow):
             status_text = f"Video: {self.video_path.name}"
         self.video_sync_status_label.setText(status_text)
 
+    def _sync_settings_controls_from_state(self) -> None:
+        if not hasattr(self, "gps_map_background_checkbox"):
+            return
+
+        _set_checked_without_signal(
+            self.gps_map_background_checkbox,
+            self.visualization_settings.gps_map_background_enabled,
+        )
+        _set_combo_text_without_signal(
+            self.graph_line_color_combo,
+            _graph_line_color_name(self.visualization_settings.graph_line_color),
+        )
+        _set_spin_value_without_signal(
+            self.graph_line_width_spin,
+            self.visualization_settings.graph_line_width,
+        )
+        _set_spin_value_without_signal(
+            self.gg_limit_radius_spin,
+            self.visualization_settings.gg_limit_radius,
+        )
+
+        _set_checked_without_signal(
+            self.ideal_path_enabled_checkbox,
+            self.ideal_path_settings.enabled,
+        )
+        _set_spin_value_without_signal(
+            self.ideal_path_wheelbase_spin,
+            self.ideal_path_settings.wheelbase_m,
+        )
+        _set_spin_value_without_signal(
+            self.ideal_path_steering_ratio_spin,
+            self.ideal_path_settings.steering_ratio,
+        )
+        self._populate_ideal_path_steering_channel_combo()
+        _set_combo_text_without_signal(
+            self.ideal_path_steering_channel_combo,
+            self.ideal_path_settings.steering_channel,
+        )
+
+        _set_checked_without_signal(
+            self.sidebar_search_visible_checkbox,
+            self.sidebar_settings.search_visible,
+        )
+        _set_checked_without_signal(
+            self.sidebar_add_button_visible_checkbox,
+            self.sidebar_settings.add_button_visible,
+        )
+        _set_combo_text_without_signal(self.sidebar_sort_combo, self.sidebar_settings.sort_mode)
+        _set_combo_text_without_signal(self.sidebar_density_combo, self.sidebar_settings.density)
+        _set_spin_value_without_signal(self.sidebar_width_spin, self.sidebar_settings.width_px)
+
+        self._apply_sidebar_settings()
+        self._apply_visualization_settings_to_open_windows()
+        self._apply_ideal_path_settings_to_open_windows()
+
     def load_reference_route_path(self, path: Path) -> bool:
         try:
             route = load_reference_route(path)
@@ -2321,6 +2421,10 @@ class MainWindow(QtWidgets.QMainWindow):
         control_row = QtWidgets.QHBoxLayout(self.playback_controls_row)
         control_row.setContentsMargins(8, 6, 8, 6)
         control_row.setSpacing(6)
+        self.open_csv_button = QtWidgets.QPushButton("Open CSV...")
+        self.open_csv_button.setObjectName("playbackOpenCsvButton")
+        self.open_csv_button.setToolTip("CSV 파일을 열어 재생 세션을 시작합니다.")
+        self.open_csv_button.clicked.connect(self._open_csv_dialog)
         self.home_button = QtWidgets.QPushButton("처음")
         self.home_button.setObjectName("playbackHomeButton")
         self.home_button.clicked.connect(lambda: self.seek_to_time_ms(0))
@@ -2344,6 +2448,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.speed_combo.setCurrentText("1x")
         self.speed_combo.currentTextChanged.connect(self._set_playback_speed_from_text)
         for widget in (
+            self.open_csv_button,
             self.home_button,
             self.end_button,
             self.prev_event_button,
@@ -2432,7 +2537,7 @@ class MainWindow(QtWidgets.QMainWindow):
         items = [
             item
             for item in self._all_analysis_items
-            if not query or query in item.lower()
+            if not query or query in _analysis_item_search_text(item)
         ]
         if self.sidebar_settings.sort_mode == "A-Z":
             items = sorted(items)
@@ -2604,7 +2709,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def open_project_file(self, project_path: Path) -> bool:
         try:
-            state = load_project_state(project_path)
+            state = _resolve_project_state_paths(
+                load_project_state(project_path),
+                project_path.parent,
+            )
         except (OSError, ValueError) as exc:
             log_path = log_exception(exc, context=f"open project: {project_path}")
             self.playback_warning_label.setText(f"Project open failed. Log: {log_path.name}")
@@ -2687,6 +2795,7 @@ class MainWindow(QtWidgets.QMainWindow):
             sampling_interval_ms=_estimate_sampling_interval_ms(timestamps),
             autosave_warning=warning,
         )
+        self.complete_data_load_for_pending_project(csv_path)
 
     def _configure_playback_session(
         self,
@@ -3159,6 +3268,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 color: #f4f8fb;
                 font-weight: 600;
             }
+            QLabel#propertiesScopeLabel {
+                color: #c7d1d8;
+                background: #20262a;
+                border: 1px solid #46545e;
+                padding: 6px 8px;
+            }
             QCheckBox {
                 color: #f2f6f8;
                 spacing: 8px;
@@ -3186,6 +3301,17 @@ class MainWindow(QtWidgets.QMainWindow):
             QComboBox::drop-down {
                 border-left: 1px solid #5a6872;
                 width: 24px;
+            }
+            QComboBox::down-arrow {
+                width: 0;
+                height: 0;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 6px solid #f2f6f8;
+                margin-right: 7px;
+            }
+            QComboBox::down-arrow:disabled {
+                border-top: 6px solid #8f9aa2;
             }
             QSlider::groove:horizontal {
                 height: 6px;
@@ -3759,6 +3885,166 @@ def _graph_line_color(name: str) -> str | None:
         "Green": "#58d68d",
         "Red": "#ec7063",
     }.get(name)
+
+
+def _graph_line_color_name(color: str | None) -> str:
+    if color is None:
+        return "Default"
+    for name in ("Yellow", "Blue", "Green", "Red"):
+        if _graph_line_color(name) == color:
+            return name
+    return "Default"
+
+
+def _visualization_settings_to_dict(settings: VisualizationSettings) -> dict[str, Any]:
+    return {
+        "gps_map_background_enabled": settings.gps_map_background_enabled,
+        "graph_line_color": settings.graph_line_color,
+        "graph_line_width": settings.graph_line_width,
+        "gg_limit_radius": settings.gg_limit_radius,
+    }
+
+
+def _visualization_settings_from_dict(
+    data: dict[str, Any],
+    *,
+    fallback: VisualizationSettings,
+) -> VisualizationSettings:
+    if not data:
+        return fallback
+    return VisualizationSettings(
+        gps_map_background_enabled=bool(
+            data.get("gps_map_background_enabled", fallback.gps_map_background_enabled)
+        ),
+        graph_line_color=(
+            None
+            if data.get("graph_line_color", fallback.graph_line_color) in (None, "")
+            else str(data.get("graph_line_color", fallback.graph_line_color))
+        ),
+        graph_line_width=float(data.get("graph_line_width", fallback.graph_line_width)),
+        gg_limit_radius=float(data.get("gg_limit_radius", fallback.gg_limit_radius)),
+    )
+
+
+def _ideal_path_settings_to_dict(settings: IdealPathSettings) -> dict[str, Any]:
+    return {
+        "enabled": settings.enabled,
+        "wheelbase_m": settings.wheelbase_m,
+        "steering_ratio": settings.steering_ratio,
+        "steering_channel": settings.steering_channel,
+    }
+
+
+def _ideal_path_settings_from_dict(
+    data: dict[str, Any],
+    *,
+    fallback: IdealPathSettings,
+) -> IdealPathSettings:
+    if not data:
+        return fallback
+    return IdealPathSettings(
+        enabled=bool(data.get("enabled", fallback.enabled)),
+        wheelbase_m=float(data.get("wheelbase_m", fallback.wheelbase_m)),
+        steering_ratio=float(data.get("steering_ratio", fallback.steering_ratio)),
+        steering_channel=str(data.get("steering_channel", fallback.steering_channel)),
+    )
+
+
+def _sidebar_settings_to_dict(settings: SidebarSettings) -> dict[str, Any]:
+    return {
+        "search_visible": settings.search_visible,
+        "add_button_visible": settings.add_button_visible,
+        "sort_mode": settings.sort_mode,
+        "density": settings.density,
+        "width_px": settings.width_px,
+    }
+
+
+def _sidebar_settings_from_dict(
+    data: dict[str, Any],
+    *,
+    fallback: SidebarSettings,
+) -> SidebarSettings:
+    if not data:
+        return fallback
+    return SidebarSettings(
+        search_visible=bool(data.get("search_visible", fallback.search_visible)),
+        add_button_visible=bool(data.get("add_button_visible", fallback.add_button_visible)),
+        sort_mode=str(data.get("sort_mode", fallback.sort_mode)),
+        density=str(data.get("density", fallback.density)),
+        width_px=int(data.get("width_px", fallback.width_px)),
+    )
+
+
+def _set_checked_without_signal(widget: QtWidgets.QCheckBox, checked: bool) -> None:
+    widget.blockSignals(True)
+    try:
+        widget.setChecked(bool(checked))
+    finally:
+        widget.blockSignals(False)
+
+
+def _set_combo_text_without_signal(widget: QtWidgets.QComboBox, text: str) -> None:
+    widget.blockSignals(True)
+    try:
+        if widget.findText(text) >= 0:
+            widget.setCurrentText(text)
+    finally:
+        widget.blockSignals(False)
+
+
+def _set_spin_value_without_signal(
+    widget: QtWidgets.QAbstractSpinBox,
+    value: float | int,
+) -> None:
+    widget.blockSignals(True)
+    try:
+        if isinstance(widget, QtWidgets.QSpinBox):
+            widget.setValue(int(value))
+        elif isinstance(widget, QtWidgets.QDoubleSpinBox):
+            widget.setValue(float(value))
+    finally:
+        widget.blockSignals(False)
+
+
+def _analysis_item_search_text(title: str) -> str:
+    aliases = SIDEBAR_SEARCH_ALIASES.get(title, ())
+    return " ".join((title, *aliases)).lower()
+
+
+def _preset_tab_tooltip(index: int) -> str:
+    if index < 0 or index >= len(PRESET_TAB_MODES):
+        return ""
+    mode = PRESET_TAB_MODES[index]
+    channels = ", ".join(mode.channels) if mode.channels else "default"
+    return f"windows: {', '.join(mode.windows)}\nchannels: {channels}"
+
+
+def _preset_tab_tooltip_for_title(tab_title: str) -> str:
+    try:
+        return _preset_tab_tooltip(DEFAULT_PRESET_TABS.index(tab_title))
+    except ValueError:
+        return tab_title
+
+
+def _resolve_project_state_paths(state: ProjectState, base_dir: Path) -> ProjectState:
+    return replace(
+        state,
+        csv_path=_resolve_optional_project_path(state.csv_path, base_dir),
+        vehicle_model_path=_resolve_optional_project_path(state.vehicle_model_path, base_dir),
+        reference_route_path=_resolve_optional_project_path(
+            state.reference_route_path,
+            base_dir,
+        ),
+        video_path=_resolve_optional_project_path(state.video_path, base_dir),
+        report_output_path=_resolve_optional_project_path(state.report_output_path, base_dir),
+    )
+
+
+def _resolve_optional_project_path(path: Path | None, base_dir: Path) -> Path | None:
+    if path is None or path.is_absolute():
+        return path
+    return base_dir / path
 
 
 def _object_name(text: str, *, suffix: str) -> str:

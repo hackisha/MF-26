@@ -60,6 +60,9 @@ class ProjectState:
     video_path: Path | None = None
     video_offset_ms: int = 0
     video_muted: bool = True
+    visualization_settings: dict[str, Any] = field(default_factory=dict)
+    ideal_path_settings: dict[str, Any] = field(default_factory=dict)
+    sidebar_settings: dict[str, Any] = field(default_factory=dict)
     event_reviews: tuple[EventReview, ...] = ()
     analysis_segments: tuple[AnalysisSegment, ...] = ()
     selected_sidebar_group: str = "시각화"
@@ -79,6 +82,9 @@ class ProjectState:
             "video_path": None if self.video_path is None else str(self.video_path),
             "video_offset_ms": self.video_offset_ms,
             "video_muted": self.video_muted,
+            "visualization_settings": dict(self.visualization_settings),
+            "ideal_path_settings": dict(self.ideal_path_settings),
+            "sidebar_settings": dict(self.sidebar_settings),
             "active_profile": self.active_profile,
             "channel_mappings": dict(self.channel_mappings),
             "derived_channel_settings": dict(self.derived_channel_settings),
@@ -119,6 +125,9 @@ class ProjectState:
             video_path=None if video_path in (None, "") else Path(str(video_path)),
             video_offset_ms=int(data.get("video_offset_ms", 0)),
             video_muted=_optional_bool(data, "video_muted", default=True),
+            visualization_settings=dict(data.get("visualization_settings", {})),
+            ideal_path_settings=dict(data.get("ideal_path_settings", {})),
+            sidebar_settings=dict(data.get("sidebar_settings", {})),
             report_output_path=(
                 None if report_output_path in (None, "") else Path(str(report_output_path))
             ),

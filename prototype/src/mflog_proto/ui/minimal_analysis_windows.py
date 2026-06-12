@@ -1249,6 +1249,14 @@ class VideoSyncWindow(QtWidgets.QWidget):
         if self._warning_text:
             self.status_label.setText(self._warning_text)
             return
+        if self._video_path is None:
+            self.status_label.setText(
+                "Load Video... to sync GoPro footage | "
+                f"CSV {_format_seconds(self._playback_state.current_time_ms)} | "
+                f"Video {_format_seconds(self.target_video_time_ms())} | "
+                f"Offset {self._video_offset_ms:+d} ms"
+            )
+            return
         name = "-" if self._video_path is None else self._video_path.name
         self.status_label.setText(
             f"Video: {name} | CSV {_format_seconds(self._playback_state.current_time_ms)} | "
@@ -2631,7 +2639,7 @@ class VehicleModelWindow(QtWidgets.QWidget):
         return f"{framing} | {suffix}"
 
     def qualitative_note_text(self) -> str:
-        return "Qualitative visualization only"
+        return "Estimated attitude only: roll/pitch from acceleration, yaw from yaw-rate integration"
 
     @property
     def is_model_preview_rendered(self) -> bool:
