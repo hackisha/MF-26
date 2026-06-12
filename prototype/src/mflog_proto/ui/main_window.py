@@ -1555,6 +1555,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.properties_panel = QtWidgets.QDockWidget("속성", self)
         self.properties_panel.setObjectName("propertiesPanel")
         self.properties_panel.setAllowedAreas(QtCore.Qt.DockWidgetArea.RightDockWidgetArea)
+        self.properties_panel.setMinimumWidth(410)
 
         content = QtWidgets.QWidget()
         content.setObjectName("propertiesPanelContent")
@@ -1649,6 +1650,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.time_series_channel_list.setSelectionMode(
             QtWidgets.QAbstractItemView.SelectionMode.NoSelection
         )
+        self.time_series_channel_list.setMinimumWidth(270)
         self.time_series_channel_list.setMaximumHeight(220)
         self.time_series_channel_list.itemChanged.connect(
             self._update_time_series_channels_from_controls
@@ -1841,13 +1843,13 @@ class MainWindow(QtWidgets.QMainWindow):
             row = QtWidgets.QFrame()
             row.setObjectName("settingsRow")
             row_layout = QtWidgets.QHBoxLayout(row)
-            row_layout.setContentsMargins(8, 6, 8, 6)
-            row_layout.setSpacing(6)
+            row_layout.setContentsMargins(6, 6, 6, 6)
+            row_layout.setSpacing(4)
 
             label_widget = QtWidgets.QLabel(label)
             label_widget.setObjectName("settingsRowLabel")
-            label_widget.setMinimumWidth(72)
-            label_widget.setMaximumWidth(78)
+            label_widget.setMinimumWidth(64)
+            label_widget.setMaximumWidth(68)
             label_widget.setAlignment(
                 QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop
             )
@@ -1921,13 +1923,14 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._syncing_time_series_channel_checks:
             return
         self.selected_channels = [
-            self.time_series_channel_list.item(index).text()
+            _time_series_channel_id_from_item(self.time_series_channel_list.item(index))
             for index in range(self.time_series_channel_list.count())
             if (
                 self.time_series_channel_list.item(index).checkState()
                 == QtCore.Qt.CheckState.Checked
             )
         ]
+        self._refresh_time_series_channel_item_labels()
         self._apply_time_series_channels_to_open_windows()
 
     def _populate_time_series_channel_list(self) -> None:
@@ -1938,14 +1941,29 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             self.time_series_channel_list.clear()
             for channel_id in _time_series_channel_options(self.sensor_series):
-                item = QtWidgets.QListWidgetItem(channel_id)
+                checked = channel_id in selected
+                item = QtWidgets.QListWidgetItem(
+                    _time_series_channel_item_label(channel_id, checked)
+                )
+                item.setData(QtCore.Qt.ItemDataRole.UserRole, channel_id)
                 item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
                 item.setCheckState(
                     QtCore.Qt.CheckState.Checked
-                    if channel_id in selected
+                    if checked
                     else QtCore.Qt.CheckState.Unchecked
                 )
                 self.time_series_channel_list.addItem(item)
+        finally:
+            self._syncing_time_series_channel_checks = False
+
+    def _refresh_time_series_channel_item_labels(self) -> None:
+        self._syncing_time_series_channel_checks = True
+        try:
+            for index in range(self.time_series_channel_list.count()):
+                item = self.time_series_channel_list.item(index)
+                channel_id = _time_series_channel_id_from_item(item)
+                checked = item.checkState() == QtCore.Qt.CheckState.Checked
+                item.setText(_time_series_channel_item_label(channel_id, checked))
         finally:
             self._syncing_time_series_channel_checks = False
 
@@ -3022,7 +3040,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 padding: 5px 6px;
             }
             QLineEdit:focus, QListWidget:focus, QTreeWidget:focus, QComboBox:focus, QAbstractSpinBox:focus {
-                border: 1px solid #f4c95d;
+                border: 2px solid #f4c95d;
             }
             QLineEdit:disabled, QListWidget:disabled, QTreeWidget:disabled, QComboBox:disabled,
             QAbstractSpinBox:disabled, QPushButton:disabled {
@@ -3039,24 +3057,69 @@ class MainWindow(QtWidgets.QMainWindow):
                 color: #ffffff;
             }
             QListWidget::indicator {
-                width: 16px;
-                height: 16px;
-                border: 1px solid #91a3ad;
+                width: 17px;
+                height: 17px;
+                border: 1px solid #b9c8d1;
                 border-radius: 4px;
-                margin-left: 2px;
+                margin-left: 3px;
+                margin-right: 6px;
                 background: #26313a;
             }
             QListWidget::indicator:unchecked {
                 background: #26313a;
-                border: 1px solid #91a3ad;
+                border: 1px solid #b9c8d1;
             }
             QListWidget::indicator:checked {
-                background: #4f8db3;
-                border: 1px solid #f4c95d;
+                background: #f4c95d;
+                border: 2px solid #ffffff;
             }
             QListWidget::indicator:disabled {
                 background: #2b3034;
                 border: 1px solid #4b555d;
+            }
+            QScrollBar:vertical {
+                background: #182126;
+                border-left: 1px solid #3f4a52;
+                width: 13px;
+                margin: 0;
+            }
+            QScrollBar::handle:vertical {
+                background: #c7d1d8;
+                border: 1px solid #edf3f7;
+                border-radius: 5px;
+                min-height: 30px;
+                margin: 2px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #ffffff;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: transparent;
+                border: none;
+                height: 0;
+            }
+            QScrollBar:horizontal {
+                background: #182126;
+                border-top: 1px solid #3f4a52;
+                height: 13px;
+                margin: 0;
+            }
+            QScrollBar::handle:horizontal {
+                background: #c7d1d8;
+                border: 1px solid #edf3f7;
+                border-radius: 5px;
+                min-width: 30px;
+                margin: 2px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background: #ffffff;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal,
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+                background: transparent;
+                border: none;
+                width: 0;
             }
             QComboBox QAbstractItemView {
                 background: #10161a;
@@ -3104,17 +3167,17 @@ class MainWindow(QtWidgets.QMainWindow):
                 color: #b8c3ca;
             }
             QCheckBox::indicator {
-                width: 16px;
-                height: 16px;
-                border: 1px solid #91a3ad;
+                width: 17px;
+                height: 17px;
+                border: 1px solid #b9c8d1;
                 border-radius: 4px;
             }
             QCheckBox::indicator:unchecked {
                 background: #26313a;
             }
             QCheckBox::indicator:checked {
-                background: #4f8db3;
-                border: 1px solid #f4c95d;
+                background: #f4c95d;
+                border: 2px solid #ffffff;
             }
             QCheckBox::indicator:disabled {
                 background: #2b3034;
@@ -3447,6 +3510,17 @@ def _time_series_channel_options(sensor_series: dict[str, list[float]]) -> list[
         if channel_id not in options:
             options.append(channel_id)
     return options
+
+
+def _time_series_channel_item_label(channel_id: str, checked: bool) -> str:
+    return f"✓ {channel_id}" if checked else channel_id
+
+
+def _time_series_channel_id_from_item(item: QtWidgets.QListWidgetItem) -> str:
+    channel_id = item.data(QtCore.Qt.ItemDataRole.UserRole)
+    if channel_id is not None:
+        return str(channel_id)
+    return item.text().removeprefix("✓ ").strip()
 
 
 def _steering_channel_options(sensor_series: dict[str, list[float]]) -> list[str]:

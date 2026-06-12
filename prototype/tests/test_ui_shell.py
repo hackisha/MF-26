@@ -350,10 +350,12 @@ def test_right_properties_panel_uses_grouped_readable_rows(qtbot):
 
     assert group is not None
     assert len(rows) >= 5
-    assert all(64 <= label.minimumWidth() <= 78 for label in labels)
-    assert all(layout is not None and layout.spacing() <= 6 for layout in row_layouts)
+    assert window.properties_panel.minimumWidth() >= 410
+    assert window.time_series_channel_list.minimumWidth() >= 270
+    assert all(64 <= label.minimumWidth() <= 68 for label in labels)
+    assert all(layout is not None and layout.spacing() <= 4 for layout in row_layouts)
     assert group.layout().contentsMargins().left() <= 6
-    assert all(layout.contentsMargins().left() <= 8 for layout in row_layouts if layout is not None)
+    assert all(layout.contentsMargins().left() <= 6 for layout in row_layouts if layout is not None)
     for selector in (
         "QDockWidget#propertiesPanel",
         "QMdiSubWindow::title",
@@ -372,6 +374,10 @@ def test_right_properties_panel_uses_grouped_readable_rows(qtbot):
         "QListWidget::indicator",
         "QListWidget::indicator:unchecked",
         "QListWidget::indicator:checked",
+        "QScrollBar:vertical",
+        "QScrollBar::handle:vertical",
+        "QScrollBar:horizontal",
+        "QScrollBar::handle:horizontal",
         "QComboBox QAbstractItemView",
         "QComboBox QAbstractItemView::item",
         "QComboBox QAbstractItemView::item:selected",
@@ -384,6 +390,8 @@ def test_right_properties_panel_uses_grouped_readable_rows(qtbot):
     ):
         assert selector in style
     assert "background: #26313a;" in style
+    assert "background: #c7d1d8;" in style
+    assert "border: 2px solid #ffffff;" in style
     assert "selection-background-color: #3d5566;" in style
     assert "background: #334450;" in style
     assert "background: #405665;" in style
@@ -1138,6 +1146,15 @@ def test_right_properties_selects_time_series_channels_for_open_and_new_windows(
 
     assert window.selected_channels == ["AX_CORRECTED_G", "AY_CORRECTED_G"]
     assert time_series.channel_ids == ("AX_CORRECTED_G", "AY_CORRECTED_G")
+    checked_labels = [
+        window.time_series_channel_list.item(index).text()
+        for index in range(window.time_series_channel_list.count())
+        if (
+            window.time_series_channel_list.item(index).checkState()
+            == QtCore.Qt.CheckState.Checked
+        )
+    ]
+    assert checked_labels == ["✓ AX_CORRECTED_G", "✓ AY_CORRECTED_G"]
 
     new_time_series = window.add_analysis_window("Time-Series Graph").widget()
 
@@ -1626,9 +1643,10 @@ def _check_time_series_channels(window: MainWindow, channel_ids: tuple[str, ...]
     selected = set(channel_ids)
     for index in range(window.time_series_channel_list.count()):
         item = window.time_series_channel_list.item(index)
+        channel_id = item.data(QtCore.Qt.ItemDataRole.UserRole) or item.text()
         state = (
             QtCore.Qt.CheckState.Checked
-            if item.text() in selected
+            if channel_id in selected
             else QtCore.Qt.CheckState.Unchecked
         )
         item.setCheckState(state)
@@ -1637,14 +1655,16 @@ def _check_time_series_channels(window: MainWindow, channel_ids: tuple[str, ...]
 
 def _time_series_channel_options(window: MainWindow) -> list[str]:
     return [
-        window.time_series_channel_list.item(index).text()
+        window.time_series_channel_list.item(index).data(QtCore.Qt.ItemDataRole.UserRole)
+        or window.time_series_channel_list.item(index).text().removeprefix("✓ ").strip()
         for index in range(window.time_series_channel_list.count())
     ]
 
 
 def _checked_time_series_channels(window: MainWindow) -> list[str]:
     return [
-        window.time_series_channel_list.item(index).text()
+        window.time_series_channel_list.item(index).data(QtCore.Qt.ItemDataRole.UserRole)
+        or window.time_series_channel_list.item(index).text().removeprefix("✓ ").strip()
         for index in range(window.time_series_channel_list.count())
         if (
             window.time_series_channel_list.item(index).checkState()
