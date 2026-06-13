@@ -2465,11 +2465,33 @@ class MainWindow(QtWidgets.QMainWindow):
         self.timeline_slider.valueChanged.connect(self.seek_to_time_ms)
         control_row.addWidget(self.timeline_slider, 1)
 
-        lower_row = QtWidgets.QHBoxLayout()
+        self.playback_lower_strip = QtWidgets.QFrame()
+        self.playback_lower_strip.setObjectName("playbackLowerStrip")
+        lower_row = QtWidgets.QHBoxLayout(self.playback_lower_strip)
+        lower_row.setContentsMargins(8, 8, 8, 8)
+        lower_row.setSpacing(8)
+
+        self.playback_event_section = QtWidgets.QFrame()
+        self.playback_event_section.setObjectName("playbackEventSection")
+        event_section_layout = QtWidgets.QVBoxLayout(self.playback_event_section)
+        event_section_layout.setContentsMargins(8, 6, 8, 8)
+        event_section_layout.setSpacing(5)
+        self.playback_event_section_title = QtWidgets.QLabel("Events")
+        self.playback_event_section_title.setObjectName("playbackSectionTitle")
         self.event_marker_list = QtWidgets.QListWidget()
         self.event_marker_list.setObjectName("eventMarkerList")
         self.event_marker_list.setMaximumHeight(74)
         self.event_marker_list.currentItemChanged.connect(self._seek_to_event_item)
+        event_section_layout.addWidget(self.playback_event_section_title)
+        event_section_layout.addWidget(self.event_marker_list, 1)
+
+        self.playback_sensor_section = QtWidgets.QFrame()
+        self.playback_sensor_section.setObjectName("playbackSensorSection")
+        sensor_section_layout = QtWidgets.QVBoxLayout(self.playback_sensor_section)
+        sensor_section_layout.setContentsMargins(8, 6, 8, 8)
+        sensor_section_layout.setSpacing(5)
+        self.playback_sensor_section_title = QtWidgets.QLabel("Current sensors")
+        self.playback_sensor_section_title.setObjectName("playbackSectionTitle")
         self.sensor_card_container = QtWidgets.QWidget()
         self.sensor_card_container.setObjectName("sensorCardContainer")
         self.sensor_card_layout = QtWidgets.QHBoxLayout(self.sensor_card_container)
@@ -2488,15 +2510,17 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self.sensor_card_scroll_area.setMinimumHeight(82)
         self.sensor_card_scroll_area.setWidget(self.sensor_card_container)
-        lower_row.addWidget(self.event_marker_list, 1)
-        lower_row.addWidget(self.sensor_card_scroll_area, 2)
+        sensor_section_layout.addWidget(self.playback_sensor_section_title)
+        sensor_section_layout.addWidget(self.sensor_card_scroll_area, 1)
+        lower_row.addWidget(self.playback_event_section, 1)
+        lower_row.addWidget(self.playback_sensor_section, 2)
 
         self.playback_warning_label = QtWidgets.QLabel()
         self.playback_warning_label.setObjectName("playbackWarningLabel")
 
         layout.addWidget(self.playback_status_strip)
         layout.addWidget(self.playback_controls_row)
-        layout.addLayout(lower_row)
+        layout.addWidget(self.playback_lower_strip)
         layout.addWidget(self.playback_warning_label)
         self.playback_dock.setWidget(content)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.playback_dock)
@@ -3044,9 +3068,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 background: #202326;
                 color: #edf3f7;
             }
+            QMdiArea#workspace {
+                background: #0f1418;
+                border-top: 1px solid #3f4a52;
+                border-left: 1px solid #303a41;
+                border-right: 1px solid #303a41;
+            }
             QMdiSubWindow {
                 background: #1d2429;
-                border: 1px solid #6b7d87;
+                border: 1px solid #6f838e;
             }
             QMdiSubWindow::title {
                 background: #334450;
@@ -3077,6 +3107,28 @@ class MainWindow(QtWidgets.QMainWindow):
                 font-family: "Malgun Gothic", "Segoe UI", sans-serif;
                 background: #2b2f33;
                 color: #edf3f7;
+            }
+            QDockWidget {
+                background: #181d21;
+                color: #edf3f7;
+                border: 1px solid #4f5e68;
+            }
+            QDockWidget::title {
+                background: #252c31;
+                color: #ffffff;
+                padding: 6px 8px;
+                border-bottom: 1px solid #56636d;
+                font-weight: 700;
+            }
+            QDockWidget#leftSidebar {
+                border-right: 1px solid #62717b;
+            }
+            QDockWidget#playbackDock {
+                border-top: 2px solid #6f838e;
+            }
+            QSplitter::handle {
+                background: #303a41;
+                border: 1px solid #4a5660;
             }
             QTabBar#presetTabs {
                 background: #202326;
@@ -3163,6 +3215,7 @@ class MainWindow(QtWidgets.QMainWindow):
             QAbstractItemView::item:selected {
                 background: #3d5566;
                 color: #ffffff;
+                border-left: 3px solid #f4c95d;
             }
             QHeaderView::section {
                 background: #26313a;
@@ -3346,21 +3399,35 @@ class MainWindow(QtWidgets.QMainWindow):
                 background: #f4c95d;
                 border: 1px solid #ffffff;
             }
+            QFrame#playbackDockContent {
+                background: #11171b;
+                border: 1px solid #62717b;
+            }
             QFrame#playbackStatusStrip, QFrame#playbackTransportStrip {
-                background: #1d2429;
-                border: 1px solid #4a5660;
+                background: #20282d;
+                border: 1px solid #6f838e;
             }
             QFrame#playbackStatusStrip QLabel {
                 color: #e8f0f5;
                 font-weight: 600;
             }
-            QFrame#playbackDockContent {
-                background: #151a1e;
-                border: 1px solid #4a5660;
+            QFrame#playbackLowerStrip {
+                background: #0f1418;
+                border: 1px solid #4f5e68;
+            }
+            QFrame#playbackEventSection, QFrame#playbackSensorSection {
+                background: #151d22;
+                border: 1px solid #6f838e;
+            }
+            QLabel#playbackSectionTitle {
+                color: #f4c95d;
+                background: transparent;
+                font-weight: 700;
+                padding: 0 0 3px 0;
             }
             QFrame#sensorCard {
-                background: #151a1e;
-                border: 1px solid #4a5660;
+                background: #12181c;
+                border: 1px solid #6f838e;
             }
             QLabel#sensorCardTitle {
                 color: #f4c95d;
@@ -3403,11 +3470,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 padding: 4px 6px;
             }
             QFrame#analysisWindowFrame {
-                background: #252a2e;
-                border: 1px solid #4a5660;
+                background: #151d22;
+                border: 1px solid #6f838e;
+            }
+            QFrame#analysisWindowFrame QWidget {
+                background: #10161a;
             }
             QFrame#analysisWindowFrame[active="true"] {
-                background: #262d32;
+                background: #182126;
                 border: 2px solid #f4c95d;
             }
             QLabel#analysisWindowTitle {
