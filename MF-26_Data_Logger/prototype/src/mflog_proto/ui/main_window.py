@@ -1508,6 +1508,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _build_central_workspace(self) -> None:
         central = QtWidgets.QWidget()
+        central.setObjectName("centralWorkspaceContainer")
         central_layout = QtWidgets.QVBoxLayout(central)
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
@@ -1594,7 +1595,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.properties_panel = QtWidgets.QDockWidget("속성", self)
         self.properties_panel.setObjectName("propertiesPanel")
         self.properties_panel.setAllowedAreas(QtCore.Qt.DockWidgetArea.RightDockWidgetArea)
-        self.properties_panel.setMinimumWidth(410)
+        self.properties_panel.setMinimumWidth(300)
 
         content = QtWidgets.QWidget()
         content.setObjectName("propertiesPanelContent")
@@ -1694,7 +1695,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.time_series_channel_list.setSelectionMode(
             QtWidgets.QAbstractItemView.SelectionMode.NoSelection
         )
-        self.time_series_channel_list.setMinimumWidth(270)
+        self.time_series_channel_list.setMinimumWidth(180)
         self.time_series_channel_list.setMaximumHeight(220)
         self.time_series_channel_list.itemChanged.connect(
             self._update_time_series_channels_from_controls
@@ -3039,6 +3040,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 background: #202326;
                 color: #edf3f7;
             }
+            QWidget#centralWorkspaceContainer {
+                background: #202326;
+                color: #edf3f7;
+            }
             QMdiSubWindow {
                 background: #1d2429;
                 border: 1px solid #6b7d87;
@@ -3072,6 +3077,23 @@ class MainWindow(QtWidgets.QMainWindow):
                 font-family: "Malgun Gothic", "Segoe UI", sans-serif;
                 background: #2b2f33;
                 color: #edf3f7;
+            }
+            QTabBar#presetTabs {
+                background: #202326;
+                color: #edf3f7;
+                border-bottom: 1px solid #3a4046;
+            }
+            QTabBar#presetTabs::tab {
+                background: #242a2f;
+                color: #edf3f7;
+            }
+            QTabBar#presetTabs::tab:hover {
+                background: #303941;
+                color: #ffffff;
+            }
+            QTabBar#presetTabs::tab:selected {
+                background: #3a4046;
+                color: #f4c95d;
             }
             QMenu::item {
                 color: #edf3f7;

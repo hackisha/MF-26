@@ -364,14 +364,16 @@ def test_right_properties_panel_uses_grouped_readable_rows(qtbot):
 
     assert group is not None
     assert len(rows) >= 5
-    assert window.properties_panel.minimumWidth() >= 410
-    assert window.time_series_channel_list.minimumWidth() >= 270
+    assert window.properties_panel.minimumWidth() <= 320
+    assert window.time_series_channel_list.minimumWidth() <= 220
     assert all(64 <= label.minimumWidth() <= 68 for label in labels)
     assert all(layout is not None and layout.spacing() <= 4 for layout in row_layouts)
     assert group.layout().contentsMargins().left() <= 6
     assert all(layout.contentsMargins().left() <= 6 for layout in row_layouts if layout is not None)
     for selector in (
         "QDockWidget#propertiesPanel",
+        "QWidget#centralWorkspaceContainer",
+        "QTabBar#presetTabs",
         "QMdiSubWindow::title",
         "QMdiSubWindow::title:active",
         "QMdiSubWindow::close-button:hover",
