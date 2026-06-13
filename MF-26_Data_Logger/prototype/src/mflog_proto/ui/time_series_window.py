@@ -29,6 +29,7 @@ class TimeSeriesWindow(QtWidgets.QWidget):
         self._playback_state = playback_state
         self._curves: dict[str, pg.PlotDataItem] = {}
         self._series_points: dict[str, tuple[list[float], list[float]]] = {}
+        self._disposed = False
         self._line_color = line_color
         self._line_width = float(line_width)
         self._visual_style = {
@@ -219,9 +220,32 @@ class TimeSeriesWindow(QtWidgets.QWidget):
         super().closeEvent(event)
 
     def dispose(self) -> None:
+        if self._disposed:
+            return
+        self._disposed = True
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
+        try:
+            self.plot.setUpdatesEnabled(False)
+            self.plot.viewport().setUpdatesEnabled(False)
+            self.plot.hide()
+        except RuntimeError:
+            pass
+        try:
+            self.plot.scene().sigMouseMoved.disconnect(self._handle_mouse_moved)
+        except (RuntimeError, TypeError):
+            pass
+        try:
+            self.plot.scene().sigMouseClicked.disconnect(self._handle_mouse_clicked)
+        except (RuntimeError, TypeError):
+            pass
+        try:
+            self.plot.clear()
+        except RuntimeError:
+            pass
+        self._curves.clear()
+        self._series_points.clear()
 
     def _pen_for_index(self, index: int) -> QtGui.QPen:
         color = self._line_color if self._line_color is not None else _palette_color(index)
