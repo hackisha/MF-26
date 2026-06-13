@@ -216,6 +216,10 @@ class _AnalysisWindowOverlayControls(QtCore.QObject):
         return button
 
 
+def _clamp_analysis_opacity(value: float) -> float:
+    return max(0.35, min(1.0, float(value)))
+
+
 class _AnalysisTitleBar(QtWidgets.QFrame):
     def __init__(
         self,
@@ -257,6 +261,32 @@ class _AnalysisTitleBar(QtWidgets.QFrame):
             QToolButton#analysisWindowCloseButton:hover {
                 background: #9f4d4d;
             }
+            QFrame#analysisWindowOpacityPopup {
+                background: #f3f5f6;
+                border: 1px solid #b9c4ca;
+            }
+            QLabel#analysisWindowOpacityIcon,
+            QLabel#analysisWindowOpacityValue {
+                color: #1f2a30;
+                background: transparent;
+                font-weight: 700;
+            }
+            QSlider#analysisWindowOpacitySlider::groove:horizontal {
+                height: 5px;
+                background: #a6a8aa;
+                border: none;
+            }
+            QSlider#analysisWindowOpacitySlider::sub-page:horizontal {
+                background: #178297;
+            }
+            QSlider#analysisWindowOpacitySlider::handle:horizontal {
+                width: 14px;
+                height: 14px;
+                margin: -5px 0;
+                border-radius: 7px;
+                background: #178297;
+                border: 2px solid #ffffff;
+            }
             """
         )
 
@@ -280,6 +310,12 @@ class _AnalysisTitleBar(QtWidgets.QFrame):
             text="[]",
             tooltip="Maximize / restore",
         )
+        self._opacity_button = self._make_button(
+            object_name="analysisWindowOpacityButton",
+            text="O",
+            tooltip="Window opacity",
+        )
+        self._opacity_popup = self._build_opacity_popup()
         self._close_button = self._make_button(
             object_name="analysisWindowCloseButton",
             text="x",
@@ -287,10 +323,12 @@ class _AnalysisTitleBar(QtWidgets.QFrame):
         )
 
         layout.addWidget(self._title_label, 1)
+        layout.addWidget(self._opacity_button)
         layout.addWidget(self._minimize_button)
         layout.addWidget(self._restore_button)
         layout.addWidget(self._close_button)
 
+        self._opacity_button.clicked.connect(self._toggle_opacity_popup)
         self._minimize_button.clicked.connect(sub_window.showMinimized)
         self._restore_button.clicked.connect(self._toggle_maximized)
         self._close_button.clicked.connect(sub_window.close)
@@ -307,12 +345,70 @@ class _AnalysisTitleBar(QtWidgets.QFrame):
     def set_title(self, title: str) -> None:
         self._title_label.setText(title)
 
+    def set_opacity_value(self, opacity: float) -> None:
+        value = round(_clamp_analysis_opacity(opacity) * 100)
+        blocker = QtCore.QSignalBlocker(self.opacity_slider)
+        self.opacity_slider.setValue(value)
+        del blocker
+        self.opacity_value_label.setText(f"{value}%")
+
     def update_restore_button(self) -> None:
         is_maximized = (
             self._sub_window.isMaximized()
             or bool(self._sub_window.windowState() & QtCore.Qt.WindowState.WindowMaximized)
         )
         self._restore_button.setText("[]" if is_maximized else "[ ]")
+
+    def _build_opacity_popup(self) -> QtWidgets.QFrame:
+        popup = QtWidgets.QFrame(self, QtCore.Qt.WindowType.Popup)
+        popup.setObjectName("analysisWindowOpacityPopup")
+        popup.setFixedSize(260, 54)
+        layout = QtWidgets.QHBoxLayout(popup)
+        layout.setContentsMargins(18, 10, 18, 10)
+        layout.setSpacing(10)
+
+        icon = QtWidgets.QLabel("O")
+        icon.setObjectName("analysisWindowOpacityIcon")
+        icon.setFixedWidth(18)
+        icon.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.opacity_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.opacity_slider.setObjectName("analysisWindowOpacitySlider")
+        self.opacity_slider.setRange(35, 100)
+        self.opacity_slider.setValue(100)
+        self.opacity_slider.setToolTip("Window opacity")
+        self.opacity_value_label = QtWidgets.QLabel("100%")
+        self.opacity_value_label.setObjectName("analysisWindowOpacityValue")
+        self.opacity_value_label.setFixedWidth(42)
+        self.opacity_value_label.setAlignment(
+            QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter
+        )
+
+        layout.addWidget(icon)
+        layout.addWidget(self.opacity_slider, 1)
+        layout.addWidget(self.opacity_value_label)
+        self.opacity_slider.valueChanged.connect(self._set_window_opacity_from_slider)
+        return popup
+
+    def _toggle_opacity_popup(self) -> None:
+        if self._opacity_popup.isVisible():
+            self._opacity_popup.hide()
+            return
+        self._opacity_popup.adjustSize()
+        below_button = self._opacity_button.mapToGlobal(
+            QtCore.QPoint(
+                -self._opacity_popup.width() + self._opacity_button.width(),
+                self._opacity_button.height() + 4,
+            )
+        )
+        self._opacity_popup.move(below_button)
+        self._opacity_popup.show()
+        self._opacity_popup.raise_()
+
+    def _set_window_opacity_from_slider(self, value: int) -> None:
+        self.opacity_value_label.setText(f"{value}%")
+        setter = getattr(self._sub_window, "set_analysis_opacity", None)
+        if callable(setter):
+            setter(value / 100.0)
 
     def mouseDoubleClickEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
@@ -540,20 +636,40 @@ class _AnalysisWindowFrame(QtWidgets.QFrame):
 
 
 class _AnalysisSubWindow(QtWidgets.QMdiSubWindow):
+    analysisOpacityChanged = QtCore.Signal(float)
+
     def __init__(self, content: QtWidgets.QWidget, title: str) -> None:
         super().__init__()
         self._analysis_widget = content
+        self._analysis_opacity = 1.0
+        self._opacity_effect = QtWidgets.QGraphicsOpacityEffect(content)
+        content.setGraphicsEffect(self._opacity_effect)
         self._frame = _AnalysisWindowFrame(self, title, content)
         self.setObjectName("analysisSubWindow")
         self.setWindowTitle(title)
         self.setWindowFlag(QtCore.Qt.WindowType.FramelessWindowHint, True)
         self.setWidget(self._frame)
+        self.set_analysis_opacity(1.0, emit_changed=False)
 
     def widget(self) -> QtWidgets.QWidget:  # type: ignore[override]
         return self._analysis_widget
 
     def frame_widget(self) -> _AnalysisWindowFrame:
         return self._frame
+
+    def analysis_opacity(self) -> float:
+        return self._analysis_opacity
+
+    def set_analysis_opacity(self, opacity: float, *, emit_changed: bool = True) -> None:
+        value = _clamp_analysis_opacity(opacity)
+        if math.isclose(value, self._analysis_opacity, rel_tol=0.0, abs_tol=0.001):
+            self._frame.title_bar.set_opacity_value(value)
+            return
+        self._analysis_opacity = value
+        self._opacity_effect.setOpacity(value)
+        self._frame.title_bar.set_opacity_value(value)
+        if emit_changed:
+            self.analysisOpacityChanged.emit(value)
 
     def setWindowTitle(self, title: str) -> None:  # noqa: N802
         super().setWindowTitle(title)
@@ -771,6 +887,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.vehicle_model_info = load_glb_info(self.vehicle_model_path)
         self.gps_route_layers: dict[str, GPSRouteLayer] = {}
         self.active_gps_route_name = ""
+        self.window_opacity_defaults: dict[str, float] = {}
         self._map_tile_provider = map_tile_provider
         self.playback_state = PlaybackState([0.0])
         self.sensor_series = _blank_sensor_series(self.playback_state.sample_count)
@@ -979,6 +1096,7 @@ class MainWindow(QtWidgets.QMainWindow):
             sub_window = self.add_analysis_window(window_state.title)
             sub_window.move(window_state.x, window_state.y)
             sub_window.resize(window_state.width, window_state.height)
+            sub_window.set_analysis_opacity(window_state.opacity)
 
         self.set_playback_seconds(state.playback_seconds)
 
@@ -1002,6 +1120,11 @@ class MainWindow(QtWidgets.QMainWindow):
                     y=position.y(),
                     width=size.width(),
                     height=size.height(),
+                    opacity=(
+                        sub_window.analysis_opacity()
+                        if isinstance(sub_window, _AnalysisSubWindow)
+                        else 1.0
+                    ),
                 )
             )
         return windows
@@ -1176,6 +1299,16 @@ class MainWindow(QtWidgets.QMainWindow):
             widget = self._build_placeholder_window(title)
 
         sub_window = _AnalysisSubWindow(widget, title)
+        sub_window.analysisOpacityChanged.connect(
+            lambda opacity, window_title=title: self._remember_window_opacity(
+                window_title,
+                opacity,
+            )
+        )
+        sub_window.set_analysis_opacity(
+            self.window_opacity_defaults.get(title, 1.0),
+            emit_changed=False,
+        )
         self.workspace.addSubWindow(sub_window)
         sub_window.setWindowFlag(QtCore.Qt.WindowType.WindowMinMaxButtonsHint, True)
         sub_window.setWindowFlag(QtCore.Qt.WindowType.WindowCloseButtonHint, True)
@@ -1185,6 +1318,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.workspace.setActiveSubWindow(sub_window)
         self._update_properties_for_active_window(sub_window)
         return sub_window
+
+    def _remember_window_opacity(self, title: str, opacity: float) -> None:
+        self.window_opacity_defaults[title] = _clamp_analysis_opacity(opacity)
 
     def _position_new_analysis_window(self, sub_window: QtWidgets.QMdiSubWindow) -> None:
         window_count = max(0, len(self.workspace.subWindowList()) - 1)
@@ -2876,6 +3012,7 @@ class MainWindow(QtWidgets.QMainWindow):
             sub_window = self.add_analysis_window(window_state.title)
             sub_window.move(window_state.x, window_state.y)
             sub_window.resize(window_state.width, window_state.height)
+            sub_window.set_analysis_opacity(window_state.opacity)
 
     def _toggle_playback(self) -> None:
         if self.playback_state.is_playing:

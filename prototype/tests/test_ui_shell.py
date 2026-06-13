@@ -958,6 +958,49 @@ def test_analysis_window_uses_colored_custom_title_bar_controls(qtbot):
     assert not sub_window.isMaximized()
 
 
+def test_analysis_window_title_bar_controls_content_opacity(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    sub_window = window.add_analysis_window("G-G Diagram")
+
+    opacity_button = sub_window.findChild(
+        QtWidgets.QToolButton,
+        "analysisWindowOpacityButton",
+    )
+    opacity_slider = sub_window.findChild(
+        QtWidgets.QSlider,
+        "analysisWindowOpacitySlider",
+    )
+    opacity_value = sub_window.findChild(
+        QtWidgets.QLabel,
+        "analysisWindowOpacityValue",
+    )
+
+    assert opacity_button is not None
+    assert opacity_button.toolTip() == "Window opacity"
+    assert opacity_slider is not None
+    assert opacity_slider.minimum() == 35
+    assert opacity_slider.maximum() == 100
+    assert opacity_slider.value() == 100
+    assert opacity_value is not None
+    assert opacity_value.text() == "100%"
+
+    opacity_slider.setValue(65)
+    QtWidgets.QApplication.processEvents()
+
+    effect = sub_window.widget().graphicsEffect()
+    assert isinstance(effect, QtWidgets.QGraphicsOpacityEffect)
+    assert sub_window.analysis_opacity() == pytest.approx(0.65)
+    assert effect.opacity() == pytest.approx(0.65)
+    assert opacity_value.text() == "65%"
+    assert window.window_opacity_defaults["G-G Diagram"] == pytest.approx(0.65)
+
+    next_sub_window = window.add_analysis_window("G-G Diagram")
+
+    assert next_sub_window.analysis_opacity() == pytest.approx(0.65)
+    assert next_sub_window.frame_widget().title_bar.opacity_slider.value() == 65
+
+
 def test_active_analysis_window_uses_frame_accent(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
@@ -1441,7 +1484,8 @@ def test_main_window_captures_workspace_project_state(qtbot):
     window.channel_mappings = {"RPM": "RPM"}
     window.derived_channel_settings = {"AX_CORRECTED_G": {"formula": "ax_g / 8"}}
     window.selected_channels = ["RPM", "AX_CORRECTED_G"]
-    window.add_analysis_window("G-G Diagram")
+    gg_window = window.add_analysis_window("G-G Diagram")
+    gg_window.set_analysis_opacity(0.58)
     window.add_analysis_window("Current Values Table")
     window.set_playback_seconds(3.47)
     window.preset_tabs.moveTab(1, 0)
@@ -1463,6 +1507,7 @@ def test_main_window_captures_workspace_project_state(qtbot):
         "G-G Diagram",
         "Current Values Table",
     ]
+    assert state.open_windows[1].opacity == pytest.approx(0.58)
 
 
 def test_main_window_captures_integrated_analysis_state(qtbot, tmp_path):
@@ -1550,7 +1595,8 @@ def test_main_window_restores_workspace_project_state(qtbot):
     qtbot.addWidget(source)
     source.load_demo_session()
     source.active_profile = "mf_2026"
-    source.add_analysis_window("G-G Diagram")
+    gg_window = source.add_analysis_window("G-G Diagram")
+    gg_window.set_analysis_opacity(0.64)
     source.add_analysis_window("Benchmark Summary")
     source.set_playback_position(12)
     state = source.capture_project_state(csv_path="example.csv")
@@ -1565,6 +1611,7 @@ def test_main_window_restores_workspace_project_state(qtbot):
     assert restored.active_profile == "mf_2026"
     assert restored.playback_state.current_sample == 12
     assert restored.timeline_status.text() == "시간 1.200 s | 샘플 12"
+    assert restored.workspace.subWindowList()[1].analysis_opacity() == pytest.approx(0.64)
 
 
 def test_main_window_restores_video_sync_project_state_for_new_windows(qtbot, tmp_path):
