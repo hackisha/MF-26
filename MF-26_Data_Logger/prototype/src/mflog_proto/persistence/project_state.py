@@ -21,6 +21,7 @@ class WindowState:
     y: int
     width: int
     height: int
+    opacity: float = 1.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -29,6 +30,7 @@ class WindowState:
             "y": self.y,
             "width": self.width,
             "height": self.height,
+            "opacity": self.opacity,
         }
 
     @classmethod
@@ -39,6 +41,7 @@ class WindowState:
             y=int(data.get("y", 0)),
             width=int(data.get("width", 460)),
             height=int(data.get("height", 260)),
+            opacity=_window_opacity(data.get("opacity", 1.0)),
         )
 
 
@@ -170,3 +173,7 @@ def _optional_bool(data: dict[str, Any], key: str, *, default: bool) -> bool:
     if not isinstance(value, bool):
         raise ValueError(f"{key} must be a boolean")
     return value
+
+
+def _window_opacity(value: Any) -> float:
+    return max(0.35, min(1.0, float(value)))

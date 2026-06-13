@@ -19,7 +19,14 @@ def test_project_state_round_trips_json(tmp_path):
         channel_mappings={"RPM": "RPM"},
         derived_channel_settings={"AX_CORRECTED_G": {"formula": "ax_g / 8"}},
         open_windows=(
-            WindowState(title="Time-Series Graph", x=10, y=20, width=400, height=250),
+            WindowState(
+                title="Time-Series Graph",
+                x=10,
+                y=20,
+                width=400,
+                height=250,
+                opacity=0.72,
+            ),
             WindowState(title="G-G Diagram", x=30, y=40, width=420, height=260),
         ),
         selected_channels=("RPM", "TPS_percent"),
@@ -64,6 +71,8 @@ def test_project_state_round_trips_json(tmp_path):
     assert restored.video_path == Path("videos/endurance_gopro.mp4")
     assert restored.video_offset_ms == -1250
     assert restored.video_muted is False
+    assert restored.open_windows[0].opacity == pytest.approx(0.72)
+    assert restored.open_windows[1].opacity == 1.0
     assert restored.visualization_settings["gg_limit_radius"] == 2.25
     assert restored.ideal_path_settings["steering_ratio"] == 12.5
     assert restored.sidebar_settings["density"] == "Compact"
