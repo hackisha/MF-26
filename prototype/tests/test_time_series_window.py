@@ -77,13 +77,17 @@ def test_time_series_window_requires_sorted_series_x_values(qtbot):
 def test_time_series_window_dispose_unsubscribes_from_playback(qapp):
     playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
     window = TimeSeriesWindow(playback_state=playback)
+    window.set_series({"RPM": ([0.0, 0.1, 0.2], [1000.0, 2000.0, 3000.0])})
 
     assert playback.subscriber_count == 1
+    assert window.channel_count == 1
 
+    window.dispose()
     window.dispose()
     _RETAINED_DISPOSED_WINDOWS.append(window)
 
     assert playback.subscriber_count == 0
+    assert window.channel_count == 0
 
 
 def test_time_series_window_publishes_hover_from_plot_mouse_signal(qtbot):

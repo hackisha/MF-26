@@ -2522,13 +2522,17 @@ class MainWindow(QtWidgets.QMainWindow):
         content = QtWidgets.QFrame()
         content.setObjectName("playbackDockContent")
         layout = QtWidgets.QVBoxLayout(content)
-        layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(4)
+
+        self.playback_dock_divider = QtWidgets.QFrame()
+        self.playback_dock_divider.setObjectName("playbackDockDivider")
+        self.playback_dock_divider.setFixedHeight(3)
 
         self.playback_status_strip = QtWidgets.QFrame()
         self.playback_status_strip.setObjectName("playbackStatusStrip")
         status_row = QtWidgets.QHBoxLayout(self.playback_status_strip)
-        status_row.setContentsMargins(8, 4, 8, 4)
+        status_row.setContentsMargins(8, 2, 8, 2)
         status_row.setSpacing(8)
         self.playback_file_label = QtWidgets.QLabel()
         self.playback_file_label.setObjectName("playbackFileLabel")
@@ -2556,28 +2560,37 @@ class MainWindow(QtWidgets.QMainWindow):
         self.playback_controls_row = QtWidgets.QFrame()
         self.playback_controls_row.setObjectName("playbackTransportStrip")
         control_row = QtWidgets.QHBoxLayout(self.playback_controls_row)
-        control_row.setContentsMargins(8, 6, 8, 6)
-        control_row.setSpacing(6)
+        control_row.setContentsMargins(8, 4, 8, 4)
+        control_row.setSpacing(4)
         self.open_csv_button = QtWidgets.QPushButton("Open CSV...")
         self.open_csv_button.setObjectName("playbackOpenCsvButton")
         self.open_csv_button.setToolTip("CSV 파일을 열어 재생 세션을 시작합니다.")
         self.open_csv_button.clicked.connect(self._open_csv_dialog)
-        self.home_button = QtWidgets.QPushButton("처음")
+        self.home_button = QtWidgets.QPushButton("⏮")
         self.home_button.setObjectName("playbackHomeButton")
+        self.home_button.setToolTip("처음으로 이동")
         self.home_button.clicked.connect(lambda: self.seek_to_time_ms(0))
-        self.end_button = QtWidgets.QPushButton("끝")
+        self.stop_button = QtWidgets.QPushButton("■")
+        self.stop_button.setObjectName("playbackStopButton")
+        self.stop_button.setToolTip("정지하고 처음으로 이동")
+        self.stop_button.clicked.connect(self._stop_playback)
+        self.end_button = QtWidgets.QPushButton("⏭")
         self.end_button.setObjectName("playbackEndButton")
+        self.end_button.setToolTip("끝으로 이동")
         self.end_button.clicked.connect(
             lambda: self.seek_to_time_ms(self.playback_state.total_time_ms)
         )
-        self.prev_event_button = QtWidgets.QPushButton("이전 이벤트")
+        self.prev_event_button = QtWidgets.QPushButton("◀◆")
         self.prev_event_button.setObjectName("playbackPrevEventButton")
+        self.prev_event_button.setToolTip("이전 이벤트")
         self.prev_event_button.clicked.connect(self.seek_previous_event)
-        self.play_pause_button = QtWidgets.QPushButton("Play")
+        self.play_pause_button = QtWidgets.QPushButton("▶")
         self.play_pause_button.setObjectName("playbackPlayPauseButton")
+        self.play_pause_button.setToolTip("재생 / 일시 정지")
         self.play_pause_button.clicked.connect(self._toggle_playback)
-        self.next_event_button = QtWidgets.QPushButton("다음 이벤트")
+        self.next_event_button = QtWidgets.QPushButton("◆▶")
         self.next_event_button.setObjectName("playbackNextEventButton")
+        self.next_event_button.setToolTip("다음 이벤트")
         self.next_event_button.clicked.connect(self.seek_next_event)
         self.speed_combo = QtWidgets.QComboBox()
         self.speed_combo.setObjectName("playbackSpeedCombo")
@@ -2587,12 +2600,16 @@ class MainWindow(QtWidgets.QMainWindow):
         for widget in (
             self.open_csv_button,
             self.home_button,
+            self.stop_button,
             self.end_button,
             self.prev_event_button,
             self.play_pause_button,
             self.next_event_button,
             self.speed_combo,
         ):
+            if isinstance(widget, QtWidgets.QPushButton) and widget is not self.open_csv_button:
+                widget.setProperty("playbackSymbol", True)
+                widget.setFixedWidth(36)
             control_row.addWidget(widget)
 
         self.timeline_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
@@ -2604,19 +2621,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.playback_lower_strip = QtWidgets.QFrame()
         self.playback_lower_strip.setObjectName("playbackLowerStrip")
         lower_row = QtWidgets.QHBoxLayout(self.playback_lower_strip)
-        lower_row.setContentsMargins(8, 8, 8, 8)
+        lower_row.setContentsMargins(8, 5, 8, 5)
         lower_row.setSpacing(8)
 
         self.playback_event_section = QtWidgets.QFrame()
         self.playback_event_section.setObjectName("playbackEventSection")
         event_section_layout = QtWidgets.QVBoxLayout(self.playback_event_section)
-        event_section_layout.setContentsMargins(8, 6, 8, 8)
-        event_section_layout.setSpacing(5)
+        event_section_layout.setContentsMargins(8, 4, 10, 4)
+        event_section_layout.setSpacing(4)
         self.playback_event_section_title = QtWidgets.QLabel("Events")
         self.playback_event_section_title.setObjectName("playbackSectionTitle")
         self.event_marker_list = QtWidgets.QListWidget()
         self.event_marker_list.setObjectName("eventMarkerList")
-        self.event_marker_list.setMaximumHeight(74)
+        self.event_marker_list.setMaximumHeight(58)
         self.event_marker_list.currentItemChanged.connect(self._seek_to_event_item)
         event_section_layout.addWidget(self.playback_event_section_title)
         event_section_layout.addWidget(self.event_marker_list, 1)
@@ -2624,8 +2641,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.playback_sensor_section = QtWidgets.QFrame()
         self.playback_sensor_section.setObjectName("playbackSensorSection")
         sensor_section_layout = QtWidgets.QVBoxLayout(self.playback_sensor_section)
-        sensor_section_layout.setContentsMargins(8, 6, 8, 8)
-        sensor_section_layout.setSpacing(5)
+        sensor_section_layout.setContentsMargins(8, 4, 0, 4)
+        sensor_section_layout.setSpacing(4)
         self.playback_sensor_section_title = QtWidgets.QLabel("Current sensors")
         self.playback_sensor_section_title.setObjectName("playbackSectionTitle")
         self.sensor_card_container = QtWidgets.QWidget()
@@ -2644,7 +2661,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.sensor_card_scroll_area.setVerticalScrollBarPolicy(
             QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
-        self.sensor_card_scroll_area.setMinimumHeight(82)
+        self.sensor_card_scroll_area.setMinimumHeight(72)
         self.sensor_card_scroll_area.setWidget(self.sensor_card_container)
         sensor_section_layout.addWidget(self.playback_sensor_section_title)
         sensor_section_layout.addWidget(self.sensor_card_scroll_area, 1)
@@ -2654,6 +2671,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.playback_warning_label = QtWidgets.QLabel()
         self.playback_warning_label.setObjectName("playbackWarningLabel")
 
+        layout.addWidget(self.playback_dock_divider)
         layout.addWidget(self.playback_status_strip)
         layout.addWidget(self.playback_controls_row)
         layout.addWidget(self.playback_lower_strip)
@@ -3024,6 +3042,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.playback_timer.start()
         self._update_playback_dock_status()
 
+    def _stop_playback(self) -> None:
+        if self.playback_state.is_playing:
+            self.playback_state.pause()
+        self.playback_timer.stop()
+        self.seek_to_time_ms(0)
+        self._update_playback_dock_status()
+
     def _tick_playback_timer(self) -> None:
         if not self.playback_state.is_playing:
             self.playback_timer.stop()
@@ -3100,6 +3125,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.playback_event_count_label.setText("Events: -")
         self.current_time_label.setText("- / -")
         self.current_row_label.setText("Row: -")
+        self.play_pause_button.setText("▶")
 
     def sensor_card_value(self, channel_id: str) -> str:
         return self.sensor_card_value_labels[channel_id].text()
@@ -3107,6 +3133,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _set_playback_controls_enabled(self, enabled: bool) -> None:
         for widget in (
             self.home_button,
+            self.stop_button,
             self.end_button,
             self.prev_event_button,
             self.play_pause_button,
@@ -3156,7 +3183,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.playback_event_count_label.setText(f"Events: {len(self.playback_events)}")
         self.current_time_label.setText(f"{_format_seconds(current_ms)} / {_format_seconds(total_ms)}")
         self.current_row_label.setText(f"Row: {current}")
-        self.play_pause_button.setText("Pause" if self.playback_state.is_playing else "Play")
+        self.play_pause_button.setText("❚❚" if self.playback_state.is_playing else "▶")
         self._highlight_nearest_event(current_ms)
         self._update_sensor_cards(current)
 
@@ -3261,7 +3288,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 border-right: 1px solid #62717b;
             }
             QDockWidget#playbackDock {
-                border-top: 2px solid #6f838e;
+                border-top: 3px solid #f4c95d;
             }
             QSplitter::handle {
                 background: #303a41;
@@ -3537,24 +3564,39 @@ class MainWindow(QtWidgets.QMainWindow):
                 border: 1px solid #ffffff;
             }
             QFrame#playbackDockContent {
-                background: #11171b;
-                border: 1px solid #62717b;
+                background: #10161a;
+                border: none;
             }
-            QFrame#playbackStatusStrip, QFrame#playbackTransportStrip {
-                background: #20282d;
-                border: 1px solid #6f838e;
+            QFrame#playbackDockDivider {
+                background: #f4c95d;
+                border: none;
+            }
+            QFrame#playbackStatusStrip {
+                background: transparent;
+                border: none;
+                border-bottom: 1px solid #39454d;
             }
             QFrame#playbackStatusStrip QLabel {
                 color: #e8f0f5;
                 font-weight: 600;
             }
-            QFrame#playbackLowerStrip {
-                background: #0f1418;
-                border: 1px solid #4f5e68;
-            }
-            QFrame#playbackEventSection, QFrame#playbackSensorSection {
+            QFrame#playbackTransportStrip {
                 background: #151d22;
-                border: 1px solid #6f838e;
+                border: none;
+                border-bottom: 1px solid #39454d;
+            }
+            QFrame#playbackLowerStrip {
+                background: transparent;
+                border: none;
+            }
+            QFrame#playbackEventSection {
+                background: transparent;
+                border: none;
+                border-right: 1px solid #39454d;
+            }
+            QFrame#playbackSensorSection {
+                background: transparent;
+                border: none;
             }
             QLabel#playbackSectionTitle {
                 color: #f4c95d;
@@ -3562,9 +3604,22 @@ class MainWindow(QtWidgets.QMainWindow):
                 font-weight: 700;
                 padding: 0 0 3px 0;
             }
+            QPushButton[playbackSymbol="true"] {
+                background: #26313a;
+                color: #f4f8fb;
+                border: 1px solid #56636d;
+                padding: 5px 0;
+                font-size: 13px;
+                font-weight: 700;
+            }
+            QPushButton[playbackSymbol="true"]:hover {
+                background: #334450;
+                border: 1px solid #f4c95d;
+            }
             QFrame#sensorCard {
-                background: #12181c;
-                border: 1px solid #6f838e;
+                background: #10161a;
+                border: none;
+                border-left: 1px solid #4a5660;
             }
             QLabel#sensorCardTitle {
                 color: #f4c95d;

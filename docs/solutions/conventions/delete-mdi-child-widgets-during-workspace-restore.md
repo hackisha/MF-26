@@ -1,7 +1,7 @@
 ---
 title: "Delete MDI child widgets during workspace restore"
 date: "2026-05-25"
-last_updated: "2026-06-02"
+last_updated: "2026-06-13"
 track: "knowledge"
 category: "conventions"
 problem_type: "best_practice"
@@ -58,6 +58,28 @@ If an MDI child owns helper controllers that schedule delayed UI work, guard
 those callbacks with `shiboken6.isValid(...)` before touching the subwindow or
 content widget. Workspace restore can delete the native C++ object before a
 queued geometry/update callback runs.
+
+For pyqtgraph-backed widgets, `dispose()` should also stop future paint work
+before clearing plot items or disconnecting scene signals. Long pytest runs can
+leave a queued `GraphicsView.paintEvent`; if plot items are removed while that
+paint is still possible, Windows may raise a native access violation or a
+`ViewBox already deleted` teardown error.
+
+```python
+def dispose(self) -> None:
+    if self._disposed:
+        return
+    self._disposed = True
+    self.plot.setUpdatesEnabled(False)
+    self.plot.viewport().setUpdatesEnabled(False)
+    self.plot.hide()
+    self.plot.scene().sigMouseMoved.disconnect(self._handle_mouse_moved)
+    self.plot.clear()
+```
+
+Wrap Qt disconnect/clear operations in `try/except RuntimeError` for idempotent
+dispose paths, because close events, explicit test cleanup, and workspace
+restore can all race to clean the same native widget.
 
 ## Why This Matters
 
