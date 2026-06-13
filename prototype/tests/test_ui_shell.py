@@ -371,7 +371,11 @@ def test_right_properties_panel_uses_grouped_readable_rows(qtbot):
     assert group.layout().contentsMargins().left() <= 6
     assert all(layout.contentsMargins().left() <= 6 for layout in row_layouts if layout is not None)
     for selector in (
+        "QMdiArea#workspace",
         "QDockWidget#propertiesPanel",
+        "QDockWidget#leftSidebar",
+        "QDockWidget#playbackDock",
+        "QSplitter::handle",
         "QWidget#centralWorkspaceContainer",
         "QTabBar#presetTabs",
         "QMdiSubWindow::title",
@@ -383,8 +387,13 @@ def test_right_properties_panel_uses_grouped_readable_rows(qtbot):
         "QLabel#settingsRowLabel",
         "QFrame#workspaceCommandBar",
         "QFrame#analysisWindowFrame[active=\"true\"]",
+        "QFrame#analysisWindowFrame QWidget",
         "QFrame#playbackStatusStrip",
         "QFrame#playbackTransportStrip",
+        "QFrame#playbackLowerStrip",
+        "QFrame#playbackEventSection",
+        "QFrame#playbackSensorSection",
+        "QLabel#playbackSectionTitle",
         "QCheckBox::indicator",
         "QCheckBox::indicator:unchecked",
         "QListWidget::indicator",
@@ -412,6 +421,9 @@ def test_right_properties_panel_uses_grouped_readable_rows(qtbot):
     assert "selection-background-color: #3d5566;" in style
     assert "background: #334450;" in style
     assert "background: #405665;" in style
+    assert "background: #0f1418;" in style
+    assert "border: 1px solid #6f838e;" in style
+    assert "border-left: 3px solid #f4c95d;" in style
     assert "적용 범위" in window.properties_scope_label.text()
 
 
@@ -428,6 +440,11 @@ def test_bottom_playback_dock_exposes_required_csv_controls_and_status(qtbot):
     assert window.playback_event_count_label.text() == "Events: 3"
     assert window.open_csv_button.objectName() == "playbackOpenCsvButton"
     assert window.open_csv_button.isEnabled() is True
+    assert window.playback_lower_strip.objectName() == "playbackLowerStrip"
+    assert window.playback_event_section.objectName() == "playbackEventSection"
+    assert window.playback_sensor_section.objectName() == "playbackSensorSection"
+    assert window.playback_event_section_title.text() == "Events"
+    assert window.playback_sensor_section_title.text() == "Current sensors"
     assert [window.speed_combo.itemText(index) for index in range(window.speed_combo.count())] == [
         "0.25x",
         "0.5x",
