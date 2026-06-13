@@ -106,6 +106,51 @@ class AnalysisPresetMode:
     focus_window: str = ""
 
 
+def _drawn_playback_icon(kind: str) -> QtGui.QIcon:
+    pixmap = QtGui.QPixmap(24, 24)
+    pixmap.fill(QtCore.Qt.GlobalColor.transparent)
+    painter = QtGui.QPainter(pixmap)
+    painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+    color = QtGui.QColor("#f4f8fb")
+    accent = QtGui.QColor("#f4c95d")
+    painter.setPen(QtCore.Qt.PenStyle.NoPen)
+
+    def draw_polygon(points: Sequence[tuple[float, float]], brush: QtGui.QColor = color) -> None:
+        painter.setBrush(brush)
+        painter.drawPolygon(QtGui.QPolygonF([QtCore.QPointF(x, y) for x, y in points]))
+
+    def draw_rect(x: float, y: float, width: float, height: float, brush: QtGui.QColor = color) -> None:
+        painter.setBrush(brush)
+        painter.drawRoundedRect(QtCore.QRectF(x, y, width, height), 0.8, 0.8)
+
+    if kind == "play":
+        draw_polygon(((8, 6), (8, 18), (18, 12)))
+    elif kind == "pause":
+        draw_rect(7, 6, 3.8, 12)
+        draw_rect(13.2, 6, 3.8, 12)
+    elif kind == "stop":
+        draw_rect(8, 8, 8, 8)
+    elif kind == "skip_backward":
+        draw_rect(5, 6, 2.2, 12)
+        draw_polygon(((18, 6), (11, 12), (18, 18)))
+        draw_polygon(((12, 6), (5, 12), (12, 18)))
+    elif kind == "skip_forward":
+        draw_polygon(((6, 6), (13, 12), (6, 18)))
+        draw_polygon(((12, 6), (19, 12), (12, 18)))
+        draw_rect(19, 6, 2.2, 12)
+    elif kind == "prev_event":
+        draw_polygon(((12, 6), (5, 12), (12, 18)))
+        draw_polygon(((17, 7.2), (21, 12), (17, 16.8), (13, 12)), accent)
+    elif kind == "next_event":
+        draw_polygon(((7, 7.2), (11, 12), (7, 16.8), (3, 12)), accent)
+        draw_polygon(((12, 6), (19, 12), (12, 18)))
+    else:
+        draw_rect(8, 8, 8, 8)
+
+    painter.end()
+    return QtGui.QIcon(pixmap)
+
+
 class _AnalysisWindowOverlayControls(QtCore.QObject):
     def __init__(
         self,
@@ -2513,6 +2558,28 @@ class MainWindow(QtWidgets.QMainWindow):
             if isinstance(widget, TimeSeriesWindow):
                 widget.set_series(plot_series)
 
+    def _set_playback_button_icon(self, button: QtWidgets.QPushButton, icon_name: str) -> None:
+        button.setText("")
+        button.setIcon(_drawn_playback_icon(icon_name))
+        button.setIconSize(QtCore.QSize(18, 18))
+        button.setProperty("playbackIcon", icon_name)
+        button.style().unpolish(button)
+        button.style().polish(button)
+        button.update()
+
+    def _configure_playback_icon_button(
+        self,
+        button: QtWidgets.QPushButton,
+        *,
+        icon_name: str,
+        tooltip: str,
+    ) -> None:
+        button.setProperty("playbackSymbol", True)
+        button.setFixedSize(34, 28)
+        button.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        button.setToolTip(tooltip)
+        self._set_playback_button_icon(button, icon_name)
+
     def _build_playback_dock(self) -> None:
         self.playback_dock = QtWidgets.QDockWidget("CSV Playback", self)
         self.playback_dock.setObjectName("playbackDock")
@@ -2566,31 +2633,55 @@ class MainWindow(QtWidgets.QMainWindow):
         self.open_csv_button.setObjectName("playbackOpenCsvButton")
         self.open_csv_button.setToolTip("CSV 파일을 열어 재생 세션을 시작합니다.")
         self.open_csv_button.clicked.connect(self._open_csv_dialog)
-        self.home_button = QtWidgets.QPushButton("⏮")
+        self.home_button = QtWidgets.QPushButton()
         self.home_button.setObjectName("playbackHomeButton")
-        self.home_button.setToolTip("처음으로 이동")
+        self._configure_playback_icon_button(
+            self.home_button,
+            icon_name="skip_backward",
+            tooltip="처음으로 이동",
+        )
         self.home_button.clicked.connect(lambda: self.seek_to_time_ms(0))
-        self.stop_button = QtWidgets.QPushButton("■")
+        self.stop_button = QtWidgets.QPushButton()
         self.stop_button.setObjectName("playbackStopButton")
-        self.stop_button.setToolTip("정지하고 처음으로 이동")
+        self._configure_playback_icon_button(
+            self.stop_button,
+            icon_name="stop",
+            tooltip="정지하고 처음으로 이동",
+        )
         self.stop_button.clicked.connect(self._stop_playback)
-        self.end_button = QtWidgets.QPushButton("⏭")
+        self.end_button = QtWidgets.QPushButton()
         self.end_button.setObjectName("playbackEndButton")
-        self.end_button.setToolTip("끝으로 이동")
+        self._configure_playback_icon_button(
+            self.end_button,
+            icon_name="skip_forward",
+            tooltip="끝으로 이동",
+        )
         self.end_button.clicked.connect(
             lambda: self.seek_to_time_ms(self.playback_state.total_time_ms)
         )
-        self.prev_event_button = QtWidgets.QPushButton("◀◆")
+        self.prev_event_button = QtWidgets.QPushButton()
         self.prev_event_button.setObjectName("playbackPrevEventButton")
-        self.prev_event_button.setToolTip("이전 이벤트")
+        self._configure_playback_icon_button(
+            self.prev_event_button,
+            icon_name="prev_event",
+            tooltip="이전 이벤트",
+        )
         self.prev_event_button.clicked.connect(self.seek_previous_event)
-        self.play_pause_button = QtWidgets.QPushButton("▶")
+        self.play_pause_button = QtWidgets.QPushButton()
         self.play_pause_button.setObjectName("playbackPlayPauseButton")
-        self.play_pause_button.setToolTip("재생 / 일시 정지")
+        self._configure_playback_icon_button(
+            self.play_pause_button,
+            icon_name="play",
+            tooltip="재생 / 일시 정지",
+        )
         self.play_pause_button.clicked.connect(self._toggle_playback)
-        self.next_event_button = QtWidgets.QPushButton("◆▶")
+        self.next_event_button = QtWidgets.QPushButton()
         self.next_event_button.setObjectName("playbackNextEventButton")
-        self.next_event_button.setToolTip("다음 이벤트")
+        self._configure_playback_icon_button(
+            self.next_event_button,
+            icon_name="next_event",
+            tooltip="다음 이벤트",
+        )
         self.next_event_button.clicked.connect(self.seek_next_event)
         self.speed_combo = QtWidgets.QComboBox()
         self.speed_combo.setObjectName("playbackSpeedCombo")
@@ -2607,9 +2698,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.next_event_button,
             self.speed_combo,
         ):
-            if isinstance(widget, QtWidgets.QPushButton) and widget is not self.open_csv_button:
-                widget.setProperty("playbackSymbol", True)
-                widget.setFixedWidth(36)
             control_row.addWidget(widget)
 
         self.timeline_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
@@ -3125,7 +3213,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.playback_event_count_label.setText("Events: -")
         self.current_time_label.setText("- / -")
         self.current_row_label.setText("Row: -")
-        self.play_pause_button.setText("▶")
+        self._set_playback_button_icon(self.play_pause_button, "play")
 
     def sensor_card_value(self, channel_id: str) -> str:
         return self.sensor_card_value_labels[channel_id].text()
@@ -3183,7 +3271,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.playback_event_count_label.setText(f"Events: {len(self.playback_events)}")
         self.current_time_label.setText(f"{_format_seconds(current_ms)} / {_format_seconds(total_ms)}")
         self.current_row_label.setText(f"Row: {current}")
-        self.play_pause_button.setText("❚❚" if self.playback_state.is_playing else "▶")
+        self._set_playback_button_icon(
+            self.play_pause_button,
+            "pause" if self.playback_state.is_playing else "play",
+        )
         self._highlight_nearest_event(current_ms)
         self._update_sensor_cards(current)
 
@@ -3605,16 +3696,28 @@ class MainWindow(QtWidgets.QMainWindow):
                 padding: 0 0 3px 0;
             }
             QPushButton[playbackSymbol="true"] {
-                background: #26313a;
+                background: #222d35;
                 color: #f4f8fb;
-                border: 1px solid #56636d;
-                padding: 5px 0;
-                font-size: 13px;
-                font-weight: 700;
+                border: 1px solid #65757f;
+                border-radius: 3px;
+                padding: 0;
+                min-width: 34px;
+                max-width: 34px;
+                min-height: 28px;
+                max-height: 28px;
             }
             QPushButton[playbackSymbol="true"]:hover {
-                background: #334450;
+                background: #334a58;
                 border: 1px solid #f4c95d;
+            }
+            QPushButton[playbackIcon="play"],
+            QPushButton[playbackIcon="pause"] {
+                background: #315b73;
+                border: 1px solid #7aa7bf;
+            }
+            QPushButton[playbackSymbol="true"]:disabled {
+                background: #1b2228;
+                border: 1px solid #3b464e;
             }
             QFrame#sensorCard {
                 background: #10161a;

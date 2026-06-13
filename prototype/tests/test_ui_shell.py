@@ -396,6 +396,8 @@ def test_right_properties_panel_uses_grouped_readable_rows(qtbot):
         "QFrame#playbackSensorSection",
         "QLabel#playbackSectionTitle",
         "QPushButton[playbackSymbol=\"true\"]",
+        "QPushButton[playbackIcon=\"play\"]",
+        "QPushButton[playbackSymbol=\"true\"]:disabled",
         "QCheckBox::indicator",
         "QCheckBox::indicator:unchecked",
         "QListWidget::indicator",
@@ -444,12 +446,20 @@ def test_bottom_playback_dock_exposes_required_csv_controls_and_status(qtbot):
     assert window.playback_event_count_label.text() == "Events: 3"
     assert window.open_csv_button.objectName() == "playbackOpenCsvButton"
     assert window.open_csv_button.isEnabled() is True
-    assert window.home_button.text() == "⏮"
-    assert window.stop_button.text() == "■"
-    assert window.play_pause_button.text() == "▶"
-    assert window.end_button.text() == "⏭"
-    assert window.prev_event_button.text() == "◀◆"
-    assert window.next_event_button.text() == "◆▶"
+    expected_icon_buttons = {
+        window.home_button: "skip_backward",
+        window.stop_button: "stop",
+        window.prev_event_button: "prev_event",
+        window.play_pause_button: "play",
+        window.next_event_button: "next_event",
+        window.end_button: "skip_forward",
+    }
+    for button, icon_name in expected_icon_buttons.items():
+        assert button.text() == ""
+        assert button.property("playbackIcon") == icon_name
+        assert button.property("playbackSymbol") is True
+        assert not button.icon().isNull()
+        assert button.iconSize() == QtCore.QSize(18, 18)
     assert window.playback_lower_strip.objectName() == "playbackLowerStrip"
     assert window.playback_event_section.objectName() == "playbackEventSection"
     assert window.playback_sensor_section.objectName() == "playbackSensorSection"
@@ -559,14 +569,18 @@ def test_bottom_playback_buttons_speed_and_event_markers_seek(qtbot):
 
     qtbot.mouseClick(window.play_pause_button, QtCore.Qt.LeftButton)
     assert window.playback_state.is_playing is True
-    assert window.play_pause_button.text() == "❚❚"
+    assert window.play_pause_button.text() == ""
+    assert window.play_pause_button.property("playbackIcon") == "pause"
+    assert not window.play_pause_button.icon().isNull()
 
     window.seek_to_time_ms(4200)
     qtbot.mouseClick(window.stop_button, QtCore.Qt.LeftButton)
 
     assert window.playback_state.is_playing is False
     assert window.playback_state.current_time_ms == 0
-    assert window.play_pause_button.text() == "▶"
+    assert window.play_pause_button.text() == ""
+    assert window.play_pause_button.property("playbackIcon") == "play"
+    assert not window.play_pause_button.icon().isNull()
 
     qtbot.mouseClick(window.next_event_button, QtCore.Qt.LeftButton)
     assert window.playback_state.current_time_ms == 2500
