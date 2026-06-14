@@ -306,31 +306,32 @@ class _AnalysisTitleBar(QtWidgets.QFrame):
             QToolButton#analysisWindowCloseButton:hover {
                 background: #9f4d4d;
             }
-            QFrame#analysisWindowOpacityPopup {
-                background: #f3f5f6;
-                border: 1px solid #b9c4ca;
+            QFrame#analysisWindowOpacityControl {
+                background: #1b252b;
+                border: 1px solid #6b7d87;
+                border-radius: 3px;
             }
             QLabel#analysisWindowOpacityIcon,
             QLabel#analysisWindowOpacityValue {
-                color: #1f2a30;
+                color: #f4f8fb;
                 background: transparent;
                 font-weight: 700;
             }
             QSlider#analysisWindowOpacitySlider::groove:horizontal {
-                height: 5px;
-                background: #a6a8aa;
+                height: 4px;
+                background: #41505a;
                 border: none;
             }
             QSlider#analysisWindowOpacitySlider::sub-page:horizontal {
-                background: #178297;
+                background: #f4c95d;
             }
             QSlider#analysisWindowOpacitySlider::handle:horizontal {
-                width: 14px;
-                height: 14px;
-                margin: -5px 0;
-                border-radius: 7px;
-                background: #178297;
-                border: 2px solid #ffffff;
+                width: 12px;
+                height: 12px;
+                margin: -4px 0;
+                border-radius: 6px;
+                background: #edf3f7;
+                border: 1px solid #f4c95d;
             }
             """
         )
@@ -355,12 +356,7 @@ class _AnalysisTitleBar(QtWidgets.QFrame):
             text="[]",
             tooltip="Maximize / restore",
         )
-        self._opacity_button = self._make_button(
-            object_name="analysisWindowOpacityButton",
-            text="O",
-            tooltip="Window opacity",
-        )
-        self._opacity_popup = self._build_opacity_popup()
+        self.opacity_control = self._build_opacity_control()
         self._close_button = self._make_button(
             object_name="analysisWindowCloseButton",
             text="x",
@@ -368,12 +364,11 @@ class _AnalysisTitleBar(QtWidgets.QFrame):
         )
 
         layout.addWidget(self._title_label, 1)
-        layout.addWidget(self._opacity_button)
+        layout.addWidget(self.opacity_control)
         layout.addWidget(self._minimize_button)
         layout.addWidget(self._restore_button)
         layout.addWidget(self._close_button)
 
-        self._opacity_button.clicked.connect(self._toggle_opacity_popup)
         self._minimize_button.clicked.connect(sub_window.showMinimized)
         self._restore_button.clicked.connect(self._toggle_maximized)
         self._close_button.clicked.connect(sub_window.close)
@@ -404,26 +399,30 @@ class _AnalysisTitleBar(QtWidgets.QFrame):
         )
         self._restore_button.setText("[]" if is_maximized else "[ ]")
 
-    def _build_opacity_popup(self) -> QtWidgets.QFrame:
-        popup = QtWidgets.QFrame(self, QtCore.Qt.WindowType.Popup)
-        popup.setObjectName("analysisWindowOpacityPopup")
-        popup.setFixedSize(260, 54)
-        layout = QtWidgets.QHBoxLayout(popup)
-        layout.setContentsMargins(18, 10, 18, 10)
-        layout.setSpacing(10)
+    def _build_opacity_control(self) -> QtWidgets.QFrame:
+        control = QtWidgets.QFrame(self)
+        control.setObjectName("analysisWindowOpacityControl")
+        control.setMinimumWidth(122)
+        control.setMaximumWidth(170)
+        control.setFixedHeight(22)
+        control.setToolTip("Window opacity")
+        layout = QtWidgets.QHBoxLayout(control)
+        layout.setContentsMargins(6, 0, 6, 0)
+        layout.setSpacing(5)
 
         icon = QtWidgets.QLabel("O")
         icon.setObjectName("analysisWindowOpacityIcon")
-        icon.setFixedWidth(18)
+        icon.setFixedWidth(14)
         icon.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.opacity_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.opacity_slider.setObjectName("analysisWindowOpacitySlider")
         self.opacity_slider.setRange(35, 100)
         self.opacity_slider.setValue(100)
         self.opacity_slider.setToolTip("Window opacity")
+        self.opacity_slider.setMinimumWidth(52)
         self.opacity_value_label = QtWidgets.QLabel("100%")
         self.opacity_value_label.setObjectName("analysisWindowOpacityValue")
-        self.opacity_value_label.setFixedWidth(42)
+        self.opacity_value_label.setFixedWidth(34)
         self.opacity_value_label.setAlignment(
             QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter
         )
@@ -432,22 +431,7 @@ class _AnalysisTitleBar(QtWidgets.QFrame):
         layout.addWidget(self.opacity_slider, 1)
         layout.addWidget(self.opacity_value_label)
         self.opacity_slider.valueChanged.connect(self._set_window_opacity_from_slider)
-        return popup
-
-    def _toggle_opacity_popup(self) -> None:
-        if self._opacity_popup.isVisible():
-            self._opacity_popup.hide()
-            return
-        self._opacity_popup.adjustSize()
-        below_button = self._opacity_button.mapToGlobal(
-            QtCore.QPoint(
-                -self._opacity_popup.width() + self._opacity_button.width(),
-                self._opacity_button.height() + 4,
-            )
-        )
-        self._opacity_popup.move(below_button)
-        self._opacity_popup.show()
-        self._opacity_popup.raise_()
+        return control
 
     def _set_window_opacity_from_slider(self, value: int) -> None:
         self.opacity_value_label.setText(f"{value}%")
@@ -605,6 +589,8 @@ class _AnalysisWindowFrame(QtWidgets.QFrame):
         super().__init__()
         self.setObjectName("analysisWindowFrame")
         self.setProperty("active", False)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAutoFillBackground(False)
         self.title_bar = _AnalysisTitleBar(sub_window, title, self)
         self.content = content
         self._resize_handles = self._make_resize_handles(sub_window)
@@ -692,6 +678,8 @@ class _AnalysisSubWindow(QtWidgets.QMdiSubWindow):
         self._frame = _AnalysisWindowFrame(self, title, content)
         self.setObjectName("analysisSubWindow")
         self.setWindowTitle(title)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAutoFillBackground(False)
         self.setWindowFlag(QtCore.Qt.WindowType.FramelessWindowHint, True)
         self.setWidget(self._frame)
         self.set_analysis_opacity(1.0, emit_changed=False)
@@ -3333,6 +3321,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 background: #1d2429;
                 border: 1px solid #6f838e;
             }
+            QMdiSubWindow#analysisSubWindow {
+                background: transparent;
+                border: none;
+            }
             QMdiSubWindow::title {
                 background: #334450;
                 color: #f4f8fb;
@@ -3765,14 +3757,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 padding: 4px 6px;
             }
             QFrame#analysisWindowFrame {
-                background: #151d22;
+                background: transparent;
                 border: 1px solid #6f838e;
             }
             QFrame#analysisWindowFrame QWidget {
                 background: #10161a;
             }
             QFrame#analysisWindowFrame[active="true"] {
-                background: #182126;
+                background: transparent;
                 border: 2px solid #f4c95d;
             }
             QLabel#analysisWindowTitle {

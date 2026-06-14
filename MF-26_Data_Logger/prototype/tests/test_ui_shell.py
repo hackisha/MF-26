@@ -15,6 +15,7 @@ from mflog_proto.ui.main_window import (
     DEFAULT_ANALYSIS_ITEMS,
     SIDEBAR_GROUPS,
     MainWindow,
+    _AnalysisSubWindow,
     _root_asset_path,
 )
 from mflog_proto.ui.minimal_analysis_windows import (
@@ -992,11 +993,16 @@ def test_analysis_window_uses_colored_custom_title_bar_controls(qtbot):
 def test_analysis_window_title_bar_controls_content_opacity(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
+    window.show()
     sub_window = window.add_analysis_window("G-G Diagram")
 
-    opacity_button = sub_window.findChild(
-        QtWidgets.QToolButton,
-        "analysisWindowOpacityButton",
+    title_bar = sub_window.findChild(
+        QtWidgets.QFrame,
+        "analysisWindowTitleBar",
+    )
+    opacity_control = sub_window.findChild(
+        QtWidgets.QFrame,
+        "analysisWindowOpacityControl",
     )
     opacity_slider = sub_window.findChild(
         QtWidgets.QSlider,
@@ -1006,13 +1012,22 @@ def test_analysis_window_title_bar_controls_content_opacity(qtbot):
         QtWidgets.QLabel,
         "analysisWindowOpacityValue",
     )
+    opacity_popup = sub_window.findChild(
+        QtWidgets.QFrame,
+        "analysisWindowOpacityPopup",
+    )
 
-    assert opacity_button is not None
-    assert opacity_button.toolTip() == "Window opacity"
+    assert title_bar is not None
+    assert opacity_control is not None
+    assert opacity_control.parent() == title_bar
+    assert opacity_control.isVisible()
+    assert opacity_popup is None
     assert opacity_slider is not None
+    assert opacity_slider.isVisible()
     assert opacity_slider.minimum() == 35
     assert opacity_slider.maximum() == 100
     assert opacity_slider.value() == 100
+    assert opacity_slider.toolTip() == "Window opacity"
     assert opacity_value is not None
     assert opacity_value.text() == "100%"
 
@@ -1030,6 +1045,46 @@ def test_analysis_window_title_bar_controls_content_opacity(qtbot):
 
     assert next_sub_window.analysis_opacity() == pytest.approx(0.65)
     assert next_sub_window.frame_widget().title_bar.opacity_slider.value() == 65
+
+
+def test_analysis_window_opacity_reveals_overlapping_window_pixels(qtbot):
+    mdi_area = QtWidgets.QMdiArea()
+    mdi_area.setObjectName("workspace")
+    mdi_area.resize(260, 180)
+    qtbot.addWidget(mdi_area)
+
+    bottom_content = QtWidgets.QWidget()
+    bottom_content.setAutoFillBackground(True)
+    bottom_palette = bottom_content.palette()
+    bottom_palette.setColor(QtGui.QPalette.ColorRole.Window, QtGui.QColor("#ff0000"))
+    bottom_content.setPalette(bottom_palette)
+
+    top_content = QtWidgets.QWidget()
+    top_content.setAutoFillBackground(True)
+    top_palette = top_content.palette()
+    top_palette.setColor(QtGui.QPalette.ColorRole.Window, QtGui.QColor("#0000ff"))
+    top_content.setPalette(top_palette)
+
+    bottom_window = _AnalysisSubWindow(bottom_content, "Bottom")
+    top_window = _AnalysisSubWindow(top_content, "Top")
+    mdi_area.addSubWindow(bottom_window)
+    mdi_area.addSubWindow(top_window)
+    bottom_window.setGeometry(10, 10, 190, 130)
+    top_window.setGeometry(40, 35, 190, 130)
+    bottom_window.show()
+    top_window.show()
+    mdi_area.show()
+    mdi_area.setActiveSubWindow(top_window)
+
+    top_window.set_analysis_opacity(0.35)
+    QtWidgets.QApplication.processEvents()
+
+    assert top_window.testAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground)
+    pixel = mdi_area.viewport().grab().toImage().pixelColor(96, 98)
+
+    assert pixel.red() > 60
+    assert pixel.blue() > 40
+    assert pixel.red() > pixel.blue()
 
 
 def test_active_analysis_window_uses_frame_accent(qtbot):
