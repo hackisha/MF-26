@@ -246,6 +246,7 @@ class GGDiagramWindow(QtWidgets.QWidget):
         self.plot.setLabel("bottom", "AX_CORRECTED_G")
         self.plot.setLabel("left", "AY_CORRECTED_G")
         self.plot.scene().sigMouseMoved.connect(self._handle_mouse_moved)
+        self.plot.scene().sigMouseClicked.connect(self._handle_mouse_clicked)
         self.limit_circle_radius = 1.0
         self.limit_circle_item = pg.PlotDataItem(
             *_circle_points(self.limit_circle_radius),
@@ -362,6 +363,20 @@ class GGDiagramWindow(QtWidgets.QWidget):
         widget_pos = self.plot.mapFromScene(scene_pos)
         global_pos = self.plot.mapToGlobal(widget_pos)
         QtWidgets.QToolTip.showText(global_pos, detail, self.plot)
+
+    def _handle_mouse_clicked(self, mouse_event: object) -> None:
+        scene_pos = getattr(mouse_event, "scenePos", lambda: None)()
+        if not isinstance(scene_pos, QtCore.QPointF):
+            return
+        if not self.plot.sceneBoundingRect().contains(scene_pos):
+            return
+        if _seek_playback_to_nearest_point(
+            self._playback_state,
+            self.plot,
+            scene_pos,
+            self._points,
+        ) and hasattr(mouse_event, "accept"):
+            mouse_event.accept()
 
 
 class GPSMapWindow(QtWidgets.QWidget):
@@ -889,8 +904,6 @@ class GPSMapWindow(QtWidgets.QWidget):
         self.map_background_label.setText(self.map_background_text())
 
     def _handle_mouse_clicked(self, mouse_event: object) -> None:
-        if not self._reference_route_edit_enabled:
-            return
         if not hasattr(mouse_event, "button") or not hasattr(mouse_event, "scenePos"):
             return
         if mouse_event.button() != QtCore.Qt.MouseButton.LeftButton:
@@ -899,6 +912,14 @@ class GPSMapWindow(QtWidgets.QWidget):
         if not isinstance(scene_pos, QtCore.QPointF):
             return
         if not self.plot.plotItem.vb.sceneBoundingRect().contains(scene_pos):
+            return
+        if not self._reference_route_edit_enabled:
+            nearest = self._nearest_hover_candidate(scene_pos)
+            if nearest is None or nearest.route_name != self._active_route_name:
+                return
+            self._playback_state.set_sample(nearest.sample_index)
+            if hasattr(mouse_event, "accept"):
+                mouse_event.accept()
             return
         self.add_reference_point_from_scene(scene_pos)
         if hasattr(mouse_event, "accept"):
@@ -2865,6 +2886,20 @@ def _nearest_indexed_point(
             best = (sample_index, point)
 
     return best
+
+
+def _seek_playback_to_nearest_point(
+    playback_state: PlaybackState,
+    plot: pg.PlotWidget,
+    scene_pos: QtCore.QPointF,
+    points: Sequence[tuple[float, float] | None],
+) -> bool:
+    nearest = _nearest_indexed_point(plot, scene_pos, points)
+    if nearest is None:
+        return False
+    sample_index, _point = nearest
+    playback_state.set_sample(sample_index)
+    return True
 
 
 def _gg_hover_text(*, seconds: float, ax_value: float, ay_value: float) -> str:

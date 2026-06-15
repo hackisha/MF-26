@@ -8,6 +8,18 @@ from mflog_proto.ui.time_series_window import TimeSeriesWindow
 _RETAINED_DISPOSED_WINDOWS: list[TimeSeriesWindow] = []
 
 
+class FakeClick:
+    def __init__(self, scene_pos):
+        self._scene_pos = scene_pos
+        self.accepted = False
+
+    def scenePos(self):
+        return self._scene_pos
+
+    def accept(self):
+        self.accepted = True
+
+
 def test_time_series_window_renders_channels_and_tracks_playback_cursor(qtbot):
     playback = PlaybackState(timestamps=[0.0, 0.1, 0.2, 0.3])
     window = TimeSeriesWindow(playback_state=playback)
@@ -106,3 +118,23 @@ def test_time_series_window_publishes_hover_from_plot_mouse_signal(qtbot):
 
     assert window.hover_label.text() == "Hover | RPM | 0.100 s | 2000.000 rpm"
     assert window.last_tooltip_text == "RPM | 0.100 s | 2000.000 rpm"
+
+
+def test_time_series_window_click_seeks_nearest_data_sample(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
+    window = TimeSeriesWindow(playback_state=playback)
+    qtbot.addWidget(window)
+    window.resize(640, 360)
+    window.show()
+    window.set_series({"RPM": ([0.0, 0.1, 0.2], [1000.0, 2000.0, 3000.0])})
+    window.plot.setXRange(0.0, 0.2)
+    window.plot.setYRange(1000.0, 3000.0)
+    qtbot.waitExposed(window)
+
+    scene_pos = window.plot.plotItem.vb.mapViewToScene(QtCore.QPointF(0.2, 3000.0))
+    click = FakeClick(scene_pos)
+    window._handle_mouse_clicked(click)
+
+    assert click.accepted is True
+    assert playback.current_sample == 2
+    assert window.cursor_line.value() == pytest.approx(0.2)
