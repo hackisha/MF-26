@@ -413,6 +413,29 @@ def test_gg_diagram_shows_hover_info_for_nearest_point(qtbot):
     assert window.last_tooltip_text == "G-G | 0.100 s | ax 0.250 g | ay -0.200 g"
 
 
+def test_gg_diagram_click_seeks_nearest_point(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
+    window = GGDiagramWindow(playback)
+    qtbot.addWidget(window)
+    window.resize(640, 360)
+    window.show()
+    window.set_acceleration(
+        ax_corrected=[0.0, 0.25, -0.5],
+        ay_corrected=[0.1, -0.2, 0.3],
+    )
+    window.plot.setXRange(-1.0, 1.0)
+    window.plot.setYRange(-1.0, 1.0)
+    qtbot.waitExposed(window)
+
+    scene_pos = window.plot.plotItem.vb.mapViewToScene(QtCore.QPointF(-0.5, 0.3))
+    click = FakeClick(scene_pos)
+    window._handle_mouse_clicked(click)
+
+    assert click.accepted is True
+    assert playback.current_sample == 2
+    assert window.current_point == (-0.5, 0.3)
+
+
 def test_gps_map_tracks_current_position_from_playback(qtbot):
     playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
     window = GPSMapWindow(playback)
@@ -469,6 +492,29 @@ def test_gps_map_shows_hover_info_for_nearest_position(qtbot):
         "Hover | GPS | 0.100 s | lat 37.000100 | lon 127.000200"
     )
     assert window.last_tooltip_text == "GPS | 0.100 s | lat 37.000100 | lon 127.000200"
+
+
+def test_gps_map_click_seeks_nearest_active_track_position(qtbot):
+    playback = PlaybackState(timestamps=[0.0, 0.1, 0.2])
+    window = GPSMapWindow(playback)
+    qtbot.addWidget(window)
+    window.resize(640, 360)
+    window.show()
+    window.set_track(
+        latitude=[37.0, 37.0001, 37.0002],
+        longitude=[127.0, 127.0002, 127.0004],
+    )
+    window.plot.setXRange(126.9999, 127.0005)
+    window.plot.setYRange(36.9999, 37.0003)
+    qtbot.waitExposed(window)
+
+    scene_pos = window.plot.plotItem.vb.mapViewToScene(QtCore.QPointF(127.0004, 37.0002))
+    click = FakeClick(scene_pos)
+    window._handle_mouse_clicked(click)
+
+    assert click.accepted is True
+    assert playback.current_sample == 2
+    assert window.current_position == pytest.approx((37.0002, 127.0004))
 
 
 def test_gps_map_draws_all_routes_and_highlights_active_hover(qtbot):

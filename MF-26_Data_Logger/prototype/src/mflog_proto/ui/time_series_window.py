@@ -187,7 +187,14 @@ class TimeSeriesWindow(QtWidgets.QWidget):
         if not self.plot.sceneBoundingRect().contains(scene_pos):
             return
         view_point = self.plot.plotItem.vb.mapSceneToView(scene_pos)
-        self.seek_to_seconds(view_point.x())
+        nearest_point = self._nearest_point_to(scene_pos, view_point.x())
+        if nearest_point is None:
+            self.seek_to_seconds(view_point.x())
+            return
+        _channel_id, seconds, _value = nearest_point
+        self._playback_state.set_sample(self._playback_state.sample_at_seconds(seconds))
+        if hasattr(event, "accept"):
+            event.accept()
 
     def _nearest_point_to(
         self,
