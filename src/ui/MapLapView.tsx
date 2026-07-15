@@ -1,11 +1,14 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import "leaflet/dist/leaflet.css";
 import createPlotlyComponent from "react-plotly.js/factory";
-import Plotly from "plotly.js-dist-min";
+import Plotly from "./plotlyCore";
 import { useSessionStore } from "../state/sessionStore";
 import type { AnalysisSession, DetectedEvent, NumericLogRow, Segment } from "../domain/types";
+import type { CircleMarker, Map as LeafletMap } from "leaflet";
 import { SeverityBadge } from "./SeverityBadge";
 
 const Plot = createPlotlyComponent(Plotly);
+const MAX_MAP_PLOT_POINTS = 7000;
 
 type CoordinatePoint = {
   longitude: number;
@@ -14,21 +17,24 @@ type CoordinatePoint = {
   speedKph: number | null;
 };
 
+type MapTraceType = "scatter" | "scattergl";
+
 type MapTrace = {
   x: number[];
   y: number[];
   text: string[];
-  type: "scatter";
-  mode: "lines+markers";
+  type: MapTraceType;
+  mode: "lines+markers" | "markers";
   name: string;
-  line: { color: string; width: number };
+  line?: { color: string; width: number };
   marker: {
-    color: number[];
-    colorscale: string;
+    color: number[] | string;
+    colorscale?: string;
     size: number;
     opacity: number;
-    colorbar: { title: { text: string } };
+    colorbar?: { title: { text: string } };
     line: { color: string; width: number };
+    symbol?: string;
   };
   hovertemplate: string;
 };
@@ -56,6 +62,8 @@ type MapLayout = {
   };
 };
 
+type MapMode = "offline" | "online";
+
 function finiteNumber(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -81,6 +89,39 @@ function coordinatePoints(rows: NumericLogRow[]): CoordinatePoint[] {
     .filter((point): point is CoordinatePoint => point !== null);
 }
 
+function downsampleCoordinatePoints(points: CoordinatePoint[], maxPoints = MAX_MAP_PLOT_POINTS): CoordinatePoint[] {
+  if (points.length <= maxPoints || maxPoints < 3) return points;
+
+  const sampledPoints = [points[0]];
+  const stride = Math.ceil((points.length - 2) / (maxPoints - 2));
+
+  for (let index = 1; index < points.length - 1; index += stride) {
+    sampledPoints.push(points[index]);
+  }
+
+  sampledPoints.push(points[points.length - 1]);
+  return sampledPoints;
+}
+
+function nearestCoordinatePoint(points: CoordinatePoint[], timeSec: number | null): CoordinatePoint | null {
+  const targetTimeSec = finiteNumber(timeSec);
+  if (targetTimeSec === null || points.length === 0) return null;
+  if (targetTimeSec <= points[0].timestampSec) return points[0];
+  if (targetTimeSec >= points[points.length - 1].timestampSec) return points[points.length - 1];
+
+  let low = 0;
+  let high = points.length - 1;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (points[mid].timestampSec < targetTimeSec) low = mid + 1;
+    else high = mid;
+  }
+
+  const after = points[low];
+  const before = points[low - 1];
+  return Math.abs(after.timestampSec - targetTimeSec) < Math.abs(targetTimeSec - before.timestampSec) ? after : before;
+}
+
 function maxSpeed(points: CoordinatePoint[]): number | null {
   const speeds = points.map((point) => point.speedKph).filter((speed): speed is number => speed !== null);
   if (speeds.length === 0) return null;
@@ -95,27 +136,44 @@ function formatSpeed(value: number | null): string {
   return value === null ? "n/a" : `${value.toFixed(1)} km/h`;
 }
 
-function mapTrace(points: CoordinatePoint[]): MapTrace[] {
-  return [
-    {
-      x: points.map((point) => point.longitude),
-      y: points.map((point) => point.latitude),
-      text: points.map((point) => `t=${formatSeconds(point.timestampSec)}, speed=${formatSpeed(point.speedKph)}`),
-      type: "scatter",
-      mode: "lines+markers",
-      name: "GPS path",
-      line: { color: "#64748b", width: 1.5 },
-      marker: {
-        color: points.map((point) => point.speedKph ?? 0),
-        colorscale: "Viridis",
-        size: 7,
-        opacity: 0.82,
-        colorbar: { title: { text: "Speed (km/h)" } },
-        line: { color: "#ffffff", width: 0.6 }
-      },
-      hovertemplate: "Lon %{x:.6f}<br>Lat %{y:.6f}<br>%{text}<extra></extra>"
-    }
-  ];
+function mapPathTrace(points: CoordinatePoint[], pathTraceType: MapTraceType): MapTrace {
+  return {
+    x: points.map((point) => point.longitude),
+    y: points.map((point) => point.latitude),
+    text: points.map((point) => `t=${formatSeconds(point.timestampSec)}, speed=${formatSpeed(point.speedKph)}`),
+    type: pathTraceType,
+    mode: "lines+markers",
+    name: "GPS path",
+    line: { color: "#64748b", width: 1.5 },
+    marker: {
+      color: points.map((point) => point.speedKph ?? 0),
+      colorscale: "Viridis",
+      size: 7,
+      opacity: 0.82,
+      colorbar: { title: { text: "Speed (km/h)" } },
+      line: { color: "#ffffff", width: 0.6 }
+    },
+    hovertemplate: "Lon %{x:.6f}<br>Lat %{y:.6f}<br>%{text}<extra></extra>"
+  };
+}
+
+function currentCoordinateTrace(currentPoint: CoordinatePoint): MapTrace {
+  return {
+    x: [currentPoint.longitude],
+    y: [currentPoint.latitude],
+    text: [`t=${formatSeconds(currentPoint.timestampSec)}, speed=${formatSpeed(currentPoint.speedKph)}`],
+    type: "scatter",
+    mode: "markers",
+    name: "Current playback position",
+    marker: {
+      color: "#be123c",
+      size: 15,
+      opacity: 0.96,
+      symbol: "diamond",
+      line: { color: "#ffffff", width: 2 }
+    },
+    hovertemplate: "Current<br>Lon %{x:.6f}<br>Lat %{y:.6f}<br>%{text}<extra></extra>"
+  };
 }
 
 function mapLayout(): MapLayout {
@@ -153,17 +211,126 @@ function segmentRange(segment: Segment): string {
   return `${formatSeconds(segment.startSec)} - ${formatSeconds(segment.endSec)}`;
 }
 
+function OnlineLeafletMap({ points, currentPoint }: { points: CoordinatePoint[]; currentPoint: CoordinatePoint | null }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const currentMarkerRef = useRef<CircleMarker | null>(null);
+  const currentPointRef = useRef<CoordinatePoint | null>(currentPoint);
+  const leafletRef = useRef<Awaited<typeof import("leaflet")> | null>(null);
+  const mapRef = useRef<LeafletMap | null>(null);
+  const [mapError, setMapError] = useState<string | null>(null);
+
+  function drawCurrentMarker(point: CoordinatePoint | null) {
+    const L = leafletRef.current;
+    const map = mapRef.current;
+
+    currentMarkerRef.current?.remove();
+    currentMarkerRef.current = null;
+    if (!L || !map || !point) return;
+
+    currentMarkerRef.current = L.circleMarker([point.latitude, point.longitude], {
+      radius: 8,
+      color: "#be123c",
+      fillColor: "#be123c",
+      fillOpacity: 0.9,
+      weight: 2
+    }).addTo(map);
+  }
+
+  useEffect(() => {
+    let disposed = false;
+    let map: LeafletMap | null = null;
+
+    async function mountMap() {
+      if (!containerRef.current || points.length === 0) return;
+
+      try {
+        const L = await import("leaflet");
+        if (disposed || !containerRef.current) return;
+
+        leafletRef.current = L;
+        map = L.map(containerRef.current, {
+          zoomControl: true,
+          scrollWheelZoom: true
+        });
+        mapRef.current = map;
+
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        const latLngs = points.map((point) => [point.latitude, point.longitude] as [number, number]);
+        L.polyline(latLngs, { color: "#0f766e", weight: 4, opacity: 0.82 }).addTo(map);
+        L.circleMarker(latLngs[0], { radius: 6, color: "#0f766e", fillColor: "#ffffff", fillOpacity: 1, weight: 3 }).addTo(map);
+        L.circleMarker(latLngs.at(-1) ?? latLngs[0], {
+          radius: 6,
+          color: "#b45309",
+          fillColor: "#ffffff",
+          fillOpacity: 1,
+          weight: 3
+        }).addTo(map);
+        drawCurrentMarker(currentPointRef.current);
+
+        const bounds = L.latLngBounds(latLngs);
+        if (bounds.isValid()) {
+          map.fitBounds(bounds, { padding: [28, 28], maxZoom: 18 });
+        } else {
+          map.setView(latLngs[0], 15);
+        }
+      } catch {
+        if (!disposed) setMapError("Online map could not be initialized.");
+      }
+    }
+
+    void mountMap();
+
+    return () => {
+      disposed = true;
+      currentMarkerRef.current?.remove();
+      currentMarkerRef.current = null;
+      mapRef.current = null;
+      leafletRef.current = null;
+      map?.remove();
+    };
+  }, [points]);
+
+  useEffect(() => {
+    currentPointRef.current = currentPoint;
+    drawCurrentMarker(currentPoint);
+  }, [currentPoint]);
+
+  return (
+    <div className="online-map-shell">
+      <div ref={containerRef} className="leaflet-map" role="img" aria-label="Online GPS map with OpenStreetMap tiles" />
+      {mapError ? (
+        <p className="form-error" role="alert">
+          {mapError}
+        </p>
+      ) : (
+        <p className="map-attribution-note">OpenStreetMap tiles load only while internet access is available.</p>
+      )}
+    </div>
+  );
+}
+
 function LoadedMapLapView({ session }: { session: AnalysisSession }) {
   const addManualSegment = useSessionStore((state) => state.addManualSegment);
+  const currentTimeSec = useSessionStore((state) => state.currentTimeSec);
+  const [mapMode, setMapMode] = useState<MapMode>("offline");
   const [name, setName] = useState("");
   const [startSec, setStartSec] = useState("");
   const [endSec, setEndSec] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const points = useMemo(() => coordinatePoints(session.log.rows), [session.log.rows]);
-  const traces = useMemo(() => mapTrace(points), [points]);
+  const plottedPoints = useMemo(() => downsampleCoordinatePoints(points), [points]);
+  const currentPoint = useMemo(() => nearestCoordinatePoint(points, currentTimeSec), [currentTimeSec, points]);
+  const pathTraceType: MapTraceType = plottedPoints.length < points.length ? "scattergl" : "scatter";
+  const pathTrace = useMemo(() => mapPathTrace(plottedPoints, pathTraceType), [pathTraceType, plottedPoints]);
+  const traces = useMemo(() => (currentPoint ? [pathTrace, currentCoordinateTrace(currentPoint)] : [pathTrace]), [currentPoint, pathTrace]);
   const layout = useMemo(() => mapLayout(), []);
-  const plottedMaxSpeed = useMemo(() => maxSpeed(points), [points]);
+  const plottedMaxSpeed = useMemo(() => maxSpeed(plottedPoints), [plottedPoints]);
+  const onlineMapEnabled = mapMode === "online";
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -189,8 +356,22 @@ function LoadedMapLapView({ session }: { session: AnalysisSession }) {
   return (
     <section className="map-lap-view" aria-label="Map and lap coordinate fallback">
       <div className="map-lap-note">
-        <strong>Offline coordinate fallback</strong>
-        <span>No online map tiles are loaded. This view plots raw Longitude and Latitude pairs from the log.</span>
+        <div>
+          <strong>{onlineMapEnabled ? "Online map tiles" : "Offline coordinate fallback"}</strong>
+          <span>
+            {onlineMapEnabled
+              ? "OpenStreetMap tiles are enabled. The GPS path still comes from the loaded CSV."
+              : "No online map tiles are loaded. This view plots raw Longitude and Latitude pairs from the log."}
+          </span>
+        </div>
+        <button
+          type="button"
+          className="map-mode-toggle"
+          aria-pressed={onlineMapEnabled}
+          onClick={() => setMapMode((currentMode) => (currentMode === "online" ? "offline" : "online"))}
+        >
+          {onlineMapEnabled ? "Use offline plot" : "Use online map"}
+        </button>
       </div>
 
       <div className="map-lap-stat-strip" aria-label="Map lap statistics">
@@ -209,16 +390,18 @@ function LoadedMapLapView({ session }: { session: AnalysisSession }) {
       </div>
 
       <div className="map-lap-grid">
-        <section className="map-lap-panel" aria-label="Offline GPS path">
+        <section className="map-lap-panel" aria-label={onlineMapEnabled ? "Online GPS path" : "Offline GPS path"}>
           <div className="map-lap-panel-heading">
             <h2>GPS path</h2>
-            <p>Finite coordinate pairs only.</p>
+            <p>{onlineMapEnabled ? "Online map tiles with CSV coordinates." : "Finite coordinate pairs only."}</p>
           </div>
           {points.length === 0 ? (
             <div className="inline-empty">
               <h3>No finite coordinate pairs</h3>
               <p>This offline fallback needs finite Longitude and Latitude samples.</p>
             </div>
+          ) : onlineMapEnabled ? (
+            <OnlineLeafletMap points={plottedPoints} currentPoint={currentPoint} />
           ) : (
             <Plot
               data={traces}
@@ -230,7 +413,7 @@ function LoadedMapLapView({ session }: { session: AnalysisSession }) {
           )}
         </section>
 
-        <section className="map-lap-panel" aria-label="Segments">
+        <section className="map-lap-panel map-lap-segments-panel" aria-label="Segments">
           <div className="map-lap-panel-heading">
             <h2>Segments</h2>
             <p>Event-derived and manual windows.</p>
@@ -267,24 +450,26 @@ function LoadedMapLapView({ session }: { session: AnalysisSession }) {
             <button type="submit">Add segment</button>
           </form>
 
-          {session.segments.length === 0 ? (
-            <div className="segment-empty">No segments yet.</div>
-          ) : (
-            <ul className="segment-list">
-              {session.segments.map((segment) => {
-                const event = eventForSegment(segment, session.events);
-                return (
-                  <li key={segment.id}>
-                    <div>
-                      <strong>{segment.name}</strong>
-                      <span>{segmentRange(segment)}</span>
-                    </div>
-                    {event ? <SeverityBadge severity={event.severity} /> : <span className="manual-badge">manual</span>}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+          <div className="segment-list-scroll" aria-label="Scrollable segment list">
+            {session.segments.length === 0 ? (
+              <div className="segment-empty">No segments yet.</div>
+            ) : (
+              <ul className="segment-list">
+                {session.segments.map((segment) => {
+                  const event = eventForSegment(segment, session.events);
+                  return (
+                    <li key={segment.id}>
+                      <div>
+                        <strong>{segment.name}</strong>
+                        <span>{segmentRange(segment)}</span>
+                      </div>
+                      {event ? <SeverityBadge severity={event.severity} /> : <span className="manual-badge">manual</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </section>
       </div>
     </section>

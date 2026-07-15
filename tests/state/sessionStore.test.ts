@@ -152,6 +152,24 @@ describe("session store", () => {
     expect(useSessionStore.getState().selectedEventId).toBeNull();
   });
 
+  it("adds CSV import warnings to log diagnostics", async () => {
+    const malformedCsv = "Timestamp,RPM\n0,1000\nmalformed-row\n1,2000\n";
+
+    await useSessionStore.getState().openCsv({ filePath: "malformed.csv", text: malformedCsv });
+
+    expect(useSessionStore.getState().session?.log.rows).toHaveLength(2);
+    expect(useSessionStore.getState().session?.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "csv-import-warning-1-TooFewFields",
+          severity: "warning",
+          title: "Skipped malformed CSV row",
+          detail: "Row 1 was skipped: Too few fields: expected 2 fields but parsed 1"
+        })
+      ])
+    );
+  });
+
   it("keeps snapshot APIs optional at runtime", async () => {
     installDesktopApi({
       openCsv: vi.fn(async () => null)
@@ -211,6 +229,16 @@ describe("session store", () => {
     });
 
     cleanup();
+  });
+
+  it("does not persist full snapshots for high-frequency time cursor changes", async () => {
+    const setSessionSnapshot = vi.fn(async () => undefined);
+    installDesktopApi({ setSessionSnapshot });
+
+    useSessionStore.getState().setCurrentTimeSec(1.2);
+    await Promise.resolve();
+
+    expect(setSessionSnapshot).not.toHaveBeenCalled();
   });
 
   it("hydrates selection changes from another window without rebroadcasting them", () => {

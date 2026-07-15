@@ -1,6 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { fileNameFromPath, hydrateSessionSnapshot, startSessionSelectionSync, useSessionStore } from "./state/sessionStore";
 import { Layout } from "./ui/Layout";
+import { PlaybackTicker } from "./ui/PlaybackControls";
+
+function messageFromError(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown CSV load error.";
+}
 
 export default function App() {
   const profiles = useSessionStore((state) => state.profiles);
@@ -8,6 +13,9 @@ export default function App() {
   const session = useSessionStore((state) => state.session);
   const setSelectedProfileId = useSessionStore((state) => state.setSelectedProfileId);
   const openCsv = useSessionStore((state) => state.openCsv);
+  const csvInputRef = useRef<HTMLInputElement>(null);
+  const [csvLoadError, setCsvLoadError] = useState<string | null>(null);
+  const [isCsvLoading, setIsCsvLoading] = useState(false);
 
   useEffect(() => {
     let cleanup: () => void = () => undefined;
@@ -25,6 +33,48 @@ export default function App() {
       cleanup();
     };
   }, []);
+
+  useEffect(() => {
+    return window.mfLogAnalyzer?.onOpenCsvMenu?.(() => {
+      void handleOpenCsv();
+    });
+  });
+
+  async function handleOpenCsv() {
+    if (window.mfLogAnalyzer?.openCsv) {
+      setCsvLoadError(null);
+      setIsCsvLoading(true);
+      try {
+        await openCsv();
+      } catch (error) {
+        setCsvLoadError(`Could not open CSV: ${messageFromError(error)}`);
+      } finally {
+        setIsCsvLoading(false);
+      }
+      return;
+    }
+
+    csvInputRef.current?.click();
+  }
+
+  async function handleCsvFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+
+    setCsvLoadError(null);
+    setIsCsvLoading(true);
+    try {
+      await openCsv({
+        filePath: file.name,
+        text: await file.text()
+      });
+    } catch (error) {
+      setCsvLoadError(`Could not open CSV: ${messageFromError(error)}`);
+    } finally {
+      setIsCsvLoading(false);
+    }
+  }
 
   return (
     <main className="app-shell">
@@ -48,11 +98,30 @@ export default function App() {
               ))}
             </select>
           </label>
-          <button type="button" onClick={() => void openCsv()}>
+          <input
+            ref={csvInputRef}
+            className="sr-only"
+            type="file"
+            accept=".csv,text/csv"
+            aria-label="CSV file picker"
+            onChange={(event) => void handleCsvFileChange(event)}
+          />
+          <button type="button" aria-busy={isCsvLoading} disabled={isCsvLoading} onClick={() => void handleOpenCsv()}>
             Open CSV
           </button>
         </div>
       </header>
+      {csvLoadError ? (
+        <section className="session-message session-message-error" role="alert">
+          {csvLoadError}
+        </section>
+      ) : null}
+      {isCsvLoading ? (
+        <section className="session-message" role="status">
+          Loading CSV...
+        </section>
+      ) : null}
+      <PlaybackTicker />
       <Layout />
     </main>
   );

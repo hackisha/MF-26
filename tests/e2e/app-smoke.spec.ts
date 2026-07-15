@@ -43,6 +43,7 @@ test("loads a CSV and exposes the app shell views", async ({ page }) => {
   const expectedTabs = [
     "Summary",
     "Log Diagnostics",
+    "CSV Playback",
     "Time-Series Graph",
     "Vehicle Behavior",
     "Map / Lap",
@@ -53,6 +54,7 @@ test("loads a CSV and exposes the app shell views", async ({ page }) => {
   for (const tabName of expectedTabs) {
     await expect(page.getByRole("tab", { name: tabName })).toBeVisible();
   }
+  await expect(page.getByRole("tab", { name: "Workspace" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Open CSV" }).click();
   await expect(page.getByText("Loaded 2025-sample.csv")).toBeVisible();

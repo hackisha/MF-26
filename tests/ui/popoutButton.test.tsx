@@ -51,7 +51,10 @@ describe("PopoutButton", () => {
     expect(calls).toEqual(["snapshot:7", "popout:/time-series"]);
   });
 
-  it("is disabled when the desktop pop-out API is unavailable", () => {
+  it("falls back to a browser window when the desktop pop-out API is unavailable", async () => {
+    const openedWindow = { opener: window } as unknown as Window;
+    const open = vi.fn(() => openedWindow);
+    vi.stubGlobal("open", open);
     window.mfLogAnalyzer = {
       openCsv: vi.fn(async () => null),
       saveHtmlReport: vi.fn(async () => null),
@@ -60,6 +63,52 @@ describe("PopoutButton", () => {
 
     render(<PopoutButton route="/behavior" />);
 
-    expect((screen.getByRole("button", { name: "Open this view in a new window" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Open this view in a new window" }));
+
+    await waitFor(() => {
+      expect(open).toHaveBeenCalledWith("/behavior", "_blank");
+    });
+    expect(openedWindow.opener).toBeNull();
+    expect(screen.getByText("New window")).not.toBeNull();
+  });
+
+  it("shows a visible error when a new window cannot be opened", async () => {
+    window.mfLogAnalyzer = {
+      openCsv: vi.fn(async () => null),
+      saveHtmlReport: vi.fn(async () => null),
+      popout: vi.fn(async () => {
+        throw new Error("blocked");
+      })
+    };
+
+    render(<PopoutButton route="/behavior" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open this view in a new window" }));
+
+    expect(await screen.findByRole("alert")).not.toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain("Could not open a new window");
+    expect(screen.getByRole("alert").textContent).toContain("blocked");
+  });
+
+  it("still opens the desktop window when publishing the snapshot fails", async () => {
+    const popout = vi.fn(async () => true);
+    window.mfLogAnalyzer = {
+      openCsv: vi.fn(async () => null),
+      saveHtmlReport: vi.fn(async () => null),
+      setSessionSnapshot: vi.fn(async () => {
+        throw new Error("snapshot too large");
+      }),
+      getSessionSnapshot: vi.fn(async () => null),
+      popout
+    };
+
+    render(<PopoutButton route="/map-lap" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open this view in a new window" }));
+
+    await waitFor(() => {
+      expect(popout).toHaveBeenCalledWith("/map-lap");
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

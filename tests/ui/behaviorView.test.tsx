@@ -1,14 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
-import type { ComponentProps } from "react";
+import { render, screen, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { ComponentProps, ReactNode } from "react";
 import { defaultProfiles } from "../../src/domain/defaultProfiles";
 import type { AnalysisSession, VehicleProfile } from "../../src/domain/types";
 import { useSessionStore } from "../../src/state/sessionStore";
 import { BehaviorView } from "../../src/ui/BehaviorView";
 
 const plotCalls: Array<ComponentProps<"div"> & { data?: unknown; layout?: unknown; config?: unknown }> = [];
+const gltfLoadCalls = vi.hoisted((): string[] => []);
+const renderCanvasChildren = vi.hoisted(() => ({ current: false }));
 
-vi.mock("plotly.js-dist-min", () => ({ default: {} }));
+vi.mock("plotly.js/lib/core", () => ({ default: { register: vi.fn() } }));
+vi.mock("plotly.js/lib/scatter", () => ({ default: {} }));
+vi.mock("plotly.js/lib/scattergl", () => ({ default: {} }));
 
 vi.mock("react-plotly.js/factory", () => ({
   default: () => (props: ComponentProps<"div"> & { data?: unknown; layout?: unknown; config?: unknown }) => {
@@ -18,7 +24,18 @@ vi.mock("react-plotly.js/factory", () => ({
 }));
 
 vi.mock("@react-three/fiber", () => ({
-  Canvas: () => <div data-testid="behavior-canvas" />
+  Canvas: ({ children }: { children?: ReactNode }) => (
+    <div data-testid="behavior-canvas">{renderCanvasChildren.current ? children : null}</div>
+  )
+}));
+
+vi.mock("three/examples/jsm/loaders/GLTFLoader.js", () => ({
+  GLTFLoader: class {
+    load(url: string, onLoad: (gltf: { scene: { clone: () => object } }) => void) {
+      gltfLoadCalls.push(url);
+      onLoad({ scene: { clone: () => ({}) } });
+    }
+  }
 }));
 
 function createSession(): AnalysisSession {
@@ -74,6 +91,8 @@ function resetStore(session: AnalysisSession | null = null, profiles: VehiclePro
 describe("BehaviorView", () => {
   beforeEach(() => {
     plotCalls.length = 0;
+    gltfLoadCalls.length = 0;
+    renderCanvasChildren.current = false;
     resetStore(createSession());
   });
 
@@ -90,30 +109,81 @@ describe("BehaviorView", () => {
     expect(screen.getByText("Open a CSV log to analyze vehicle behavior.")).not.toBeNull();
   });
 
-  it("uses corrected acceleration channels and filters non-finite G-G points", () => {
+  it("uses corrected acceleration channels, filters non-finite G-G points, and draws a limit circle", () => {
     render(<BehaviorView />);
 
-    const traces = plotCalls.at(-1)?.data as Array<{ x: number[]; y: number[]; mode: string; type: string }>;
+    const traces = plotCalls.at(-1)?.data as Array<{
+      x: number[];
+      y: number[];
+      mode: string;
+      type: string;
+      name: string;
+      marker?: { opacity: number; size: number };
+    }>;
     const layout = plotCalls.at(-1)?.layout as {
-      xaxis: { title: { text: string }; zeroline: boolean };
-      yaxis: { title: { text: string }; scaleanchor: string; zeroline: boolean };
+      showlegend: boolean;
+      xaxis: { title: { text: string }; zeroline: boolean; range: [number, number] };
+      yaxis: { title: { text: string }; scaleanchor: string; zeroline: boolean; range: [number, number] };
     };
+    const sampleTrace = traces.find((trace) => trace.name === "All corrected G-G samples");
+    const limitTrace = traces.find((trace) => trace.name === "2.0 g limit circle");
 
     expect(screen.getByTestId("behavior-plot")).not.toBeNull();
-    expect(traces[0].x).toEqual([0.1, 0.7]);
-    expect(traces[0].y).toEqual([-0.8, 1.1]);
-    expect(traces[0].mode).toBe("markers");
-    expect(traces[0].type).toBe("scatter");
+    expect(sampleTrace?.x).toEqual([0.1, 0.7]);
+    expect(sampleTrace?.y).toEqual([-0.8, 1.1]);
+    expect(sampleTrace?.mode).toBe("markers");
+    expect(sampleTrace?.type).toBe("scatter");
+    expect(sampleTrace?.marker?.opacity).toBeLessThan(0.35);
+    expect(sampleTrace?.marker?.size).toBeLessThan(7);
+    expect(limitTrace?.mode).toBe("lines");
+    expect(Math.max(...(limitTrace?.x ?? []))).toBeCloseTo(2);
+    expect(Math.min(...(limitTrace?.x ?? []))).toBeCloseTo(-2);
+    expect(Math.max(...(limitTrace?.y ?? []))).toBeCloseTo(2);
+    expect(Math.min(...(limitTrace?.y ?? []))).toBeCloseTo(-2);
+    expect(layout.showlegend).toBe(true);
     expect(layout.xaxis.title.text).toBe("Longitudinal acceleration (g)");
     expect(layout.yaxis.title.text).toBe("Lateral acceleration (g)");
     expect(layout.yaxis.scaleanchor).toBe("x");
     expect(layout.xaxis.zeroline).toBe(true);
     expect(layout.yaxis.zeroline).toBe(true);
+    expect(layout.xaxis.range[0]).toBeLessThanOrEqual(-2);
+    expect(layout.yaxis.range[1]).toBeGreaterThanOrEqual(2);
     const stats = screen.getByLabelText("Behavior statistics");
     expect(stats.textContent).toContain("samples used");
     expect(stats.textContent).toContain("2");
     expect(screen.getByText("1.10 g")).not.toBeNull();
     expect(screen.getByText("0.70 g")).not.toBeNull();
+  });
+
+  it("limits large G-G sample traces while preserving the current playback marker", () => {
+    const session = createSession();
+    const rowCount = 12_050;
+    session.log.rows = Array.from({ length: rowCount }, (_, index) => ({
+      index,
+      timestampSec: index * 0.02,
+      values: {
+        ax_corrected_g: Math.sin(index / 20) * 1.6,
+        ay_corrected_g: Math.cos(index / 18) * 1.4,
+        gx_dps: index % 120,
+        gy_dps: index % 90,
+        gz_dps: index % 160
+      }
+    }));
+    resetStore(session);
+    useSessionStore.getState().setCurrentTimeSec((rowCount - 2) * 0.02);
+
+    render(<BehaviorView />);
+
+    const traces = plotCalls.at(-1)?.data as Array<{ x: number[]; y: number[]; type: string; name: string }>;
+    const sampleTrace = traces.find((trace) => trace.name === "All corrected G-G samples");
+    const currentTrace = traces.find((trace) => trace.name === "Current playback sample");
+
+    expect(sampleTrace?.x.length).toBeLessThan(rowCount);
+    expect(sampleTrace?.x.length).toBeLessThanOrEqual(6000);
+    expect(sampleTrace?.x[0]).toBe(0);
+    expect(sampleTrace?.type).toBe("scattergl");
+    expect(currentTrace?.x[0]).toBeCloseTo(Math.sin((rowCount - 2) / 20) * 1.6);
+    expect(currentTrace?.y[0]).toBeCloseTo(Math.cos((rowCount - 2) / 18) * 1.4);
   });
 
   it("shows a no-usable-G empty state when corrected acceleration is unavailable", () => {
@@ -132,23 +202,94 @@ describe("BehaviorView", () => {
     expect(screen.getByTestId("behavior-canvas")).not.toBeNull();
   });
 
-  it("shows an attitude empty state when gyro values are unavailable", () => {
+  it("uses ADU axis values as the behavior cue when gyro rate columns are unavailable", () => {
+    const session = createSession();
+    session.log.rows = session.log.rows.map((row, index) => ({
+      ...row,
+      values: {
+        ...row.values,
+        gx_dps: null,
+        gy_dps: null,
+        gz_dps: null,
+        ADU_ax_g: index === 1 ? 0.24 : index === 3 ? 0.91 : null,
+        ADU_ay_g: index === 1 ? -0.18 : index === 3 ? -0.71 : null,
+        ADU_az_g: index === 1 ? 1.02 : index === 3 ? 1.41 : null
+      }
+    }));
+    resetStore(session);
+    useSessionStore.getState().setCurrentTimeSec(1.1);
+
+    render(<BehaviorView />);
+
+    expect(screen.getByText("ADU axis cue")).not.toBeNull();
+    expect(screen.getByText("Using ADU_ax_g, ADU_ay_g, ADU_az_g at the shared playback time.")).not.toBeNull();
+    expect(screen.getByTestId("behavior-canvas")).not.toBeNull();
+    expect(screen.getByText("ADU X")).not.toBeNull();
+    expect(screen.getByText("0.24 g")).not.toBeNull();
+    expect(screen.queryByText("0.91 g")).toBeNull();
+  });
+
+  it("updates the gyro cue from the shared playback time instead of the final sample", () => {
+    resetStore(createSession());
+    useSessionStore.getState().setCurrentTimeSec(0.2);
+
+    render(<BehaviorView />);
+
+    expect(screen.getByText("Gyro roll/pitch/yaw cue")).not.toBeNull();
+    expect(screen.getByText("Uses gx_dps, gy_dps, gz_dps at the shared playback time.")).not.toBeNull();
+    expect(screen.getByText("5.0 deg/s")).not.toBeNull();
+    expect(screen.getByText("-3.0 deg/s")).not.toBeNull();
+    expect(screen.getAllByText("12.0 deg/s").length).toBeGreaterThan(0);
+    expect(screen.queryByText("30.0 deg/s")).toBeNull();
+  });
+
+  it("loads the bundled GLB car model for the motion cue", async () => {
+    renderCanvasChildren.current = true;
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    render(<BehaviorView />);
+
+    await waitFor(() => {
+      expect(gltfLoadCalls).toContain(`${import.meta.env.BASE_URL}models/car.glb`);
+    });
+
+    consoleError.mockRestore();
+  });
+
+  it("uses the Vite base URL for the model so packaged file renderers load the real GLB", () => {
+    const source = readFileSync(join(process.cwd(), "src", "ui", "BehaviorView.tsx"), "utf8");
+
+    expect(source).toContain("import.meta.env.BASE_URL");
+    expect(source).not.toContain('const vehicleModelUrl = "/models/car.glb"');
+  });
+
+  it("explains when gyro and ADU cue values are unavailable", () => {
     const session = createSession();
     session.log.rows = session.log.rows.map((row) => ({
       ...row,
-      values: { ...row.values, gx_dps: null, gy_dps: Number.NaN, gz_dps: Number.POSITIVE_INFINITY }
+      values: {
+        ...row.values,
+        gx_dps: null,
+        gy_dps: Number.NaN,
+        gz_dps: Number.POSITIVE_INFINITY,
+        ADU_ax_g: null,
+        ADU_ay_g: null,
+        ADU_az_g: null
+      }
     }));
     resetStore(session);
 
     render(<BehaviorView />);
 
-    expect(screen.getByText("No gyro tendency")).not.toBeNull();
-    expect(screen.getByText("Finite gx_dps, gy_dps, and gz_dps samples are needed for the rate-driven vehicle model.")).not.toBeNull();
-    expect(screen.getByText("latest yaw rate")).not.toBeNull();
+    expect(screen.getByText("Motion cue unavailable")).not.toBeNull();
+    expect(
+      screen.getByText("This CSV has no usable gyro rate or ADU axis values, so the 3D cue is hidden.")
+    ).not.toBeNull();
+    expect(screen.getByText("current yaw rate")).not.toBeNull();
     expect(screen.getByText("n/a")).not.toBeNull();
   });
 
-  it("uses the latest finite yaw rate even when roll and pitch are unavailable", () => {
+  it("uses the current yaw rate even when roll and pitch are unavailable", () => {
     const session = createSession();
     session.log.rows = session.log.rows.map((row, index) => ({
       ...row,
@@ -160,10 +301,11 @@ describe("BehaviorView", () => {
       }
     }));
     resetStore(session);
+    useSessionStore.getState().setCurrentTimeSec(3);
 
     render(<BehaviorView />);
 
     expect(screen.getByText("44.0 deg/s")).not.toBeNull();
-    expect(screen.getByText("No gyro tendency")).not.toBeNull();
+    expect(screen.getByText("Motion cue unavailable")).not.toBeNull();
   });
 });

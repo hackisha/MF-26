@@ -8,7 +8,9 @@ import { MapLapView } from "../../src/ui/MapLapView";
 
 const plotCalls: Array<ComponentProps<"div"> & { data?: unknown; layout?: unknown; config?: unknown }> = [];
 
-vi.mock("plotly.js-dist-min", () => ({ default: {} }));
+vi.mock("plotly.js/lib/core", () => ({ default: { register: vi.fn() } }));
+vi.mock("plotly.js/lib/scatter", () => ({ default: {} }));
+vi.mock("plotly.js/lib/scattergl", () => ({ default: {} }));
 
 vi.mock("react-plotly.js/factory", () => ({
   default: () => (props: ComponentProps<"div"> & { data?: unknown; layout?: unknown; config?: unknown }) => {
@@ -16,6 +18,21 @@ vi.mock("react-plotly.js/factory", () => ({
     return <div data-testid="map-lap-plot" />;
   }
 }));
+
+vi.mock("leaflet", () => {
+  const addTo = vi.fn(() => ({}));
+  const remove = vi.fn();
+  const fitBounds = vi.fn();
+  const setView = vi.fn();
+
+  return {
+    map: vi.fn(() => ({ remove, fitBounds, setView })),
+    tileLayer: vi.fn(() => ({ addTo })),
+    polyline: vi.fn(() => ({ addTo, getBounds: vi.fn(() => ({})) })),
+    circleMarker: vi.fn(() => ({ addTo })),
+    latLngBounds: vi.fn(() => ({ isValid: vi.fn(() => true) }))
+  };
+});
 
 function createSession(): AnalysisSession {
   return {
@@ -88,12 +105,14 @@ describe("MapLapView", () => {
   });
 
   it("filters unusable coordinates and colors points by GPS speed with VSS fallback", () => {
+    useSessionStore.getState().setCurrentTimeSec(1.1);
     render(<MapLapView />);
 
     const traces = plotCalls.at(-1)?.data as Array<{
       x: number[];
       y: number[];
       text: string[];
+      name: string;
       marker: { color: number[]; colorbar: { title: { text: string } } };
       mode: string;
       type: string;
@@ -112,11 +131,56 @@ describe("MapLapView", () => {
     ]);
     expect(traces[0].mode).toBe("lines+markers");
     expect(traces[0].type).toBe("scatter");
+    expect(traces[1]).toMatchObject({ name: "Current playback position", x: [127.2], y: [37.2], mode: "markers" });
     expect(layout.yaxis.scaleanchor).toBe("x");
     expect(layout.yaxis.scaleratio).toBe(1);
     expect(layout.xaxis.title.text).toBe("Longitude");
     expect(screen.getByLabelText("Map lap statistics").textContent).toContain("3");
     expect(screen.getByLabelText("Map lap statistics").textContent).toContain("90.0 km/h");
+  });
+
+  it("limits large GPS path traces while keeping the current marker on the full log sample", () => {
+    const session = createSession();
+    const rowCount = 10_050;
+    session.log.rows = Array.from({ length: rowCount }, (_, index) => ({
+      index,
+      timestampSec: index,
+      values: {
+        Latitude: 37 + index / 100_000,
+        Longitude: 127 + index / 100_000,
+        GPS_Speed_KPH: index % 120,
+        VSS_kmh: index % 110
+      }
+    }));
+    resetStore(session);
+    useSessionStore.getState().setCurrentTimeSec(rowCount - 2);
+
+    render(<MapLapView />);
+
+    const traces = plotCalls.at(-1)?.data as Array<{ x: number[]; y: number[]; type: string; name: string }>;
+    expect(traces[0].x.length).toBeLessThan(rowCount);
+    expect(traces[0].x.length).toBeLessThanOrEqual(7000);
+    expect(traces[0].x[0]).toBe(127);
+    expect(traces[0].x.at(-1)).toBeCloseTo(127 + (rowCount - 1) / 100_000);
+    expect(traces[0].type).toBe("scattergl");
+    expect(traces[1].name).toBe("Current playback position");
+    expect(traces[1].x[0]).toBeCloseTo(127 + (rowCount - 2) / 100_000);
+    expect(traces[1].y[0]).toBeCloseTo(37 + (rowCount - 2) / 100_000);
+  });
+
+  it("toggles from the offline plot to an online OpenStreetMap layer", () => {
+    render(<MapLapView />);
+
+    const toggle = screen.getByRole("button", { name: "Use online map" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByText("Offline coordinate fallback")).not.toBeNull();
+
+    fireEvent.click(toggle);
+
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("Online map tiles")).not.toBeNull();
+    expect(screen.getByLabelText("Online GPS map with OpenStreetMap tiles")).not.toBeNull();
+    expect(screen.queryByTestId("map-lap-plot")).toBeNull();
   });
 
   it("shows a no-coordinate empty state when no finite coordinate pairs are available", () => {
@@ -137,6 +201,7 @@ describe("MapLapView", () => {
   it("shows event severity and manual segment badges", () => {
     render(<MapLapView />);
 
+    expect(screen.getByLabelText("Scrollable segment list").className).toContain("segment-list-scroll");
     expect(screen.getByText("warning")).not.toBeNull();
     expect(screen.getByText("manual")).not.toBeNull();
     expect(screen.getByText("High Lateral G")).not.toBeNull();

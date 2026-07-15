@@ -5,6 +5,7 @@ import { SummaryView } from "./SummaryView";
 import { Tabs, tabButtonId, tabPanelId, tabs, type TabId } from "./Tabs";
 
 const TimeSeriesView = lazy(() => import("./TimeSeriesView").then((module) => ({ default: module.TimeSeriesView })));
+const PlaybackView = lazy(() => import("./PlaybackView").then((module) => ({ default: module.PlaybackView })));
 const BehaviorView = lazy(() => import("./BehaviorView").then((module) => ({ default: module.BehaviorView })));
 const MapLapView = lazy(() => import("./MapLapView").then((module) => ({ default: module.MapLapView })));
 const ReportView = lazy(() => import("./ReportView").then((module) => ({ default: module.ReportView })));
@@ -50,6 +51,11 @@ export function Layout() {
       >
         {activeTab === "summary" && <SummaryView />}
         {activeTab === "diagnostics" && <DiagnosticsView />}
+        {activeTab === "playback" && (
+          <Suspense fallback={<section className="empty-state">Loading CSV playback...</section>}>
+            <PlaybackView />
+          </Suspense>
+        )}
         {activeTab === "time-series" && (
           <Suspense fallback={<section className="empty-state">Loading graph...</section>}>
             <TimeSeriesView />

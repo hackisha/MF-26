@@ -1,27 +1,30 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { isAllowedNavigationUrl, isDevRuntime, rendererUrlForRoute } from "./runtimeMode.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const isDev = process.env.VITE_DEV_SERVER_URL !== undefined || !app.isPackaged;
-const devOrigin = "http://127.0.0.1:5173";
+const devOrigin = process.env.VITE_DEV_SERVER_URL ?? "http://127.0.0.1:5173";
 const maxHtmlReportBytes = 10 * 1024 * 1024;
 const rendererEntryUrl = pathToFileURL(path.join(__dirname, "../dist/index.html")).toString();
+const packagedRendererExists = existsSync(path.join(__dirname, "../dist/index.html"));
+const isDev = isDevRuntime({
+  appIsPackaged: app.isPackaged,
+  packagedRendererExists,
+  viteDevServerUrl: process.env.VITE_DEV_SERVER_URL
+});
 let latestSessionSnapshot: unknown = null;
 
+type WindowKind = "main" | "popout";
+
 function rendererUrl(route = "/") {
-  if (isDev) {
-    return `${devOrigin}${route}`;
-  }
-  return `${rendererEntryUrl}${route === "/" ? "" : `#${route}`}`;
+  return rendererUrlForRoute({ devOrigin, isDev, rendererEntryUrl, route });
 }
 
 function isAllowedNavigation(url: string) {
-  if (isDev) {
-    return url.startsWith(`${devOrigin}/`) || url === devOrigin;
-  }
-  return url === rendererEntryUrl || url.startsWith(`${rendererEntryUrl}#`);
+  return isAllowedNavigationUrl({ devOrigin, isDev, rendererEntryUrl, url });
 }
 
 function validateRoute(route: unknown) {
@@ -36,20 +39,37 @@ function validateRoute(route: unknown) {
   return route;
 }
 
-function createWindow(route = "/") {
+function popoutBounds(owner: BrowserWindow | null | undefined) {
+  const ownerBounds = owner?.getBounds();
+  if (!ownerBounds) return { width: 1180, height: 760 };
+
+  return {
+    x: ownerBounds.x + 48,
+    y: ownerBounds.y + 48,
+    width: Math.max(900, Math.min(1180, ownerBounds.width - 96)),
+    height: Math.max(620, Math.min(760, ownerBounds.height - 96))
+  };
+}
+
+function createWindow(route = "/", options: { kind?: WindowKind; owner?: BrowserWindow | null } = {}) {
+  const kind = options.kind ?? "main";
+  const isPopout = kind === "popout";
+  const bounds = isPopout ? popoutBounds(options.owner) : { width: 1440, height: 920 };
   const win = new BrowserWindow({
-    width: 1440,
-    height: 920,
-    minWidth: 1100,
-    minHeight: 720,
-    title: "MF Log Analyzer",
+    ...bounds,
+    minWidth: isPopout ? 900 : 1100,
+    minHeight: isPopout ? 620 : 720,
+    title: isPopout ? "MF Log Analyzer - Pop out" : "MF Log Analyzer",
+    show: false,
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false
     }
   });
 
+  win.setAutoHideMenuBar(false);
+  win.setMenuBarVisibility(true);
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("will-navigate", (event, url) => {
     if (!isAllowedNavigation(url)) {
@@ -57,11 +77,50 @@ function createWindow(route = "/") {
     }
   });
 
-  void win.loadURL(rendererUrl(route));
+  void win.loadURL(rendererUrl(route)).finally(() => {
+    if (win.isDestroyed()) return;
+    win.show();
+    win.focus();
+  });
   return win;
 }
 
+function sendOpenCsvCommand(window: BrowserWindow | undefined | null) {
+  window?.webContents.send("menu:openCsv");
+}
+
+function installApplicationMenu() {
+  const isMac = process.platform === "darwin";
+  const template: MenuItemConstructorOptions[] = [
+    ...(isMac
+      ? [
+          {
+            label: app.name,
+            submenu: [{ role: "about" }, { type: "separator" }, { role: "quit" }]
+          } satisfies MenuItemConstructorOptions
+        ]
+      : []),
+    {
+      label: "File",
+      submenu: [
+        {
+          label: "Open CSV...",
+          accelerator: "CmdOrCtrl+O",
+          click: () => sendOpenCsvCommand(BrowserWindow.getFocusedWindow())
+        },
+        { type: "separator" },
+        isMac ? { role: "close" } : { role: "quit", label: "Exit" }
+      ]
+    },
+    { role: "viewMenu" },
+    { role: "windowMenu" }
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 app.whenReady().then(() => {
+  installApplicationMenu();
   createWindow();
 
   app.on("activate", () => {
@@ -106,8 +165,9 @@ ipcMain.handle("file:saveHtmlReport", async (_event, html: string) => {
   return result.filePath;
 });
 
-ipcMain.handle("view:popout", async (_event, route: unknown) => {
-  createWindow(validateRoute(route));
+ipcMain.handle("view:popout", async (event, route: unknown) => {
+  const owner = BrowserWindow.fromWebContents(event.sender);
+  createWindow(validateRoute(route), { kind: "popout", owner });
   return true;
 });
 

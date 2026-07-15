@@ -178,6 +178,7 @@ describe("defaultProfiles", () => {
 
   it("defines corrected ADXL345 acceleration channels", () => {
     const profile2025 = defaultProfiles.find((profile) => profile.id === "2025-vehicle");
+    const profile2026 = defaultProfiles.find((profile) => profile.id === "2026-vehicle");
     expect(profile2025?.channels.ax_g.sourceColumns).toContain("ax_g");
     expect(profile2025?.channels.ay_g.sourceColumns).toContain("ay_g");
     expect(profile2025?.channels.az_g.sourceColumns).toContain("az_g");
@@ -190,6 +191,10 @@ describe("defaultProfiles", () => {
     expect(profile2025?.channels.ax_corrected_g.calibration).toEqual({ type: "scaleOffset", scale: 0.125, offset: 0 });
     expect(profile2025?.channels.ay_corrected_g.calibration).toEqual({ type: "scaleOffset", scale: 0.125, offset: 0 });
     expect(profile2025?.channels.az_corrected_g.calibration).toEqual({ type: "scaleOffset", scale: 0.125, offset: 0 });
+    expect(profile2026?.channels.ax_corrected_g.sourceColumns).toEqual(["ADU_ax_g"]);
+    expect(profile2026?.channels.ay_corrected_g.sourceColumns).toEqual(["ADU_ay_g"]);
+    expect(profile2026?.channels.az_corrected_g.sourceColumns).toEqual(["ADU_az_g"]);
+    expect(profile2026?.channels.ax_corrected_g.calibration).toEqual({ type: "identity" });
   });
 
   it("does not share mutable channel, rule, or overlay objects between 2025 and 2026 profiles", () => {
@@ -218,6 +223,23 @@ describe("applyProfile", () => {
 
     expect(parsed.headers).toEqual(["Timestamp", "RPM"]);
     expect(parsed.rows).toEqual([{ Timestamp: "0.10", RPM: "00123" }]);
+    expect(parsed.warnings).toEqual([]);
+  });
+
+  it("skips malformed field-count rows and records import warnings", () => {
+    const parsed = parseCsv("Timestamp,RPM\n0,1000\nbad-row\n1,2000\n");
+
+    expect(parsed.rows).toEqual([
+      { Timestamp: "0", RPM: "1000" },
+      { Timestamp: "1", RPM: "2000" }
+    ]);
+    expect(parsed.warnings).toEqual([
+      {
+        code: "TooFewFields",
+        message: "Too few fields: expected 2 fields but parsed 1",
+        row: 1
+      }
+    ]);
   });
 
   it("creates numeric rows and corrected ADXL345 channels", () => {
@@ -231,6 +253,15 @@ describe("applyProfile", () => {
     expect(applied.rows[1].values.ax_corrected_g).toBeCloseTo(0.2);
     expect(applied.rows[1].values.ay_corrected_g).toBeCloseTo(0.3);
     expect(applied.rows[1].values.az_corrected_g).toBeCloseTo(1.01);
+  });
+
+  it("uses ADU acceleration as corrected acceleration for the 2026 profile", () => {
+    const parsed = parseCsv("Timestamp,ADU_ax_g,ADU_ay_g,ADU_az_g\n0,0.42,-0.31,1.03\n");
+    const applied = applyProfile("2026-adu.csv", parsed, defaultProfiles[1]);
+
+    expect(applied.rows[0].values.ax_corrected_g).toBeCloseTo(0.42);
+    expect(applied.rows[0].values.ay_corrected_g).toBeCloseTo(-0.31);
+    expect(applied.rows[0].values.az_corrected_g).toBeCloseTo(1.03);
   });
 
   it("uses timestamp source aliases for row timestamps", () => {

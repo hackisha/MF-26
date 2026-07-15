@@ -1,11 +1,11 @@
 import { create } from "zustand";
-import { parseCsv } from "../domain/csvImport";
+import { parseCsv, type CsvImportWarning } from "../domain/csvImport";
 import { defaultProfiles } from "../domain/defaultProfiles";
 import { runDiagnostics } from "../domain/diagnostics";
 import { detectEvents } from "../domain/events";
 import { applyProfile } from "../domain/profileApply";
 import { createManualSegment, segmentsFromEvents } from "../domain/segments";
-import type { AnalysisSession, OverlayPreset, Segment, VehicleProfile } from "../domain/types";
+import type { AnalysisSession, DiagnosticFinding, OverlayPreset, Segment, VehicleProfile } from "../domain/types";
 
 type CsvOpenResult = {
   filePath: string;
@@ -30,6 +30,7 @@ type MfLogAnalyzerApi = {
   popout: (route: string) => Promise<boolean>;
   setSessionSnapshot?: (snapshot: SessionSnapshot) => Promise<void> | void;
   getSessionSnapshot?: () => Promise<SessionSnapshot | null> | SessionSnapshot | null;
+  onOpenCsvMenu?: (handler: () => void) => () => void;
 };
 
 declare global {
@@ -51,12 +52,16 @@ type SessionState = {
   sourceCsv: SourceCsv | null;
   session: AnalysisSession | null;
   currentTimeSec: number | null;
+  isPlaybackPlaying: boolean;
+  playbackSpeed: number;
   selectedEventId: string | null;
   selectedOverlay: OverlayPreset | null;
   setSelectedProfileId: (profileId: string) => void;
-  openCsv: () => Promise<void>;
+  openCsv: (sourceCsv?: CsvOpenResult) => Promise<void>;
   addManualSegment: (name: string, startSec: number, endSec: number) => void;
   setCurrentTimeSec: (currentTimeSec: number | null) => void;
+  setPlaybackPlaying: (isPlaybackPlaying: boolean) => void;
+  setPlaybackSpeed: (playbackSpeed: number) => void;
   setSelectedEventId: (selectedEventId: string | null) => void;
   setSelectedOverlay: (overlay: OverlayPreset | null) => void;
   updateProfile: (profile: VehicleProfile) => void;
@@ -95,7 +100,7 @@ function manualSegments(segments: Segment[]): Segment[] {
 function createSession(sourceCsv: SourceCsv, profile: VehicleProfile, preservedManualSegments: Segment[] = []): AnalysisSession {
   const parsed = parseCsv(sourceCsv.text);
   const log = applyProfile(fileNameFromPath(sourceCsv.filePath), parsed, profile);
-  const diagnostics = runDiagnostics(log, profile);
+  const diagnostics = [...csvImportDiagnostics(parsed.warnings), ...runDiagnostics(log, profile)];
   const events = detectEvents(log, profile);
 
   return {
@@ -106,6 +111,20 @@ function createSession(sourceCsv: SourceCsv, profile: VehicleProfile, preservedM
     events,
     segments: [...segmentsFromEvents(events), ...preservedManualSegments]
   };
+}
+
+function csvImportDiagnostics(warnings: CsvImportWarning[]): DiagnosticFinding[] {
+  return warnings.map((warning) => {
+    const row = warning.row ?? "unknown";
+
+    return {
+      id: `csv-import-warning-${row}-${warning.code}`,
+      severity: "warning",
+      title: "Skipped malformed CSV row",
+      detail: `Row ${row} was skipped: ${warning.message}`,
+      affectedChannelIds: ["CSV"]
+    };
+  });
 }
 
 function sanitizeSelectedEventId(session: AnalysisSession | null, selectedEventId: string | null): string | null {
@@ -157,6 +176,8 @@ export const useSessionStore = create<SessionState>((set, get) => {
     sourceCsv: null,
     session: null,
     currentTimeSec: null,
+    isPlaybackPlaying: false,
+    playbackSpeed: 1,
     selectedEventId: null,
     selectedOverlay: overlayForProfile(initialProfile),
     setSelectedProfileId: (profileId) => {
@@ -169,13 +190,14 @@ export const useSessionStore = create<SessionState>((set, get) => {
         selectedProfileId: profile.id,
         session: nextSession,
         currentTimeSec: nextCurrentTimeSec,
+        isPlaybackPlaying: false,
         selectedEventId: sanitizeSelectedEventId(nextSession, selectedEventId),
         selectedOverlay: overlayForProfile(profile, selectedOverlay?.id)
       });
       void publishSessionSnapshot();
     },
-    openCsv: async () => {
-      const result = await window.mfLogAnalyzer?.openCsv();
+    openCsv: async (sourceCsv) => {
+      const result = sourceCsv ?? (await window.mfLogAnalyzer?.openCsv());
       if (!result) return;
 
       const { profiles, selectedProfileId } = get();
@@ -186,6 +208,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
         sourceCsv: result,
         session,
         currentTimeSec: firstTimestampSec(session),
+        isPlaybackPlaying: false,
         selectedEventId: null,
         selectedOverlay: overlayForProfile(profile, get().selectedOverlay?.id)
       });
@@ -206,7 +229,12 @@ export const useSessionStore = create<SessionState>((set, get) => {
     setCurrentTimeSec: (currentTimeSec) => {
       set({ currentTimeSec });
       publishSelectionSync();
-      void publishSessionSnapshot();
+    },
+    setPlaybackPlaying: (isPlaybackPlaying) => {
+      set({ isPlaybackPlaying });
+    },
+    setPlaybackSpeed: (playbackSpeed) => {
+      set({ playbackSpeed });
     },
     setSelectedEventId: (selectedEventId) => {
       set({ selectedEventId });

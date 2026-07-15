@@ -8,7 +8,9 @@ import { TimeSeriesView } from "../../src/ui/TimeSeriesView";
 
 const plotCalls: Array<ComponentProps<"div"> & { data?: unknown; layout?: unknown; config?: unknown }> = [];
 
-vi.mock("plotly.js-dist-min", () => ({ default: {} }));
+vi.mock("plotly.js/lib/core", () => ({ default: { register: vi.fn() } }));
+vi.mock("plotly.js/lib/scatter", () => ({ default: {} }));
+vi.mock("plotly.js/lib/scattergl", () => ({ default: {} }));
 
 vi.mock("react-plotly.js/factory", () => ({
   default: () => (props: ComponentProps<"div"> & { data?: unknown; layout?: unknown; config?: unknown }) => {
@@ -77,12 +79,40 @@ describe("TimeSeriesView", () => {
     expect(traces[2].y).toEqual([70, null, 90]);
   });
 
+  it("limits plotted samples for large logs while preserving endpoints", () => {
+    const session = createSession();
+    const rowCount = 12_050;
+    session.log.rows = Array.from({ length: rowCount }, (_, index) => ({
+      index,
+      timestampSec: index * 0.01,
+      values: {
+        EOT_IN: 80 + Math.sin(index / 12) * 8,
+        EOT_OUT: 75 + Math.cos(index / 11) * 7,
+        CLT_C: 70 + Math.sin(index / 18) * 5,
+        TPS_percent: index % 100,
+        ay_corrected_g: Math.sin(index / 20)
+      }
+    }));
+    resetStore(session);
+
+    render(<TimeSeriesView />);
+
+    const traces = plotCalls.at(-1)?.data as Array<{ x: number[]; type: string }>;
+    expect(traces[0].x.length).toBeLessThan(rowCount);
+    expect(traces[0].x.length).toBeLessThanOrEqual(6000);
+    expect(traces[0].x[0]).toBe(0);
+    expect(traces[0].x.at(-1)).toBeCloseTo((rowCount - 1) * 0.01);
+    expect(traces[0].type).toBe("scattergl");
+  });
+
   it("assigns separate y axes and layout definitions for separateAxes overlays", () => {
+    useSessionStore.getState().setCurrentTimeSec(1);
     render(<TimeSeriesView />);
 
     const traces = plotCalls.at(-1)?.data as Array<{ yaxis: string }>;
     const layout = plotCalls.at(-1)?.layout as Record<string, { title?: { text: string }; side?: string; overlaying?: string; position?: number }> & {
       xaxis: { domain?: [number, number] };
+      shapes?: Array<{ type: string; x0: number; x1: number; yref: string }>;
     };
 
     expect(traces.map((trace) => trace.yaxis)).toEqual(["y", "y2", "y3"]);
@@ -94,6 +124,23 @@ describe("TimeSeriesView", () => {
     expect(layout.xaxis.domain).toBeDefined();
     expect(layout.yaxis2.position).toBe(layout.xaxis.domain?.[1]);
     expect(layout.yaxis3.position).toBeLessThan(layout.xaxis.domain?.[0] ?? 0);
+    expect(layout.shapes?.[0]).toMatchObject({ type: "line", x0: 1, x1: 1, yref: "paper" });
+  });
+
+  it("forces Plotly to redraw the playback cursor when the shared time changes", () => {
+    useSessionStore.getState().setCurrentTimeSec(0);
+    render(<TimeSeriesView />);
+
+    act(() => {
+      useSessionStore.getState().setCurrentTimeSec(1.5);
+    });
+
+    const latestPlot = plotCalls.at(-1) as
+      | (ComponentProps<"div"> & { layout?: { shapes?: Array<{ x0: number; x1: number }> }; revision?: number })
+      | undefined;
+
+    expect(latestPlot?.revision).toBe(1.5);
+    expect(latestPlot?.layout?.shapes?.[0]).toMatchObject({ x0: 1.5, x1: 1.5 });
   });
 
   it("normalizes normalized overlays to a 0-100 scale", () => {

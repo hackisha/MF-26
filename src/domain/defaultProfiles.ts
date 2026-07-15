@@ -137,6 +137,9 @@ const createBaseChannels = (): Record<string, SensorChannel> => ({
 
 const createProfile2026Channels = (): Record<string, SensorChannel> => ({
   ...createBaseChannels(),
+  ax_corrected_g: channel("ax_corrected_g", "ADU Accel X", ["ADU_ax_g"], "g", "IMU", "#7c3aed"),
+  ay_corrected_g: channel("ay_corrected_g", "ADU Accel Y", ["ADU_ay_g"], "g", "IMU", "#db2777"),
+  az_corrected_g: channel("az_corrected_g", "ADU Accel Z", ["ADU_az_g"], "g", "IMU", "#4f46e5", false),
   Susp_FL_mm: channel("Susp_FL_mm", "Suspension Front Left", ["Susp_FL_mm"], "mm", "Suspension", "#0d9488"),
   Susp_FR_mm: channel("Susp_FR_mm", "Suspension Front Right", ["Susp_FR_mm"], "mm", "Suspension", "#14b8a6"),
   Susp_RL_mm: channel("Susp_RL_mm", "Suspension Rear Left", ["Susp_RL_mm"], "mm", "Suspension", "#2dd4bf"),
